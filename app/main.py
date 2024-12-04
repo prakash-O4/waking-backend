@@ -185,6 +185,6 @@ async def ask_question(input: QuestionInput,authorization: str = Header(None)):
             logger.error(f"Error in /ask endpoint: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}

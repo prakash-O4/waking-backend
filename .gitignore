@@ -4,3 +4,4 @@
 .env
 tests
 
+build_push.sh

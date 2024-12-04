@@ -1,6 +1,5 @@
-from typing import Optional, Dict, List, Tuple
+from typing import  Dict, List
 import jwt
-from datetime import datetime
 from supabase import create_client, Client
 from fastapi import HTTPException, Header
 import os
