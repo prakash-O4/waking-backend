@@ -1,5 +1,6 @@
 from typing import  Dict, List
 import jwt
+from datetime import datetime,timezone    
 from supabase import create_client, Client
 from fastapi import HTTPException, Header
 import os
@@ -57,8 +58,57 @@ class SupabaseHelper:
 
         except Exception as e:
             raise HTTPException(
-                status_code=500,
+                status_code=404,
                 detail=f"Error fetching user details: {str(e)}"
+            )
+
+    def check_daily_quota(self, user_id: str) -> bool:
+        """
+        Check if user has exceeded the daily quota of 20 answers.
+        """
+        try:
+            # Fetch the user's config
+            response = self.supabase.table('config') \
+                .select('*') \
+                .eq('user_id', user_id) \
+                .limit(1) \
+                .execute()
+
+            if response.data:
+                # Extract daily_limit and last_updated_at
+                daily_limit = response.data[0]['daily_limit']
+                last_updated_at = response.data[0]['last_updated_at']
+                
+                # Parse last_updated_at as a datetime object
+                last_updated_date = datetime.strptime(last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z")
+
+                # Get the current date in UTC
+                current_date = datetime.now(timezone.utc)
+
+                # Check if last_updated_at is not today
+                if last_updated_date.date() != current_date.date():
+                    # Reset daily_limit if the day has changed
+                    self.supabase.table('config') \
+                        .update({
+                            'daily_limit': 0,
+                            'last_updated_at': current_date.isoformat()
+                        }) \
+                        .eq('user_id', user_id) \
+                        .execute()
+                    daily_limit = 0  # Reset for further checks
+
+                # Check if daily_limit exceeds or equals 20
+                if daily_limit >= 20:
+                    return True  # User has exceeded their daily quota
+                else:
+                    return False  # User can proceed
+            else:
+                return False
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error checking daily quota: {str(e)}"
             )
 
     def get_user_chat_history(self, user_id: str, limit: int = 5) -> List[Dict]:
@@ -82,6 +132,6 @@ class SupabaseHelper:
 
         except Exception as e:
             raise HTTPException(
-                status_code=500,
+                status_code=404,
                 detail=f"Error fetching chat history: {str(e)}"
             )
