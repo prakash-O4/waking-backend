@@ -110,22 +110,63 @@ class SupabaseHelper:
                 status_code=500,
                 detail=f"Error checking daily quota: {str(e)}"
             )
+        
+    def transform_qa_data(self,json_data):
+        # Parse JSON if input is a string
+        data = json_data
+            
+        # Sort data by sent_at to maintain chronological order
+        sorted_data = sorted(data, key=lambda x: x['sent_at'])
+        
+        # Initialize variables
+        result = []
+        current_question = None
+        current_answer = None
+        current_id = None
+        
+        for item in sorted_data:
+            if item['sender_name'] != 'bot':
+                # If we have a previous Q&A pair, add it to results
+                if current_question is not None and current_answer is not None:
+                    result.append({
+                        'id': current_id,
+                        'question': current_question,
+                        'answer': current_answer
+                    })
+                # Start new Q&A pair
+                current_question = item['content']
+                current_answer = None
+                current_id = item.get('question_id')
+            else:
+                # This is an answer
+                if current_question is not None:
+                    current_answer = item['content']
+        
+        # Add the last Q&A pair if it exists
+        if current_question is not None and current_answer is not None:
+            result.append({
+                'id': current_id,
+                'question': current_question,
+                'answer': current_answer
+            })
+        
+        return result
+    
 
-    def get_user_chat_history(self, user_id: str, limit: int = 5) -> List[Dict]:
+    def get_user_chat_history(self, user_id: str, limit: int = 10) -> List[Dict]:
         """
         Fetch user's chat history from Supabase
         """
+                        #   .neq('source', None) \
         try:
             response = self.supabase.table('chat') \
                           .select("*") \
                           .eq('sender_id', user_id) \
-                          .neq('source', None) \
                           .order('sent_at', desc=True) \
                           .limit(limit) \
                           .execute()
-
             # Extract the 'content' from each entry in response.data
-            content_list = [item['content'] for item in response.data] if response.data else []
+            content_list = self.transform_qa_data(response.data)
 
             return content_list
 
