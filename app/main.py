@@ -247,10 +247,10 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
         
         if retrieved_docs:
             context = " ".join([doc.page_content for doc in retrieved_docs])
-            source = retrieved_docs[0].metadata
+            source = [doc.metadata for doc in retrieved_docs]
         else:
             context = "No relevant information found"
-            source = "Unknown"
+            source = []
 
         # Prepare chat history
         
@@ -276,7 +276,7 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
             if token_buffer.buffer:
                 yield format_sse("data", token_buffer.buffer)
             
-            yield format_sse("end", json.dumps({"end": True, "source": source}))
+            yield format_sse("end", json.dumps({"end": True, "sources": source}))
 
 
         return StreamingResponse(generate_sse(), media_type="text/event-stream")
