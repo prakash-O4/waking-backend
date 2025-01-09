@@ -55,38 +55,51 @@ embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
 def create_advanced_retriever(base_retriever):
     def decompose_query(query: str, chat_history: List[dict]) -> List[str]:
         """
-        Decompose complex queries into sub-queries using both current question and chat history.
+        Decompose complex queries into sub-queries using both the current question and chat history.
+        Ensure sources are empty for queries outside the legal domain.
 
         :param query: The current user query.
         :param chat_history: List of messages representing the chat history.
-        :return: A list of decomposed sub-queries.
+        :return: A list of decomposed sub-queries or an empty list if the query is outside the legal domain.
         """
-        llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")  
+        llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
 
         # Combine chat history and current query into a formatted input
         conversation_context = "\n".join(
             [f"Human: {entry['question']}\nAI: {entry['answer']}" for entry in chat_history]
         )
         decomposition_prompt = f"""
-        Use the following conversation history to understand the context and decompose the current query into specific sub-queries:
+        Your task is to determine whether the user's query is within the legal domain and, if so, decompose it into specific, actionable sub-queries (maximum 3). If the query is outside the legal domain, respond only with "OUTSIDE_DOMAIN" and do not provide sub-queries.
 
-        Conversation History:
+        **Instructions:**
+        - A query is considered within the legal domain if it relates to laws, regulations, legal cases, rights, or legal procedures.
+        - Use the conversation history below to understand the context of the current query.
+        - If the query is ambiguous or overlaps with multiple domains, determine whether it has a clear legal component.
+        - For queries outside the legal domain, avoid decomposition and only return "OUTSIDE_DOMAIN".
+
+        **Format of Output:**
+        - If the query is within the legal domain, list up to 3 clear and concise sub-queries.
+        - If the query is outside the legal domain, return "OUTSIDE_DOMAIN" without additional text.
+
+        **Conversation History:**
         {conversation_context}
 
-        Current Query:
+        **Current Query:**
         {query}
-
-        Decomposed Sub-Queries (maximum 3):
         """
         
         try:
-            decomposed_queries = llm.invoke(decomposition_prompt).content.split('\n')
-            # Ensure we get exactly 3 or fewer queries, removing any empty lines
-            decomposed_queries = [q.strip() for q in decomposed_queries if q.strip()][:3]
-            return decomposed_queries
+            response = llm.invoke(decomposition_prompt).content.strip()
+            if response == "OUTSIDE_DOMAIN":
+                # If the query is outside the domain, return an empty list to signify no sources
+                return []
+            else:
+                # Ensure we get exactly 3 or fewer queries, removing any empty lines
+                decomposed_queries = [q.strip() for q in response.split('\n') if q.strip()][:3]
+                return decomposed_queries
         except Exception as e:
             logger.warning(f"Query decomposition failed: {e}")
-            return [query]  # Fallback to original query
+            return [query]
 
     class AdvancedLegalRAGRetriever:
         def __init__(self, retriever):
@@ -96,6 +109,8 @@ def create_advanced_retriever(base_retriever):
             # Step 1: Query Decomposition
             decomposed_queries = decompose_query(query,chat_history)
             
+            if(len(decomposed_queries) == 0):
+                return []
             # Step 2: Retrieve documents
             all_docs = []
             unique_docs = set()
@@ -255,11 +270,8 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
             context = " ".join([doc.page_content for doc in retrieved_docs])
             source = [doc.metadata for doc in retrieved_docs]
         else:
-            context = "No relevant information found"
+            context = "No relevant information found, question may be outside the legal domain."
             source = []
-
-        # Prepare chat history
-        
 
         # Prepare the prompt
         prompt = qa_prompt.format(context=context, question=input.question, chat_history=chat_history)
