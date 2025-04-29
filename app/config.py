@@ -1,0 +1,76 @@
+# config.py
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+import secrets
+import base64
+import os
+
+def generate_api_key(length: int = 32) -> str:
+    """
+    Generates a secure API key using cryptographically strong random bytes.
+    Returns a URL-safe base64-encoded string.
+    """
+    random_bytes = secrets.token_bytes(length)
+    return base64.urlsafe_b64encode(random_bytes).decode('utf-8').rstrip('=')
+
+def generate_api_secret(length: int = 64) -> str:
+    """
+    Generates a secure API secret using cryptographically strong random bytes.
+    Returns a hex string.
+    """
+    return secrets.token_hex(length)
+
+class Settings(BaseSettings):
+    DATABASE_URL: str = "sqlite:///./sports_api.db"
+    API_KEY: str = ""
+    API_SECRET: str = ""
+    LOG_LEVEL: str = "INFO"
+    
+    class Config:
+        env_file = ".env"
+
+def initialize_keys():
+    """
+    Initializes API keys if they don't exist in the .env file.
+    Returns a tuple of (api_key, api_secret).
+    """
+    env_path = '.env'
+    
+    # Read existing environment variables
+    env_vars = {}
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    env_vars[key] = value
+
+    # Generate new keys if they don't exist
+    api_key = env_vars.get('API_KEY', '')
+    api_secret = env_vars.get('API_SECRET', '')
+    
+    updated = False
+    
+    if not api_key:
+        api_key = generate_api_key()
+        env_vars['API_KEY'] = api_key
+        updated = True
+        
+    if not api_secret:
+        api_secret = generate_api_secret()
+        env_vars['API_SECRET'] = api_secret
+        updated = True
+
+    # Write back to .env if updates were made
+    if updated:
+        with open(env_path, 'w') as f:
+            for key, value in env_vars.items():
+                f.write(f"{key}={value}\n")
+    
+    return api_key, api_secret
+
+@lru_cache()
+def get_settings():
+    # Initialize keys before creating settings
+    initialize_keys()
+    return Settings()
