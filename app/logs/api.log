@@ -1,0 +1,653 @@
+2025-02-17 23:31:40 | INFO | Fetching games for category: live
+2025-02-17 23:31:41 | INFO | Created new game: persepolis-vs-al-nassr-fc-2141620 in category: live
+2025-02-17 23:31:41 | INFO | Created new game: delhi-capitals-w-vs-royal-challengers-bangalore-w in category: live
+2025-02-17 23:31:41 | INFO | Successfully updated games for live
+2025-02-17 23:31:41 | INFO | Fetching games for category: football
+2025-02-17 23:31:41 | INFO | Created new game: persepolis-vs-al-nassr-fc-2141620 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: barcelona-vs-vallecano-2070470 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: ac-milan-vs-feyenoord-2213864 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: bayern-munich-vs-celtic-2213867 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: valencia-vs-atletico-madrid-202502222330 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: las-palmas-vs-barcelona-202502222330 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: real-madrid-vs-girona-202502222330 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: stade-briochin-vs-paris-saint-germain-202502261940 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: barcelona-vs-real-sociedad-202503012330 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: eintracht-frankfurt-vs-bayer-leverkusen-202502282330 in category: football
+2025-02-17 23:31:41 | INFO | Created new game: manchester-city-vs-plymouth-202503011430 in category: football
+2025-02-17 23:31:41 | ERROR | Error in upsert_games for category football: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: [('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}'), ('barcelona-vs-vallecano-2070470', 'Barcelona vs Vallecano', 'football', 1739822400000, 1, '[{"source": "alpha", "id": "barcelona-vs-rayo-vallecano"}, {"source": "charlie", "id": "fc-barcelona-vs-rayo-vallecano-19135481"}, {"source": "echo", "id": "barcelona-rayo-vallecano-23011"}, {"source": "foxtrot", "id": "barcelona-vs-rayo-vallecano-202502152330"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzNCH7tgYaSFolNILEZQhDexIeohF+YEgpYRcxijCqUPD+UbU5Xvb0YB7iYhBAA.webp', '{"home": {"name": "Barcelona", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSUw5eIFAk40Q6gCYhEKEBBAwQ ... (63 characters truncated) ...  "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSS6EkoMCRAoQEELxAATEFtPaTuoyYIV8AlD03lGCsQ7v0wm8WIhA"}}'), ('ac-milan-vs-feyenoord-2213864', 'AC Milan vs Feyenoord', 'football', 1739900700000, 1, '[{"source": "echo", "id": "ac-milan-feyenoord-24265"}, {"source": "foxtrot", "id": "ac-milan-vs-feyenoord-202502181715"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzKuF4h+SMLqTaQWEIhAhpRk4eomWumAJFzGKMKpQ835RtTkf8rMBgbuJiEEA.webp', '{"home": {"name": "AC Milan", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSUw4AJuThlqIXiAj6QRozBBqzu ... (61 characters truncated) ...  "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSUxkoZWlBAheICCCwhEJI3u0gYRghXwCUPMGXhEFY+7fphH4sRCA"}}'), ('bayern-munich-vs-celtic-2213867', 'Bayern Munich vs Celtic', 'football', 1739908800000, 1, '[{"source": "echo", "id": "bayern-munich-celtic-24267"}, {"source": "foxtrot", "id": "bayern-munich-vs-celtic-202502181930"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdiGAAGcf0QkQvEFhCIQIacdOGQ1CyyQUsIuYxRhVKHh-KNqcr3xWYDAPcTEIIA.webp', '{"home": {"name": "Bayern Munich", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgYIfu0EAGUBpBZ9AEx ... (65 characters truncated) ...  "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSnkcZMhBC8QWrVhAkQKEAa2IAJgQr4BKHmDLwiCsfdv0wj8WIhA"}}'), ('valencia-vs-atletico-madrid-202502222330', 'Valencia vs Atletico Madrid', 'football', 1740245400000, 1, '[{"source": "foxtrot", "id": "valencia-vs-atletico-madrid-202502222330"}]', None, '{"home": {"name": "Valencia", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciETMSsbowKKwfeOPkEeNMA ... (27 characters truncated) ...  "Atletico Madrid", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciEQwSsbowKKwfeOPkEeNMAeBzKEIA"}}'), ('las-palmas-vs-barcelona-202502222330', 'Las Palmas vs Barcelona', 'football', 1740254400000, 1, '[{"source": "foxtrot", "id": "las-palmas-vs-barcelona-202502222330"}]', None, '{"home": {"name": "Las Palmas", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciEQQSsbowKKwfeOPkEeN ... (24 characters truncated) ... ame": "Barcelona", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciGYgUJWN0YFFYPvHHyCPGmEPA5lCEA"}}'), ('real-madrid-vs-girona-202502222330', 'Real Madrid vs Girona', 'football', 1740323700000, 1, '[{"source": "foxtrot", "id": "real-madrid-vs-girona-202502222330"}]', None, '{"home": {"name": "Real Madrid", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciAggcJWN0YFFYPvHHyC ... (23 characters truncated) ... {"name": "Girona", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciAghOpGN0YFFYPvHHyCPGmEPA5lCEA"}}'), ('stade-briochin-vs-paris-saint-germain-202502261940', 'Stade Briochin vs Paris Saint Germain', 'football', 1740600600000, 1, '[{"source": "foxtrot", "id": "stade-briochin-vs-paris-saint-germain-202502261940"}]', None, '{"home": {"name": "Stade Briochin", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IRMxDqUJWN0YFFYPvH ... (36 characters truncated) ... Paris Saint Germain", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IVeRKxujAorB944+QR40we4HMoQgA"}}')  ... displaying 10 of 11 total bound parameter sets ...  ('eintracht-frankfurt-vs-bayer-leverkusen-202502282330', 'Eintracht Frankfurt vs Bayer Leverkusen', 'football', 1740850200000, 1, '[{"source": "foxtrot", "id": "eintracht-frankfurt-vs-bayer-leverkusen-202502282330"}]', None, '{"home": {"name": "Eintracht Frankfurt", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IHCCEgUJWN0YF ... (41 characters truncated) ... Bayer Leverkusen", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IHCCEgQJWN0YFFYPvHHyCPGmEPA5lCEA"}}'), ('manchester-city-vs-plymouth-202503011430', 'Manchester City vs Plymouth', 'football', 1740851100000, 1, '[{"source": "foxtrot", "id": "manchester-city-vs-plymouth-202503011430"}]', None, '{"home": {"name": "Manchester City", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IciBglY3RgUVg+8cf ... (28 characters truncated) ... ame": "Plymouth", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IHCETkQnUjG6MCisH3jj5BHjTBHgcyhCA"}}')]]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-02-17 23:31:41 | ERROR | Failed to update games for football
+2025-02-17 23:31:41 | INFO | Fetching games for category: basketball
+2025-02-17 23:31:42 | INFO | Created new game: espn-first-take in category: basketball
+2025-02-17 23:31:42 | INFO | Created new game: nba-tv in category: basketball
+2025-02-17 23:31:42 | INFO | Created new game: admin-los-angeles-lakers-vs-charlotte-hornets in category: basketball
+2025-02-17 23:31:42 | INFO | Successfully updated games for basketball
+2025-02-17 23:31:42 | INFO | Fetching games for category: american-football
+2025-02-17 23:31:42 | INFO | Created new game: nfl-network in category: american-football
+2025-02-17 23:31:42 | INFO | Created new game: espn in category: american-football
+2025-02-17 23:31:42 | INFO | Successfully updated games for american-football
+2025-02-17 23:31:42 | INFO | Fetching games for category: hockey
+2025-02-17 23:31:42 | INFO | Created new game: nhl-network in category: hockey
+2025-02-17 23:31:42 | INFO | Created new game: canada-vs-finland in category: hockey
+2025-02-17 23:31:42 | INFO | Created new game: sweden-vs-usa in category: hockey
+2025-02-17 23:31:42 | INFO | Successfully updated games for hockey
+2025-02-17 23:31:42 | INFO | Fetching games for category: fight
+2025-02-17 23:31:43 | INFO | Created new game: wwe-network in category: fight
+2025-02-17 23:31:43 | INFO | Created new game: ufc-events-ufc-mma-ufc-ppv in category: fight
+2025-02-17 23:31:43 | INFO | Created new game: monday-night-raw in category: fight
+2025-02-17 23:31:43 | INFO | Created new game: wwe-raw-talk in category: fight
+2025-02-17 23:31:43 | INFO | Successfully updated games for fight
+2025-02-17 23:31:43 | INFO | Fetching games for category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-doha-alexei-popyrin-vs-jack-draper in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hacken-vs-oster in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sirius-vs-helsingborg-2185203 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-unlv-vs-indiana in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-kolin-frydek-mistek in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-slovan-liberec-hc-ocelari-trinec in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-karagumruk-sanliurfaspor in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-hapoel-akko-hapoel-umm-al-fahm in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-modern-sport-pyramids in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-al-ittihad-el-gouna in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811600000-9-ohio-state-w-iowa-w- in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sakaryaspor-vs-ankaragucu-2126640 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rizespor-vs-galatasaray-2108433 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hapoel-afula-vs-hapoel-ramat-hasharon-2087603 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bnei-yehuda-vs-hapoel-petah-tikva-2087602 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: orlando-solar-bears-vs-atlanta-gladiators-2169636 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739811300000-atp-doha-center-court-popyrin-draper in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wta-dubai-elina-avanesyan-vs-mirra-andreeva in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739809800000-gdansk-barkom in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cska-moscow-vs-sochi in category: all
+2025-02-17 23:31:44 | INFO | Created new game: radomlje-vs-domzale-2086477 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: spartak-moscow-vs-dynamo-moscow-2147740 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cska-moscow-vs-hc-sochi-2147739 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739808000000-wta-dubai-center-court-avanesyan-andreeva in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739808000000-al-shorta-al-ain in category: all
+2025-02-17 23:31:44 | INFO | Created new game: vityaz-balashikha-vs-dinamo-minsk in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cherepovets-vs-ska-st-petersburg in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-shorta-vs-al-ain in category: all
+2025-02-17 23:31:44 | INFO | Created new game: persepolis-vs-al-nassr-fc-2141620 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: -elezni-ar-pan-evo-vs-vojvodina-2077845 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-doha-carlos-alcaraz-vs-marin-cilic in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dc-vs-rcb-1629425850 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: delhi-capitals-w-vs-royal-challengers-bangalore-w in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739797200000-players-championship-3-board-3 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739797200000-players-championship-3-board-2 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 1739797200000-players-championship-3-board-1 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dubai-open-day-2-1629425849 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: linense-vs-xerez-deportivo-2219855 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fidelis-andria-vs-a-c-d--nard--2219831 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fbc-gravina-vs-nocerina-2219830 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nkana-vs-green-eagles-2219829 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: budapesti-vsc-vs-cs-kv-r-2219828 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: eibar-b-vs-deportivo-arag-n-2219827 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: la-uni-n-atl-tico-vs-almeria-b-2219824 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sky-sports-darts in category: all
+2025-02-17 23:31:44 | INFO | Created new game: darts-tv-all-darts-championship in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sky-sports-golf in category: all
+2025-02-17 23:31:44 | INFO | Created new game: pga-tour-2025 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nbc-golf-channel in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fox-nrl-tv in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wwe-network in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ufc-events-ufc-mma-ufc-ppv in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mlb-network in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nhl-network in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nfl-network in category: all
+2025-02-17 23:31:44 | INFO | Created new game: espn in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sky-sports-news-ssn-breaking-sports-news in category: all
+2025-02-17 23:31:44 | INFO | Created new game: espn-first-take in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nba-tv in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atlanta-drive-gc-vs-los-angeles-golf-club in category: all
+2025-02-17 23:31:44 | INFO | Created new game: canada-vs-finland in category: all
+2025-02-17 23:31:44 | INFO | Created new game: randers-fc-vs-f-c-kobenhavn in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-ahli-vs-al-gharafa in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zaglebie-vs-lechia-gdansk in category: all
+2025-02-17 23:31:44 | INFO | Created new game: leiria-vs-academico-viseu in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-ahli-saudi-fc-vs-al-gharafa-2141621 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: uni-o-de-leiria-vs-academico-viseu-2100933 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rapid-bucuresti-vs-fc-boto-ani-2086046 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: pogo--siedlce-vs-ruch-chorzow-2068728 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: randers-fc-vs-fc-copenhagen-2060678 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zaglebie-lubin-vs-lechia-gda-sk-2058499 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: finland-ice-hockey-vs-canada-ice-hockey-2218749 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rodovre-mighty-bulls-vs-esbjerg-2090362 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: aalborg-vs-sonderjyske-ishockey-2090361 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nybro-vikings-vs-vimmerby-2154762 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: djurg-rdens-if-vs-mora-ik-2154761 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: charlottetown-islanders-vs-acadie-bathurst-titan-2055756 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: halifax-mooseheads-vs-moncton-wildcats-2055755 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: if-hallby-vs-eskilstuna-guif-2129688 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tpsg-frisch-auf-g-ppingen-vs-thsv-eisenach-2117124 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: maccabi-haifa-vs-hapoel-jerusalem-2078044 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: manchester-united-u21-vs-fulham-u21 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: patriotas-boyac--vs-barranquilla-fc-2205121 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kazincbarcika-vs-vasas-2103936 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: jong-utrecht-vs-vvv-venlo-2071454 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: jong-az-vs-jong-psv-2071453 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: toronto-marlies-vs-laval-rocket-2184764 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: saint-john-sea-dogs-vs-cape-breton-eagles-2055757 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rio-de-janeiro-day-1-match-123-1629425852 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-maximo-gonzalez-andres-molteni-vs-sander-arends-luke-johnson in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-alexander-shevchenko-vs-felipe-meligeni-alves in category: all
+2025-02-17 23:31:44 | INFO | Created new game: virtus-verona-vs-caldiero-terme-2114937 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: lucchese-vs-perugia-2114558 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: pescara-vs-ascoli-2114555 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: almeria-vs-elche-2080158 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cergy-pontoise-vs-gothiques-2060318 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: spr-chrobry-g-og-w-vs-wybrze-e-gda-sk-2117593 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: city-of-liverpool-vs-mossley-2123859 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hemel-hempstead-town-fc-vs-st-albans-city-2106837 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: genoa-vs-venezia-2091558 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: annecy-vs-caen-2073103 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: chubb-classic-final-round-1629425853 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: america-s-day-at-the-races in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tgl-studio in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gimnasia-la-plata-vs-san-martin-san-juan in category: all
+2025-02-17 23:31:44 | INFO | Created new game: maryland-eastern-shore-vs-howard in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atl-tico-cali-vs-bogot--fc-2205120 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ayacucho-vs-alianza-universidad-2204398 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gimnasia-y-esgrima-de-la-plata-vs-san-mart-n-de-san-juan-2202710 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sarmiento-vs-deportivo-riestra-2202709 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: defensores-de-belgrano-vs-agropecuario-2190793 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: leeds-vs-sunderland-2081888 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: barcelona-vs-vallecano-2070470 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: manitoba-moose-vs-milwaukee-admirals-2184767 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: belleville-senators-vs-utica-comets-2184765 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: moose-jaw-warriors-vs-prince-albert-raiders-2168413 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: howard-vs-maryland-eastern-shore-2189905 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gil-vicente-vs-famalicao-2101237 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-juanmanuel-cerundolo-vs-nicolas-jarry in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atlanta-drive-gc-vs-the-bay-golf-club in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-gustavo-heide-vs-francisco-comesana in category: all
+2025-02-17 23:31:44 | INFO | Created new game: universidad-cat-lica-vs-audax-italiano-2208090 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: envigado-vs-deportivo-pasto-2204953 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: medicine-hat-tigers-vs-lethbridge-hurricanes-2168415 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: red-deer-rebels-vs-edmonton-oil-kings-2168414 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: greenville-swamp-rabbits-vs-wheeling-nailers-2169478 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wellington-firebirds-vs-auckland-aces in category: all
+2025-02-17 23:31:44 | INFO | Created new game: northern-districts-knights-vs-canterbury-kings in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-stags-vs-otago-volts in category: all
+2025-02-17 23:31:44 | INFO | Created new game: calgary-wranglers-vs-ontario-reign-2184766 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-sadio-doumbia-fabien-reboul-vs-santiago-gonzalez-lucas-miedler in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-facundodiaz-acosta-vs-thiago-monteiro in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mount-pleasant-fa-vs-humble-lions-2157251 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: abbotsford-canucks-vs-colorado-eagles-2184768 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: vancouver-giants-vs-prince-george-cougars-2168418 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: saskatoon-blades-vs-brandon-wheat-kings-2168417 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kamloops-blazers-vs-spokane-chiefs-2168416 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: birmingham-bulls-vs-huntsville-havoc-2168776 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kelowna-rockets-vs-tri-city-americans-2168419 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: utah-grizzlies-vs-idaho-steelheads-2169479 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: platense-vs-independiente-2202711 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-tseng-chun-hsin-vs-alejandro-tabilo in category: all
+2025-02-17 23:31:44 | INFO | Created new game: novorizontino-vs-mirassol in category: all
+2025-02-17 23:31:44 | INFO | Created new game: leones-fc-vs-real-cartagena-2205124 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: anzo-tegui-vs-metropolitanos-2204830 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: col-n-vs-nueva-chicago-2190786 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: swift-current-broncos-vs-calgary-hitmen-2168421 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: portland-winterhawks-vs-seattle-thunderbirds-2168420 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: victoria-royals-vs-everett-silvertips-2168422 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atp-rio-de-janeiro-jaume-munar-vs-thiago-seyboth-wild in category: all
+2025-02-17 23:31:44 | INFO | Created new game: uni-n-la-calera-vs-uni-n-espa-ola-2208091 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: jupiter-links-golf-club-vs-new-york-golf-club-1629425856 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: iu-indianapolis-vs-detroit-mercy-1629425857 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: evansville-vs-indiana-state-1629425858 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: south-australia-vs-tasmania in category: all
+2025-02-17 23:31:44 | INFO | Created new game: the-bay-golf-club-vs-boston-common-golf in category: all
+2025-02-17 23:31:44 | INFO | Created new game: laliga-complete-highlights-show in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mcneese-vs-southeastern-louisiana in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ural-s-r-vs-lokomotiv-moscow-2214283 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sv-deportivo-nacional-vs-sv-racing-club-aruba-2209985 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mushuc-runa-vs-delf-n-2206321 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 2025-winter-fes---west--2219808 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: players-championship-4-2201918 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: uae-tour-stage-2-2201744 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: murray-state-vs-northern-iowa-2188294 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: southeastern-louisiana-vs-mcneese-state-2189895 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: florida-a-and-m-vs-alcorn-state-2189896 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bethune-cookman-vs-jackson-state-2189897 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mississippi-valley-state-vs-alabama-state-2189894 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bucknell-vs-lehigh-2189898 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: arkansas-pine-bluff-vs-alabama-a-and-m-2189893 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: instituto-vs-san-lorenzo-2202713 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: v-lez-sarsfield-vs-godoy-cruz-2202712 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: northwestern-state-vs-lamar-2189899 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: south-carolina-state-vs-coppin-state-2189900 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: new-orleans-vs-nicholls-state-2189903 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: north-carolina-central-vs-morgan-state-2189904 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: utrgv-vs-incarnate-word-2189901 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: grambling-state-vs-prairie-view-a-and-m-2189892 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: montego-bay-united-vs-tivoli-gardens-2157250 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sweden-vs-united-states-1629425860 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tulsa-vs-north-texas-1629425861 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: south-alabama-vs-arkansas-state-1629425862 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: monday-night-raw in category: all
+2025-02-17 23:31:44 | INFO | Created new game: suzuka-circuit-test-day-1-morning-session in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sweden-vs-usa in category: all
+2025-02-17 23:31:44 | INFO | Created new game: genesis-vs-marathon in category: all
+2025-02-17 23:31:44 | INFO | Created new game: g-nesis-vs-cd-marath-n-2202241 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: san-mart-n-de-tucum-n-vs-ferro-carril-oeste-2190784 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sporting-san-jose-vs-santos-de-gu-piles-2183679 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: usa-ice-hockey-vs-sweden-ice-hockey-2218750 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: iowa-wild-vs-rockford-icehogs-2184769 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: norfolk-state-vs-delaware-state-2189902 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: virginia-vs-duke-2189906 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fortaleza-ceif-vs-aguilas-doradas in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fortaleza-ceif-vs-rionegro--guilas-2204951 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ul-monroe-vs-texas-state-1629425863 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: veraguas-united-vs-san-francisco-fc-2205297 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: southern-vs-texas-southern-2189907 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: utah-vs-kansas-state-2189909 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wwe-raw-talk in category: all
+2025-02-17 23:31:44 | INFO | Created new game: baylor-vs-arizona-2189908 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: suzuka-circuit-test-day-1-afternoon-session in category: all
+2025-02-17 23:31:44 | INFO | Created new game: oman-vs-usa in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ecs-malta-2024-or-day-20-or-10-nov-2024-or-1629425865 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dubai-open-day-3-1629425866 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: lokomotiv-moscow-vs-ural-s-r-2214285 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zimbabwe-vs-republic-of-ireland-1629425874 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zimbabwe-vs-ireland in category: all
+2025-02-17 23:31:44 | INFO | Created new game: real-kashmir-vs-namdhari-2174752 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gandzasar-vs-syunik-fc-2217619 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: england-hockey-vs-spain-hockey-2216859 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kawasaki-frontale-vs-central-coast-mariners-2141623 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gwangju-fc-vs-buriram-united-2141622 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sc-bengaluru-vs-inter-kashi-2174753 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kyrgyzstan-u20-vs-qatar-u20 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: china-u20-vs-australia-u20 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: johor-darul-takzim-fc-vs-pohang-steelers-202502181130 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shanghai-shenhua-vs-vissel-kobe in category: all
+2025-02-17 23:31:44 | INFO | Created new game: malisheva-vs-ferizaj-2219010 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cska-1948-ii-vs-montana-2069235 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: johor-darul-tazim-vs-pohang-steelers-2141625 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shanghai-shenhua-vs-vissel-kobe-2141624 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: racing-club-beirut-vs-shabab-al-sahel-2203751 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-ahli-wad-madani-vs-alamal-sc-atbara-2218874 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-shorta-sc-vs-al-mirghani-2218873 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hilal-el-fasher-vs-al-zamala-umrawaba-2216005 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-merrikh-al-ubayyid-vs-al-rabita-kosti-2216004 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zrinski-jurjevac-punitova-ki-vs-cibalia-2087388 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: es-m-tlaoui-vs-ca-bizertin-2141818 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-ahed-vs-safa-2203752 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gg-vs-mi-1629425867 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-kahrabaa-vs-al-karkh-2219833 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fk-rostov-vs-akron-tolyatti-2217618 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: khimki-fk-vs-kamaz-naberezhnye-chelny-2214284 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sochi-vs-fk-rubin-kazan-2214282 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-sharjah-vs-al-hussein-irbid-2187542 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tala--ea-el-gaish-vs-fc-masr-2170868 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: india-hockey-vs-germany-hockey-2216860 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mexico-open-at-vidantaworld-main-feed-first-round-1629425868 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: en-espanol-mexico-open-at-vidantaworld-main-feed-primera-ronda-1629425869 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: khenchela-vs-js-saoura-2109267 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mexico-open-at-vidantaworld-featured-groups-first-round-featured-groups-1629425870 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mexico-open-at-vidantaworld-marquee-group-first-round-marquee-group-1629425871 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hc-tambov-vs-molot-prikamye-perm-2113091 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: khimik-ska-novopolotsk-vs-hk-aviator-2153951 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-rayyan-vs-esteghlal-19265608 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-ahli-tripoli-vs-alittihad-misurata-2213329 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cs-constantine-vs-aso-chlef-2109269 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tractor-s-c--vs-khalidiya-2187543 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-wasl-vs-al-hilal-2141627 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-rayyan-sc-vs-esteghlal-2141626 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hk-brest-vs-lokomotiv-orsha-2153952 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: neftekhimik-nizhnekamsk-vs-ak-bars-kazan-2147741 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gomel-vs-mogilev-2153956 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: poprad-vs-slovan-bratislava-2155112 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: slovakia-u18-ice-hockey-vs-hc-21-pre-ov-2158267 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: naft-al-basra-vs-al-naft-2219834 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: duhok-vs-al-shorta-sc-2219832 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: vlci--ilina-vs-michalovce-2155111 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ipk-vs-keupa-2063726 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hapoel-kfar-saba-bc-vs-hapoel-safed-2206259 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kent-state-vs-bowling-green-1629425965 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: holb-k-b-and-i-vs-ringsted-2218932 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ghazl-el-mahalla-vs-al-masry-2170869 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zvolen-vs-kosice-2155113 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: nitra-vs-nove-zamky-2155114 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: liptovsky-mikulas-vs-hk-spi-sk--nov--ves-2155115 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dukla-trencin-vs-hc05-bansk--bystrica-2155116 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hapoel-bnei-kafr-qasim-vs-elitzur-shomron-2206260 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: maccabi-raanana-vs-elitzur-yavne-bc-2206261 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: polokwane-city-vs-magesi-2156983 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ts-galaxy-vs-stellenbosch-2153807 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: richards-bay-vs-real-kings-2153806 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kaizer-chiefs-vs-supersport-united-2153805 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cape-town-city-vs-chippa-united-2153804 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: maccabi-rehovot-bc-vs-a-s--ramat-hasharon-2206262 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: milan-vs-feyenoord-19380882 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ac-milan-vs-feyenoord-2213864 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gog-h-ndbold-vs-montpellier-handball-2182976 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hc-kriens-luzern-vs-bm-granollers-2182977 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tatab-nya-kc-vs-vfl-gummersbach-2182978 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: s-l--benfica-vs-ystads-if-2182982 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sg-flensburg-handewitt-vs-fenix-toulouse-handball-2182975 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: vsg-altglienicke-vs-fc-eilenburg-2109543 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: herning-blue-fox-vs-odense-bulldogs-2090363 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: aik-if-vs-vik-v-ster-s-hk-2154763 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hk-malm--vs-alings-s-hk-2129690 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kassel-vs-bad-nauheim-2152481 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ehc-olten-vs-hc-la-chaux-de-fonds-2215044 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: usm-alger-vs-nc-magra-2109266 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hc-sierre-vs-ehc-visp-2215046 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ehc-chur-vs-hc-thurgau-2215045 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: skjern-h-ndbold-vs-skanderborg-aarhus-h-ndbold-2169945 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: chamonix-pionniers-vs-br-leurs-de-loups-2060331 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: zurich-vs-f-rjestad-bk-2206724 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: east-grinstead-town-vs-sheppey-united-2123388 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: penrhyncoch-vs-caersws-2074852 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: burgess-hill-town-vs-afc-croydon-athletic-2123386 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hartley-wintney-vs-binfield-2122847 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wimborne-town-vs-poole-town-f-c-2121985 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: witham-town-vs-heybridge-swifts-2120626 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: newton-aycliffe-vs-liversedge-2120217 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: pontefract-collieries-vs-belper-town-2120205 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ossett-united-vs-bridlington-town-2120204 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cleethorpes-town-vs-consett-2120201 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bradford-park-avenue-vs-garforth-town-2120199 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bishop-auckland-vs-sherwood-colliery-2120198 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sheffield-fc-vs-carlton-town-2120195 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bishops-stortford-vs-spalding-united-2119727 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: banbury-vs-alvechurch-2119702 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: biggleswade-town-vs-afc-sudbury-2119670 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: yeovil-vs-tamworth-2108066 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: southend-vs-aldershot-2108064 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: oldham-vs-maidenhead-united-2108063 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hartlepool-vs-altrincham-2108062 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gateshead-fc-vs-sutton-united-2108061 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ebbsfleet-united-vs-forest-green-rovers-2108059 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: barnet-vs-york-2108056 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: afc-fylde-vs-boston-united-fc-2108055 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: spennymoor-town-fc-vs-alfreton-town-2107430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: marine-vs-kidderminster-harriers-2107425 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: kings-lynn-town-vs-oxford-city-2107424 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hereford-vs-warrington-town-2107423 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: leamington-vs-buxton-f-c--2107412 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: radcliffe-vs-chorley-2107391 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: farsley-celtic-vs-southport-2107194 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: chesham-united-vs-salisbury-2106904 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: broxburn-athletic-f-c--vs-albion-rovers-2105113 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ballymena-united-vs-glentoran-2087231 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: larne-vs-glenavon-2087210 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: morton-vs-hamilton-2085392 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: warrenpoint-town-vs-dollingstown-2084555 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: moyola-park-vs-tobermore-united-2084539 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: preston-vs-millwall-2081867 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wycombe-vs-bristol-rovers-2081315 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wrexham-vs-leyton-orient-2081314 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: stevenage-vs-burton-2081254 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shrewsbury-vs-huddersfield-town-2081253 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: mansfield-vs-lincoln-2081248 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: crawley-vs-wigan-2081247 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: morecambe-vs-doncaster-2080685 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fleetwood-town-vs-afc-wimbledon-2080673 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: notts-county-vs-colchester-2080603 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: denbigh-town-vs-flint-mountain-2074848 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: enfield-town-vs-eastbourne-borough-2106907 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: whitby-town-vs-hebburn-town-2126833 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: thame-united-vs-kings-langley-2124752 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hinckley-leicester-road-vs-racing-club-warwick-2124368 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bedworth-united-vs-long-eaton-united-2124320 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: anstey-nomads-vs-darlaston-town-2124319 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: witton-vs-hanley-town-2123865 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: stalybridge-vs-newcastle-town-2123864 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: stafford-rangers-vs-bootle-2123863 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sittingbourne-vs-margate-2123425 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: merstham-vs-hythe-town-2123393 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: broadbridge-heath-vs-ramsgate-2123385 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: beckenham-town-vs-phoenix-sports-2123384 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: raynes-park-vale-vs-southall-2122930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: badshot-lea-vs-metropolitan-police-fc-2122910 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shaftesbury-vs-cribbs-2122468 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: didcot-town-vs-bashley-2122461 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: thatcham-town-vs-westbury-united-2122457 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sholing-vs-walton-and--hersham-2122005 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: frome-town-vs-gosport-borough-2121987 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: afc-totton-vs-havant-and--waterlooville-2121975 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: taunton-town-vs-winchester-city-2121929 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: warrington-rylands-vs-leek-town-2121561 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: matlock-vs-ashton-2121559 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: prescot-cables-vs-bamber-bridge-2121497 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ilkeston-town-vs-stockton-town-2121462 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: basildon-united-vs-concord-rangers-2120671 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: grays-vs-brightlingsea-regent-2120641 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rk-vojvodina-vs-mt-melsungen-2182979 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: limoges-handball-vs-cd-bidasoa-2182980 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: thw-kiel-vs-fc-porto-handball-2182981 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fc-bayern-munchen-vs-celtic-19380884 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: birmingham-vs-bradford-2218256 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bayern-munich-vs-celtic-2213867 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: benfica-vs-monaco-2213866 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atalanta-vs-club-brugge-2213865 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: deportivo-armenio-vs-san-mart-n-de-burzaco-2201957 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: liniers-vs-deportivo-merlo-2201955 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: flandria-vs-real-pilar-2201952 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: villa-d-lmine-vs-uai-urquiza-2201951 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: argentino-de-quilmes-vs-sportivo-italiano-2201950 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ballinamallard-united-vs-newington-2087028 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ballymacash-rangers-vs-rathfriland-2084589 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tocantin-polis-vs-atl-tico-mineiro-2218090 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: atl-tico-bucaramanga-vs-alianza-de-valledupar-2204945 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rio-de-janeiro-day-2-match-23-1629425966 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: deportes-iquique-vs-santa-fe-19351591 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: deportes-iquique-vs-independiente-santa-fe-2191377 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: west-georgia-vs-north-alabama-1629425967 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: llaneros-vs-deportivo-cali-2204952 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: jacksonville-vs-florida-gulf-coast-1629425969 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: austin-peay-vs-bellarmine-1629425968 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: miami-oh-vs-eastern-michigan-1629425970 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: argentino-de-merlo-vs-ferrocarril-midland-2201949 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bellarmine-vs-austin-peay-2189910 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: eastern-michigan-vs-miami-ohio-2189911 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: connecticut-vs-villanova-2189912 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: jupiter-links-golf-club-vs-new-york-golf-club-1629425978 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: northern-illinois-vs-akron-1629425975 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ball-state-vs-toledo-1629425971 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: western-michigan-vs-buffalo-1629425972 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: lipscomb-vs-eastern-kentucky-1629425973 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-michigan-vs-ohio-1629425974 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: north-florida-vs-stetson-1629425976 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-arkansas-vs-queens-university-1629425977 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: indonesia-vs-bahrain-1629425979 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: alianza-lima-vs-boca-juniors-19351605 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: the-strongest-vs-bahia-19351593 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sporting-kc-vs-inter-miami-19342698 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: colorado-vs-10-iowa-state-1629425981 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: 12-texas-tech-vs-tcu-1629425980 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: tennessee-state-vs-ut-martin-1629425982 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: colorado-rapids-vs-los-angeles-fc-19342696 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ecs-malta-2024-or-day-20-or-10-nov-2024-or-1629425983 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dubai-open-day-4-1629425984 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: pakistan-vs-new-zealand-1629425985 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sanfrecce-hiroshima-vs-nam-dinh-19343144 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ulsan-hd-vs-shandong-taishan-19265811 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: true-bangkok-united-vs-sydney-19343142 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shanghai-port-vs-yokohama-f-marinos-19265812 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: shabab-al-ahli-dubai-vs-al-wihdat-19343146 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: borussia-dortmund-vs-sporting-cp-19380886 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: aston-villa-vs-liverpool-19134951 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: luton-plymouth-22791 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: paris-saint-germain-vs-brest-19380874 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: psv-vs-juventus-19380878 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: real-madrid-vs-manchester-city-19380880 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: admin-los-angeles-lakers-vs-charlotte-hornets in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fc-heidenheim-fc-copenhagen-23089 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: galatasaray-az-alkmaar-24303 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: fcsb-paok-24301 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: as-roma-fc-porto-24299 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bodo-glimt-twente-24297 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: plzen-vs-ferencvarosi-tc-202502201930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: anderlecht-vs-fenerbahce-202502201930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: real-sociedad-vs-fc-midtjylland-202502201930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ajax-vs-union-st-gilloise-202502201930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: newcastle-jets-vs-brisbane-roar-202502210805 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bristol-city-vs-middlesbrough-202502211915 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: celta-vigo-vs-osasuna-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: burnley-vs-sheffield-wednesday-202502211930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: auckland-vs-wellington-phoenix-202502220330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-coast-mariners-vs-western-sydney-wanderers-202502220530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: melbourne-victory-vs-melbourne-city-202502220805 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: perth-glory-vs-sydney-202502221015 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: derby-vs-millwall-202502221200 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: alaves-vs-espanyol-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rayo-vallecano-vs-villarreal-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: valencia-vs-atletico-madrid-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: feyenoord-vs-almere-city-fc-202501251930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: las-palmas-vs-barcelona-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: western-united-vs-adelaide-united-202502230530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: athletic-club-vs-valladolid-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ajax-vs-go-ahead-eagles-202501261515 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: twente-vs-nec-nijmegen-202501261830 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: real-madrid-vs-girona-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: az-alkmaar-vs-fortuna-sittard-202502152330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: getafe-vs-real-betis-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: real-sociedad-vs-leganes-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sevilla-vs-mallorca-202502222330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: arminia-bielefeld-vs-werder-bremen-202502032330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: cannes-vs-guingamp-202502251930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: angers-vs-reims-202502251930 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-khaleej-saihat-vs-al-ittihad-fc-202502261630 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: stade-brestois-29-vs-dunkerque-202502261730 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: rb-leipzig-vs-vfl-wolfsburg-202502032330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: stade-briochin-vs-paris-saint-germain-202502261940 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-coast-mariners-w-vs-western-sydney-wanderers-w-202502280520 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wellington-phoenix-vs-melbourne-city-202502280600 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: central-coast-mariners-vs-western-united-202502280805 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: waalwijk-vs-fortuna-sittard-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: valladolid-vs-las-palmas-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: auckland-vs-adelaide-united-202503010330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: canberra-united-w-vs-melbourne-city-w-202503010430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: brisbane-roar-vs-melbourne-victory-202503010530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: newcastle-jets-fc-w-vs-perth-glory-fc-w-202503010530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: western-united-w-vs-melbourne-victory-w-202503010630 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: macarthur-vs-sydney-202503010805 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: girona-vs-celta-vigo-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: bournemouth-vs-wolves-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wealdstone-vs-aldershot-town-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: altrincham-vs-solihull-moors-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: ebbsfleet-united-vs-tamworth-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sutton-utd-vs-rochdale-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: braintree-vs-eastleigh-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: forest-green-vs-maidenhead-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: dagenham-redbridge-vs-boston-united-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hartlepool-vs-york-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: oldham-vs-barnet-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: hull-city-vs-plymouth-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: utrecht-vs-nac-breda-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: gateshead-vs-afc-fylde-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: barcelona-vs-real-sociedad-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: eintracht-frankfurt-vs-bayer-leverkusen-202502282330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: manchester-city-vs-plymouth-202503011430 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: go-ahead-eagles-vs-psv-eindhoven-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-kholood-vs-al-khaleej-saihat-202502272330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-fayha-vs-al-wehda-club-202502272330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: al-fateh-vs-al-taawon-202502272330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: groningen-vs-twente-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: feyenoord-vs-nec-nijmegen-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: wellington-phoenix-w-vs-adelaide-united-w-202503020230 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: western-sydney-wanderers-vs-perth-glory-202503020530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: sydney-fc-w-vs-brisbane-roar-fc-w-202503020530 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: heerenveen-vs-az-alkmaar-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: almere-city-fc-vs-ajax-202503012330 in category: all
+2025-02-17 23:31:44 | INFO | Created new game: heracles-vs-pec-zwolle-202503012330 in category: all
+2025-02-17 23:31:44 | ERROR | Error in upsert_games for category all: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: [('atp-doha-alexei-popyrin-vs-jack-draper', 'ATP Doha: Alexei Popyrin v Jack Draper', 'all', 1739813700000, 0, '[{"source": "alpha", "id": "atp-doha-alexei-popyrin-vs-jack-draper"}]', None, '{"home": {"name": "ATP Doha: Alexei Popyrin", "badge": null}, "away": {"name": "Jack Draper", "badge": null}}'), ('hacken-vs-oster', 'Hacken v Oster', 'all', 1739813400000, 0, '[{"source": "alpha", "id": "hacken-vs-oster"}, {"source": "bravo", "id": "1739813400000-hacken-oster"}]', None, '{"home": {"name": "Hacken", "badge": null}, "away": {"name": "Oster", "badge": null}}'), ('sirius-vs-helsingborg-2185203', 'Sirius vs Helsingborg', 'all', 1739813400000, 0, '[{"source": "alpha", "id": "sirius-vs-helsingborg"}, {"source": "bravo", "id": "1739813400000-sirius-helsingborg"}]', None, '{"home": {"name": "Sirius", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSUwoaYNWoAmNELxAQQ1EChMgsILe ... (68 characters truncated) ... adge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSUwhKAjuUS8QJEChDUQOiCFNYQMEPAIV8AlDzBl4RBWMf36YZ+LEQgA"}}'), ('1739811600000-unlv-vs-indiana', 'UNLV v Indiana', 'all', 1739811600000, 0, '[{"source": "bravo", "id": "1739811600000-unlv-vs-indiana"}]', None, '{"home": {"name": "UNLV", "badge": null}, "away": {"name": "Indiana", "badge": null}}'), ('1739811600000-kolin-frydek-mistek', 'Kolin v Frydek-Mistek', 'all', 1739811600000, 0, '[{"source": "bravo", "id": "1739811600000-kolin-frydek-mistek"}]', None, '{"home": {"name": "Kolin", "badge": null}, "away": {"name": "Frydek-Mistek", "badge": null}}'), ('1739811600000-slovan-liberec-hc-ocelari-trinec', 'Slovan Liberec v HC Ocelari Trinec', 'all', 1739811600000, 0, '[{"source": "bravo", "id": "1739811600000-slovan-liberec-hc-ocelari-trinec"}]', None, '{"home": {"name": "Slovan Liberec", "badge": null}, "away": {"name": "HC Ocelari Trinec", "badge": null}}'), ('1739811600000-karagumruk-sanliurfaspor', 'Karagumruk v Sanliurfaspor', 'all', 1739811600000, 0, '[{"source": "bravo", "id": "1739811600000-karagumruk-sanliurfaspor"}]', None, '{"home": {"name": "Karagumruk", "badge": null}, "away": {"name": "Sanliurfaspor", "badge": null}}'), ('1739811600000-hapoel-akko-hapoel-umm-al-fahm', 'Hapoel Akko v Hapoel Umm al-Fahm', 'all', 1739811600000, 0, '[{"source": "bravo", "id": "1739811600000-hapoel-akko-hapoel-umm-al-fahm"}]', None, '{"home": {"name": "Hapoel Akko", "badge": null}, "away": {"name": "Hapoel Umm al-Fahm", "badge": null}}')  ... displaying 10 of 512 total bound parameter sets ...  ('almere-city-fc-vs-ajax-202503012330', 'Almere City FC vs Ajax', 'all', 1740922200000, 0, '[{"source": "foxtrot", "id": "almere-city-fc-vs-ajax-202503012330"}]', None, '{"home": {"name": "Almere City FC", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0ICCBwgUJWN0YFFYPvH ... (24 characters truncated) ... : {"name": "Ajax", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IHCBQgIJWN0YFFYPvHHyCPGmEPA5lCEA"}}'), ('heracles-vs-pec-zwolle-202503012330', 'Heracles vs PEC Zwolle', 'all', 1740922200000, 0, '[{"source": "foxtrot", "id": "heracles-vs-pec-zwolle-202503012330"}]', None, '{"home": {"name": "Heracles", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IZiBgghJWN0YFFYPvHHyCPGm ... (24 characters truncated) ... me": "PEC Zwolle", "badge": "GwZg7AZpYEZgHCAjAJgCzoZYBDbLh4UBWMPAU2APmAAZgBjMATmDTAZOGOHMnXTAAJmzbZWOYGCmYIvXMClE0IHCBQgipGN0YFFYPvHHyCPGmEPA5lCEA"}}')]]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-02-17 23:31:44 | ERROR | Failed to update games for all
+2025-02-17 23:49:40 | INFO | Fetching games for category: live
+2025-02-17 23:49:45 | INFO | Successfully updated games for live
+2025-02-17 23:49:45 | INFO | Fetching games for category: football
+2025-02-17 23:49:45 | INFO | Returning cached stream details for game persepolis-vs-al-nassr-fc-2141620
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for bravo/1739808000000-persepolis-al-nassr: Server error '502 Bad Gateway' for url 'https://streamed.su/api/stream/bravo/1739808000000-persepolis-al-nassr'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for charlie/persepolis-vs-al-nassr-19265606: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for echo/persepolis-al-nassr-24717: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/persepolis-fc-vs-al-nassr-202502171530: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for alpha/barcelona-vs-rayo-vallecano: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for charlie/fc-barcelona-vs-rayo-vallecano-19135481: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for echo/barcelona-rayo-vallecano-23011: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/barcelona-vs-rayo-vallecano-202502152330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for echo/ac-milan-feyenoord-24265: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/ac-milan-vs-feyenoord-202502181715: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for echo/bayern-munich-celtic-24267: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/bayern-munich-vs-celtic-202502181930: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/valencia-vs-atletico-madrid-202502222330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/las-palmas-vs-barcelona-202502222330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/real-madrid-vs-girona-202502222330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/stade-briochin-vs-paris-saint-germain-202502261940: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/barcelona-vs-real-sociedad-202503012330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/eintracht-frankfurt-vs-bayer-leverkusen-202502282330: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error fetching stream details for foxtrot/manchester-city-vs-plymouth-202503011430: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Error in upsert_games for category football: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: games.id
+[SQL: INSERT INTO games (id, title, category, date, popular, sources, poster, teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('persepolis-vs-al-nassr-fc-2141620', 'Persepolis vs Al Nassr FC', 'football', 1739808000000, 1, '[{"source": "alpha", "id": "persepolis-vs-al-nassr"}, {"source": "bravo", "id": "1739808000000-persepolis-al-nassr"}, {"source": "charlie", "id": "pe ... (9 characters truncated) ... vs-al-nassr-19265606"}, {"source": "echo", "id": "persepolis-al-nassr-24717"}, {"source": "foxtrot", "id": "persepolis-fc-vs-al-nassr-202502171530"}]', '/api/images/proxy/GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt15cyAE1LBCETI3BiOzdmOkgcg6vJC9tIaiBLGjZrVqwskFG+1HiUYVSh6vyjPWPf5WwGCu4mIQQA.webp', '{"home": {"name": "Persepolis", "badge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSSlgkYXmAAmPLCF4g91ECRAo ... (74 characters truncated) ... dge": "GwZg7AZpYEZgHCAjAJgCzrAY29lBWSUYAUwVmDTAE5p5gJhqDh61hh1OPgBDYLKQRcOJBt16ZGY-p3bU+4wSXQgUrMOvYAGELz0gAJiEQwQJNQcT6IBCvgHqOYMvCIKx6h-TAvxYiCA"}}')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-02-17 23:49:46 | ERROR | Failed to update games for football
+2025-02-17 23:49:46 | INFO | Fetching games for category: basketball
+2025-02-17 23:49:48 | INFO | Successfully updated games for basketball
+2025-02-17 23:49:48 | INFO | Fetching games for category: american-football
+2025-02-17 23:49:50 | INFO | Successfully updated games for american-football
+2025-02-17 23:49:50 | INFO | Fetching games for category: hockey
+2025-02-17 23:49:55 | INFO | Successfully updated games for hockey
+2025-02-17 23:49:55 | INFO | Fetching games for category: fight
+2025-02-17 23:49:58 | INFO | Successfully updated games for fight
+2025-02-17 23:49:58 | INFO | Fetching games for category: all
+2025-02-17 23:49:59 | INFO | Skipping 'all' category as per requirement
+2025-02-17 23:49:59 | INFO | Successfully updated games for all

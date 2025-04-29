@@ -15,6 +15,8 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 from langchain.schema import Document
 
+from app.ic import ic_router
+
 # Utility imports
 import os
 
@@ -44,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(ic_router)
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -230,6 +234,7 @@ class QuestionInput(BaseModel):
 
 def format_sse(event: str, data: str) -> str:
     # Replace newlines in the data with '__n__'
+    
     formatted_data = data.replace("\n", "__n__")
     # Format the SSE message
     res = f"event: {event}\ndata: {formatted_data}\n\n"
