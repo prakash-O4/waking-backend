@@ -21,7 +21,6 @@ def generate_api_secret(length: int = 64) -> str:
     return secrets.token_hex(length)
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "sqlite:///./sports_api.db"
     API_KEY: str = ""
     API_SECRET: str = ""
     LOG_LEVEL: str = "INFO"

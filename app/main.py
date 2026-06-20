@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 import json
-import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # LangChain and AI imports
@@ -14,8 +13,7 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 from langchain.schema import Document
-
-from app.ic import ic_router
+from app.utils.loggers import logger
 
 # Utility imports
 import os
@@ -47,11 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(ic_router)
 
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Initialize OpenAI embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
@@ -264,16 +258,21 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
                 chat_history.append(HumanMessage(content=msg['question']))
                 chat_history.append(AIMessage(content=msg['answer']))
 
-        # Initialize Pinecone for this request with advanced retrieval
-        retriever = initialize_pinecone()
-        
-        
-        # Retrieve relevant documents using advanced retriever
-        retrieved_docs = retriever.invoke(input.question,chat_history=chat_histories)
-        
-        if retrieved_docs:
-            context = " ".join([doc.page_content for doc in retrieved_docs])
-            source = [doc.metadata for doc in retrieved_docs]
+        # Use new advanced RAG pipeline
+        from app.retrieval import RetrievalOrchestrator
+
+        orchestrator = RetrievalOrchestrator()
+
+        # Retrieve relevant documents using advanced retrieval orchestrator
+        retrieval_result = orchestrator.retrieve(
+            query=input.question,
+            chat_history=chat_histories,
+            k=5  # Get top 5 documents
+        )
+
+        if retrieval_result["documents"] and retrieval_result["metadata"]["is_legal_domain"]:
+            context = retrieval_result["context"]
+            source = retrieval_result["sources"]
         else:
             context = "No relevant information found, question may be outside the legal domain."
             source = []
@@ -318,6 +317,7 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
 
 @app.get("/")
 def read_root():
+    logger.info("Checking in home")
     return {"message": "Welcome to Wakil-G!"}
 
 if __name__ == "__main__":
