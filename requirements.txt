@@ -31,3 +31,11 @@ uvicorn==0.32.0
 ujson==5.10.0
 uvloop==0.20.0
 watchfiles==0.24.0
+
+mypy==1.11.2
+opensearch-py==2.7.1
+psycopg2-binary==2.9.9
+pytest==8.3.3
+pytest-asyncio==0.24.0
+ruff==0.6.9
+types-psycopg2==2.9.21.20251012
