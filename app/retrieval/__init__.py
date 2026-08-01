@@ -1,13 +1,3 @@
-"""
-Advanced Retrieval Pipeline for Nepali Legal Documents
-"""
+"""Retrieval package."""
 
-from .query_processor import QueryProcessor
-from .advanced_retriever import AdvancedRetriever
-from .retrieval_orchestrator import RetrievalOrchestrator
-
-__all__ = [
-    "QueryProcessor",
-    "AdvancedRetriever",
-    "RetrievalOrchestrator",
-]
+__all__: list[str] = []
