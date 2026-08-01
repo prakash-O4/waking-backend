@@ -1,7 +1,7 @@
-# Task P0-A — Phase 0 Infrastructure Skeleton
+# Task P0-B — Phase 0 End-to-End: One Statute, One Query, One Citation
 
 **Engineer:** Pi  
-**Branch:** `phase-0/infra-skeleton`  
+**Branch:** `phase-0/end-to-end`  
 **Base branch:** `dev`  
 **Status:** ASSIGNED
 
@@ -9,254 +9,274 @@
 
 ## Objective
 
-Wire the complete infrastructure skeleton for Wakil-G so that every subsequent Phase 0 task has a stable surface to build on. No generation logic yet — skeleton only. The deliverable is a repo where `make setup` runs without error, `make test` runs (even if zero tests pass), and the bitemporal schema is migrated into the Supabase Postgres instance.
+Get one statute (sarbajanik) answerable end-to-end through the proper authority-store pipeline, with the eligibility gate and validation gate enforced, and `make eval-gates` confirming zero-tolerance gates are green. Do not touch `app/main.py` — build the new pipeline as parallel modules and wire it through `scripts/query.py`.
+
+Phase 0 baseline: BM25-only retrieval, no reranker, no LangGraph. LangChain chain only.
 
 ---
 
 ## Acceptance criteria
 
-1. `make setup` installs all deps and runs the Supabase migration without error.
-2. `make test` runs (pytest) — zero failures (zero tests is acceptable; the harness must exist).
-3. `make lint` runs (ruff) — zero errors on existing code.
-4. `make eval`, `make eval-gates`, `make stress` print a clear "no cases yet" message and exit 0.
-5. Supabase Postgres has the five bitemporal tables created by the migration (verified by a `make test` fixture that connects and lists tables).
-6. OpenSearch is reachable via `make setup` check (Docker Compose up + health ping); the index mapping is created.
-7. Python models for all five authority entities exist and pass `mypy --strict` (or ruff type-check).
-8. `requirements.txt` is updated; no unused deps added.
+1. `scripts/ingest_sarbajanik.py` runs without error (with `SUPABASE_DB_URL` + `OPENSEARCH_URL` set) and writes sarbajanik to Supabase + OpenSearch.
+2. `scripts/query.py "question" --as-of 2024-10-08` returns an answer with citations rendered from canonical metadata (not from model output).
+3. `make eval-gates` exits 0 and prints `repealed-as-current: 0 | not-yet-effective-as-current: 0`.
+4. `make test` still green.
+5. `make lint` still green.
+6. The three P0-A known gaps are fixed (listed below).
+
+---
+
+## Fix first — P0-A known gaps
+
+**F1 — `app/search/client.py`:** Replace `nori_tokenizer` (Korean) with try-order `icu_tokenizer` → `standard`:
+
+```python
+for tokenizer in ("icu_tokenizer", "standard"):
+    try:
+        client.indices.create(index=index_name, body=_mapping(tokenizer))
+        return
+    except RequestError:
+        if client.indices.exists(index=index_name):
+            return
+raise RuntimeError("Could not create OpenSearch index")
+```
+
+**F2 — `app/authority/models.py`:** Add to `ComponentType`:
+```python
+BHAG = "bhag"      # भाग
+KHANDA = "khanda"  # खण्ड
+```
+
+**F3 — Eligibility gate:** Add `suspend` to NOT EXISTS clause. Do NOT re-run migration 001. Instead create `migrations/002_gate_suspend_fix.sql` containing only the updated `CREATE OR REPLACE FUNCTION is_eligible(...)` with `'suspend'` added to the effect_type IN list.
 
 ---
 
 ## Allowed scope
 
-- Create: `Makefile`, `migrations/`, `app/authority/`, `app/search/`, `tests/`, `docker-compose.yml`
-- Modify: `requirements.txt`
-- Do NOT modify: `app/main.py`, `app/retrieval/`, `app/ingestion/` — those are Phase 0-B
+**Create:**
+- `migrations/002_gate_suspend_fix.sql`
+- `app/authority/writer.py`
+- `app/retrieval/eligibility_gate.py`
+- `app/retrieval/dumb_retriever.py`
+- `app/retrieval/validation_gate.py`
+- `app/eval/__init__.py`
+- `app/eval/gates.py`
+- `scripts/ingest_sarbajanik.py`
+- `scripts/query.py`
+- `tests/test_eligibility_gate.py`
+- `tests/test_validation_gate.py`
+
+**Modify:**
+- `app/search/client.py` (F1)
+- `app/authority/models.py` (F2)
+- `scripts/migrate.py` (also apply migration 002)
+- `Makefile` (wire `eval-gates` properly)
+
+**Do NOT modify:**
+- `app/main.py`
+- `app/retrieval/advanced_retriever.py`, `query_processor.py`, `retrieval_orchestrator.py`
+- `app/ingestion/` existing files
+- `migrations/001_bitemporal_schema.sql`
 
 ---
 
-## Forbidden changes
+## Forbidden
 
-- Do not touch `app/main.py` or any existing retrieval/ingestion files.
-- Do not add any LLM calls, embeddings, or generation logic.
-- Do not add LangGraph yet (Phase B).
-- Do not add Pinecone anything — we are replacing it with OpenSearch.
-
----
-
-## Tech stack for this task
-
-- **Postgres:** Supabase (connection via `SUPABASE_DB_URL` env var — direct Postgres connection string, not the REST client). Use `psycopg2-binary` for migrations.
-- **OpenSearch:** Local via Docker Compose (`opensearchproject/opensearch:2.x`). Client: `opensearch-py`.
-- **Linting:** `ruff` (add to dev deps).
-- **Tests:** `pytest` + `pytest-asyncio`.
-- **Type checking:** `mypy` or ruff's type rules.
+- No Pinecone imports in any new file.
+- No Cohere reranker in new files.
+- No LangGraph.
+- Model must emit `claims + evidence_ids` only — no citations written by the model.
+- No path skips the eligibility gate.
+- No path bypasses the validation gate.
 
 ---
 
-## Bitemporal schema — exact tables to create
+## Statute facts — sarbajanik
 
-Migration file: `migrations/001_bitemporal_schema.sql`
-
-### work
-```sql
-CREATE TABLE work (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    uri         TEXT NOT NULL UNIQUE,           -- e.g. /np/act/2063/sarbajanik
-    work_type   TEXT NOT NULL,                  -- Constitution / Act / Rule / Directive / Notification
-    title_ne    TEXT NOT NULL,
-    title_en    TEXT,
-    jurisdiction TEXT NOT NULL DEFAULT 'NP',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### component
-```sql
-CREATE TABLE component (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    work_id         UUID NOT NULL REFERENCES work(id),
-    uri             TEXT NOT NULL UNIQUE,        -- /np/act/2063/sarbajanik/dafa/1
-    component_type  TEXT NOT NULL,               -- dafa / updafa / parichheda / proviso / spastikaran / anusuchi
-    number          TEXT,
-    parent_uri      TEXT,                        -- NULL for top-level
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### source_publication
-```sql
-CREATE TABLE source_publication (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    work_id         UUID NOT NULL REFERENCES work(id),
-    kind            TEXT NOT NULL CHECK (kind IN (
-                        'official_original',
-                        'amending_instrument',
-                        'verified_internal_consolidation',
-                        'official_copy_unverified',
-                        'derived_verified'
-                    )),
-    source_url      TEXT,
-    sha256          TEXT NOT NULL,               -- SHA-256 of raw source bytes
-    ocr_confidence  FLOAT,                       -- NULL if not OCR'd
-    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### lifecycle_effect
-```sql
-CREATE TABLE lifecycle_effect (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    component_uri           TEXT NOT NULL,
-    effect_type             TEXT NOT NULL CHECK (effect_type IN (
-                                'amend','repeal','commence','expiry',
-                                'suspend','correct','declared_invalid'
-                            )),
-    legal_valid_time        TSTZRANGE NOT NULL,   -- when this effect is law
-    transaction_time        TSTZRANGE NOT NULL,   -- when the system recorded it
-    effective_date          DATE,                 -- NULL if commencement pending
-    commencement_dependency TEXT,                 -- 'gazette_notification' or NULL
-    replacement_text        TEXT,
-    source_pub_id           UUID REFERENCES source_publication(id),
-    approval_status         TEXT NOT NULL DEFAULT 'pending'
-                                CHECK (approval_status IN ('pending','approved','rejected')),
-    approved_by_1           UUID,                 -- first approver user_id
-    approved_by_2           UUID,                 -- second approver user_id
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT no_overlap EXCLUDE USING GIST (
-        component_uri WITH =,
-        legal_valid_time WITH &&
-    ) WHERE (approval_status = 'approved')
-);
-```
-
-### expression
-```sql
-CREATE TABLE expression (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    component_uri   TEXT NOT NULL,
-    as_of           DATE NOT NULL,
-    text_ne         TEXT NOT NULL,               -- derived text (non-authoritative)
-    text_hash       TEXT NOT NULL,               -- SHA-256 of text_ne (for span verification)
-    is_derived      BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+- **Title (ne):** सार्वजनिक प्रसारण सेवा ऐन, २०८१
+- **Title (en):** Public Broadcasting Service Act 2081
+- **URI:** `/np/act/2081/sarbajanik-prasaran-seva`
+- **work_type:** `Act`
+- **Enactment (AD):** `2024-10-08` — hardcoded. BS↔AD calendar is Phase C; do not call any library.
+- **Status:** In force, no repeal, no commencement dependency.
+- **Source data:** `app/processed/chunks/sarbajanik_chunks.json` (8 chapter chunks)
+- **source_publication.kind:** `official_copy_unverified`
 
 ---
 
-## Eligibility gate — SQL function
+## Ingestion path — `scripts/ingest_sarbajanik.py`
 
-Create in migration:
+All inserts idempotent (`INSERT ... ON CONFLICT DO NOTHING`). Steps in order:
 
-```sql
-CREATE OR REPLACE FUNCTION is_eligible(
-    p_component_uri TEXT,
-    p_as_of         DATE
-) RETURNS BOOLEAN
-LANGUAGE sql STABLE AS $$
-    SELECT EXISTS (
-        SELECT 1 FROM lifecycle_effect
-        WHERE component_uri = p_component_uri
-          AND effect_type   = 'commence'
-          AND approval_status = 'approved'
-          AND legal_valid_time @> p_as_of::timestamptz
-          AND (commencement_dependency IS NULL)
-        -- Excludes: pending, rejected, not-yet-effective, repealed-after
-    ) AND NOT EXISTS (
-        SELECT 1 FROM lifecycle_effect
-        WHERE component_uri = p_component_uri
-          AND effect_type   IN ('repeal','expiry','declared_invalid')
-          AND approval_status = 'approved'
-          AND lower(legal_valid_time) <= p_as_of::timestamptz
-    );
-$$;
+**1. Register work** in `work` table.
+
+**2. Register source_publication** — SHA-256 of `app/processed/markdown/sarbajanik.md` bytes, `kind='official_copy_unverified'`, `ocr_confidence=0.75`.
+
+**3. Register components** — one per chunk, URI = `/np/act/2081/sarbajanik-prasaran-seva/parichheda/{chunk_id}`, `component_type='parichheda'`.
+
+**4. Create lifecycle_effect (commence)** for each component:
+- `effect_type='commence'`, `legal_valid_time='[2024-10-08,)'`, `transaction_time='[now(),)'`
+- `effective_date=2024-10-08`, `commencement_dependency=NULL`
+- `approval_status='approved'`
+- `approved_by_1` = `approved_by_2` = `00000000-0000-0000-0000-000000000001` (sentinel — Phase 0 stub; comment this clearly)
+
+**5. Write expressions** — one per chunk: `text_ne=chunk content`, `text_hash=SHA-256(text_ne.encode())`, `is_derived=True`, `as_of=2024-10-08`.
+
+**6. Index to OpenSearch** — for each expression:
+```json
+{"component_uri": "...", "as_of": "2024-10-08", "text_ne": "...",
+ "dense_vector": [0.0, ...(1536 zeros)]}
+```
+Zero vector placeholder — Phase 0 is BM25-only. Do not call any embeddings API.
+
+---
+
+## New retrieval modules
+
+### `app/retrieval/eligibility_gate.py`
+```python
+def is_eligible(conn, component_uri: str, as_of: date) -> bool:
+    # Calls is_eligible() SQL function. Returns bool.
+```
+
+### `app/retrieval/dumb_retriever.py`
+```python
+def retrieve(query: str, as_of: date, k: int = 5) -> list[dict]:
+    # BM25 match query on text_ne, size=20.
+    # Filter each hit through is_eligible().
+    # Return top k eligible: [{component_uri, text_ne, text_hash, score}]
+    # No reranker. No embeddings.
+```
+
+### `app/retrieval/validation_gate.py`
+```python
+def validate_and_render(
+    claims: list[dict],   # [{"claim": str, "evidence_id": str}]
+    as_of: date,
+    conn,
+) -> list[dict]:
+    # For each evidence_id (= component_uri):
+    #   1. Fetch expression WHERE component_uri=... AND as_of=...
+    #   2. Verify SHA-256(text_ne) == text_hash
+    #   3. Verify is_eligible(component_uri, as_of)
+    #   4. Pass → render citation from source_publication metadata
+    #   5. Fail → abstain that claim
+    # Return [{claim, citation|None, abstained}]
+```
+
+Citation dict fields (from DB, not from model output):
+```python
+{"component_uri", "work_title_ne", "work_title_en", "as_of", "source_kind", "ocr_confidence"}
 ```
 
 ---
 
-## Python models — `app/authority/models.py`
+## `scripts/query.py`
 
-Pydantic v2 models mirroring every table above. Include:
-- `WorkType` enum
-- `ComponentType` enum  
-- `SourceKind` enum
-- `EffectType` enum
-- `ApprovalStatus` enum
-- `Work`, `Component`, `SourcePublication`, `LifecycleEffect`, `Expression` models
+CLI: `python3 scripts/query.py "<question>" --as-of YYYY-MM-DD`
 
-No ORM. Plain Pydantic for validation; DB access is raw SQL via psycopg2.
+Pipeline:
+1. Retrieve via `dumb_retriever.retrieve(query, as_of)`
+2. If no eligible hits: print "Abstaining — no eligible sources for this query and as-of." Exit.
+3. Build context string from top hits.
+4. LangChain prompt → LLM emits JSON: `{"claims": [{"claim": str, "evidence_id": str}]}` or `{"claims": [], "abstain": true}`
+5. Pass claims to `validate_and_render()`
+6. Print answer + citations.
 
----
-
-## OpenSearch — `docker-compose.yml` + `app/search/client.py`
-
-Docker Compose:
-```yaml
-services:
-  opensearch:
-    image: opensearchproject/opensearch:2.13.0
-    environment:
-      - discovery.type=single-node
-      - DISABLE_SECURITY_PLUGIN=true
-    ports:
-      - "9200:9200"
+LLM system prompt (do not change):
+```
+You are Wakil-G. Answer using ONLY the provided context.
+Output JSON only: {"claims": [{"claim": "<text>", "evidence_id": "<component_uri>"}]}
+Do not write citations. Do not include anything not in the context.
+If context is empty or insufficient: {"claims": [], "abstain": true}
 ```
 
-`app/search/client.py`:
-- `get_client()` — returns `OpenSearch` instance from `OPENSEARCH_URL` env (default `http://localhost:9200`)
-- `ensure_index(index_name)` — creates index with mapping below if not exists
-- Index mapping: `text_ne` field with `nori` tokenizer fallback to `standard`, plus `dense_vector` field (dim=1536) for kNN
+Model: `gpt-4o-mini`. Temperature: `0.0`.
 
 ---
 
-## Makefile targets
+## Eval gates — `app/eval/gates.py`
 
+```python
+def check_repealed_as_current(conn, os_client) -> int:
+    # 1. INSERT lifecycle_effect(effect_type='repeal', approval_status='approved',
+    #    legal_valid_time='[2024-10-08,)') for parichheda/0
+    # 2. retrieve('broadcasting', as_of=date(2024,10,8))
+    # 3. Count hits where is_eligible(component_uri, as_of) is False
+    # 4. DELETE the test row
+    # Returns violation count (must be 0)
+
+def check_not_yet_effective_as_current(conn, os_client) -> int:
+    # 1. INSERT lifecycle_effect(effect_type='commence',
+    #    commencement_dependency='gazette_notification', approval_status='approved',
+    #    legal_valid_time='[2024-10-08,)') for parichheda/1
+    # 2. Verify is_eligible(parichheda/1 URI, date(2024,10,8)) == False
+    # 3. DELETE the test row
+    # Returns violation count (must be 0)
+```
+
+`__main__` in `app/eval/gates.py`:
+```
+repealed-as-current: <n>
+not-yet-effective-as-current: <n>
+```
+Exit 1 if any n > 0.
+
+Update `Makefile`:
 ```makefile
-setup:      ## Install deps, run migration, start OpenSearch, create index
-test:       ## pytest tests/
-lint:       ## ruff check . && ruff format --check .
-eval:       ## python -m app.eval.runner (print "no eval cases yet" if empty)
-eval-gates: ## python -m app.eval.gates (zero-tolerance gate check)
-stress:     ## python -m app.stress.runner (print "no stress cases yet" if empty)
+eval-gates:
+    python3 -m app.eval.gates
 ```
-
-`eval`, `eval-gates`, and `stress` targets must exit 0 even when no cases exist. They must NOT import any LLM or embedding code at import time (stub-safe).
 
 ---
 
-## Required checks before committing
+## PS requirements mapped
 
-```
-make lint      # zero errors
-make test      # zero failures
-make setup     # runs clean
-```
-
-No `make eval-gates` requirement yet — stub is sufficient.
+| PS | How enforced in this task |
+|---|---|
+| PS-2 | `commencement_dependency` blocks `is_eligible()` → tested by `check_not_yet_effective_as_current` |
+| PS-3 | Citations rendered from `source_publication` metadata in `validation_gate.py`, never from model output |
+| PS-6 | `as_of` passed explicitly to every retrieval + validation call |
+| PS-7 | Abstention owned by `validation_gate.py`; model self-abstention is advisory input only |
+| PS-15 | `EffectType` enum has repeal/expiry/declared_invalid (already in models.py) |
 
 ---
 
-## Zero-tolerance gates guarded in this task
+## Zero-tolerance gates guarded
 
-None (schema only, no ingestion or retrieval). No gate can fire without data.
+- `repealed-as-current = 0` — `check_repealed_as_current()`
+- `not-yet-effective-as-current = 0` — `check_not_yet_effective_as_current()`
+
+Both must be 0 before merge. Run `make eval-gates` and include output in return.
+
+---
+
+## Required checks
+
+```
+make lint
+make test
+make eval-gates
+```
 
 ---
 
 ## Commit authorship
 
-Every commit MUST be authored as:
+Every commit MUST use:
 ```
 git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"
 ```
-**Never** add `Co-Authored-By: Claude`, "Generated with Claude", or any AI attribution. This is non-negotiable.
+No `Co-Authored-By: Claude`, no "Generated with Claude", no AI attribution of any kind.
 
 ---
 
 ## Return to Claude (via Prakash)
 
-When done, return:
 - Commit hash
 - Changed/created files list
-- Output of `make lint`, `make test`, `make setup`
-- Any assumptions made
-- Any remaining risks
+- `make lint` output
+- `make test` output
+- `make eval-gates` output
+- `scripts/query.py "What are the functions of the public broadcasting institution?" --as-of 2024-10-08` output
+- Assumptions and remaining risks
