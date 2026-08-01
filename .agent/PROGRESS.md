@@ -7,13 +7,13 @@ P0-B — One statute ingested end-to-end, dumb retrieval chain, eval gates runni
 `dev`
 
 ## Working branch
-TBD (to be created for P0-B)
+`phase-0/end-to-end`
 
 ## Engineer
 Pi
 
 ## Status
-**IDLE** — P0-A merged. Awaiting P0-B task brief.
+**IN PROGRESS** — task.md written, pushed to phase-0/end-to-end. Awaiting Pi's implementation.
 
 ## Completed tasks
 
@@ -46,4 +46,4 @@ Pi
 - not-yet-effective-as-current = 0: commencement_dependency must block retrieval
 
 ## Next action
-Claude writes P0-B task brief, creates branch phase-0/end-to-end, assigns to Pi.
+Prakash runs Pi on branch `phase-0/end-to-end`. Pi returns commit hash + check outputs + query demo. Claude reviews diff.
