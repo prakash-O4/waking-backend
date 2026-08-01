@@ -7,3 +7,7 @@ tests
 build_push.sh
 
 source
+
+# Large data files — keep local only
+laws.jsonl
+regulations.json
