@@ -5,3 +5,7 @@
 tests
 
 build_push.sh
+
+
+.claude
+*.md
