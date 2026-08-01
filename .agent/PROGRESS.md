@@ -1,16 +1,19 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — awaiting Prakash's direction.
+P0-A — Infrastructure skeleton (Makefile, bitemporal schema, OpenSearch setup)
 
 ## Base branch
-`dev` (up to date with `origin/dev`)
+`dev`
 
 ## Working branch
-None
+`phase-0/infra-skeleton`
+
+## Engineer
+Pi
 
 ## Status
-**IDLE** — Session resume complete. No active task.
+**IN PROGRESS** — task.md written and pushed to branch. Awaiting Pi's implementation.
 
 ## Repository state (verified 2026-08-01)
 
@@ -42,5 +45,11 @@ None
 - SYSTEM_DESIGN.md §2 (Core Invariants), §14 (PS-1…PS-18)
 - AGENTS.md (prime directive, definition of done)
 
+## PS requirements in scope
+None (schema only — no ingestion or retrieval in P0-A)
+
+## Zero-tolerance gates
+Not applicable for P0-A (no data flows yet)
+
 ## Next action
-Awaiting Prakash's task assignment.
+Prakash runs Pi on branch `phase-0/infra-skeleton`. Pi returns commit hash + check outputs. Claude reviews diff.
