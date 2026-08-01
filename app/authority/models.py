@@ -17,6 +17,8 @@ class WorkType(str, Enum):
 
 
 class ComponentType(str, Enum):
+    BHAG = "bhag"
+    KHANDA = "khanda"
     DAFA = "dafa"
     UPDAFA = "updafa"
     PARICHHEDA = "parichheda"

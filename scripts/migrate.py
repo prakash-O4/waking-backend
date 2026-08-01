@@ -6,9 +6,10 @@ from pathlib import Path
 import psycopg2
 
 
-MIGRATION = (
-    Path(__file__).resolve().parents[1] / "migrations" / "001_bitemporal_schema.sql"
-)
+MIGRATIONS = [
+    Path(__file__).resolve().parents[1] / "migrations" / "001_bitemporal_schema.sql",
+    Path(__file__).resolve().parents[1] / "migrations" / "002_gate_suspend_fix.sql",
+]
 
 
 def main() -> None:
@@ -17,8 +18,9 @@ def main() -> None:
         print("SUPABASE_DB_URL not set; skipping Supabase migration")
         return
     with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
-        cur.execute(MIGRATION.read_text())
-    print("Supabase migration applied")
+        for migration in MIGRATIONS:
+            cur.execute(migration.read_text())
+    print("Supabase migrations applied")
 
 
 if __name__ == "__main__":

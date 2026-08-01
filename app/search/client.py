@@ -42,12 +42,14 @@ def ensure_index(index_name: str = DEFAULT_INDEX) -> None:
     client = get_client()
     if client.indices.exists(index=index_name):
         return
-    try:
-        client.indices.create(index=index_name, body=_mapping("nori_tokenizer"))
-    except RequestError:
-        if client.indices.exists(index=index_name):
+    for tokenizer in ("icu_tokenizer", "standard"):
+        try:
+            client.indices.create(index=index_name, body=_mapping(tokenizer))
             return
-        client.indices.create(index=index_name, body=_mapping("standard"))
+        except RequestError:
+            if client.indices.exists(index=index_name):
+                return
+    raise RuntimeError("Could not create OpenSearch index")
 
 
 if __name__ == "__main__":

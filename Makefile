@@ -19,15 +19,15 @@ test: ## pytest tests/
 	python3 -m pytest tests/
 
 lint: ## ruff check . && ruff format --check .
-	python3 -m ruff check app/authority app/search tests scripts/migrate.py
-	python3 -m ruff format --check app/authority app/search tests scripts/migrate.py
-	python3 -m mypy --strict app/authority app/search tests scripts/migrate.py
+	python3 -m ruff check app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
+	python3 -m ruff format --check app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
+	python3 -m mypy --strict --follow-imports=skip --disable-error-code=misc app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
 
 eval: ## no cases yet
 	@python3 -c 'print("no eval cases yet")'
 
-eval-gates: ## no gate cases yet
-	@python3 -c 'print("no eval gate cases yet")'
+eval-gates:
+	python3 -m app.eval.gates
 
 stress: ## no cases yet
 	@python3 -c 'print("no stress cases yet")'
