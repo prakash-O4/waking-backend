@@ -43,6 +43,7 @@ def _model_claims(question: str, hits: list[dict[str, Any]]) -> list[dict[str, s
 
 
 def _local_fallback(question: str, as_of: date) -> None:
+    # DEVELOPMENT ONLY — bypasses eligibility and validation gates
     best: dict[str, Any] | None = None
     for line in (
         (Path(__file__).resolve().parents[1] / "laws.jsonl")
