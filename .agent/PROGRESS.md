@@ -14,8 +14,7 @@ Deliverable: `docs/ingestion_design.md` (design only, no implementation).
 `pe-a/ingestion-pipeline`
 
 ## Status
-**DESIGN APPROVED** — `docs/ingestion_design.md` reviewed and approved (commit ab4dcb4).
-Three open questions require Prakash's decision before implementation begins (see below).
+**IMPLEMENTATION IN PROGRESS** — design approved (ab4dcb4), decisions locked, task.md updated for implementation. Assigned to Kimi.
 
 ## PS requirements in scope — all verified GREEN
 - PS-2: dual-approval CHECK constraint in DDL; effective_date_ad NULL-pending (never fabricated)
@@ -30,25 +29,13 @@ co_retrieve_parent_id is a self-referential FK on chunks. UPSERT stage must inse
 parent chunks before child (proviso) chunks within each document — chunk_index order
 guarantees this, but the implementation engineer must not batch-insert out of order.
 
-## Open questions — Prakash decides before implementation
-
-1. **BM25 / text-search**: Kimi recommends pg_search (ParadeDB) — same transaction boundary,
-   no OpenSearch. All options lack Nepali stemming, so morphology is better at query time.
-   Fallback: PostgreSQL tsvector simple config if ParadeDB unavailable on host.
-   → **Prakash: confirm Option C (pg_search) or override.**
-
-2. **Regulations scope**: regulations.json has no text — only PDF URLs. Ingesting regulations
-   requires a fetch + PDF→markdown + parse step (Azure DI quota + PDF availability to confirm).
-   → **Prakash: is regulation ingestion in PE-B scope or later?**
-
-3. **Embedding model**: bge-m3 (1024-dim) recommended; bake-off on golden eval slice before
-   full embed run. DDL is already sized at vector(1024) for both bge-m3 and e5-large.
-   → **Prakash: confirm bge-m3 or request bake-off first.**
+## Decisions locked (Prakash, 2026-08-02)
+- BM25: pg_search (ParadeDB)
+- Embedding: bge-m3 direct (no bake-off)
+- Regulations: PE-B scope, out of PE-A
 
 ## Next action
-Prakash decides the three open questions above.
-Once decided: implementation engineer (Kimi, same branch) writes migration 005 and
-the ingestion pipeline code.
+Kimi implements on pe-a/ingestion-pipeline. Claude reviews diff when Kimi reports back.
 
 ---
 

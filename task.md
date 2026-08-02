@@ -1,299 +1,340 @@
-# PE-A — Ingestion Pipeline Research & Design
+# PE-A — Ingestion Pipeline Implementation
 
-**Branch:** `pe-a/ingestion-pipeline`  
-**Engineer:** Kimi  
-**Type:** Research + Design only — NO implementation code changes to existing modules  
-**Deliverable:** `docs/ingestion_design.md` (create it)
+**Branch:** `pe-a/ingestion-pipeline`
+**Engineer:** Kimi
+**Governing design:** `docs/ingestion_design.md` (approved; read it fully before writing code)
+**Decisions locked in:** pg_search (ParadeDB) for BM25 · bge-m3 for embeddings · regulations out of scope (PE-B)
 
 ---
 
 ## Objective
 
-Design the production-grade ingestion pipeline for Wakil-G, grounded in the actual data.
-The stack is migrating from Supabase + Pinecone to **plain PostgreSQL + pgvector**.
-Produce a design document with enough concrete detail that the next engineer can implement without ambiguity.
+Implement the ingestion pipeline described in `docs/ingestion_design.md`.
+Replace the Pinecone + OpenAI stack with PostgreSQL + pgvector + bge-m3.
+Write the pipeline as a series of well-separated, testable stages.
 
 ---
 
-## Background: What already exists
+## Files to CREATE (new)
 
-The `app/ingestion/` module has:
-- `hierarchical_chunker.py` — uses `RecursiveCharacterTextSplitter` + `MarkdownHeaderTextSplitter` from langchain. **Not structure-aware for Nepali legal text.** Must be redesigned.
-- `pinecone_indexer.py` — uses Pinecone + OpenAI embeddings. **Both dependencies are being removed.**
-- `metadata_enricher.py` — exists but must be reviewed against the new design.
-- `document_processor.py`, `quality_validator.py` — review to understand what to keep.
+| File | Purpose |
+|---|---|
+| `migrations/005_ingestion_pipeline.sql` | DDL: documents, chunks, pii_vault, pg_search index — copy the DDL from §5 of the design doc verbatim, then add pg_search extension + BM25 index (see below) |
+| `app/ingestion/laws_chunker.py` | Structure-aware chunker for acts (дафа-anchor splits; see §2.1 of design) |
+| `app/ingestion/nkp_chunker.py` | Hybrid chunker for NKP cases (§2.2 of design) |
+| `app/ingestion/pii_redactor.py` | Hybrid PII redaction for NKP (§4 of design) |
+| `app/ingestion/pgvector_indexer.py` | pgvector upsert (replaces pinecone_indexer.py; see spec below) |
+| `app/ingestion/pipeline.py` | 8-stage pipeline orchestrator (§6 of design) |
+| `scripts/ingest_nkp.py` | CLI script: loads output/nkp_cases.jsonl through the pipeline |
+| `tests/test_ingestion_pipeline.py` | Unit tests (see test spec below) |
 
-The existing bitemporal PostgreSQL schema is in `migrations/001_bitemporal_schema.sql`.
-Tables that already exist: `work`, `component`, `expression`, `source_publication`, `lifecycle_effect`, `precedent`, `precedent_holding`, `precedent_relation`.
+## Files to REWRITE (keep filename, replace content)
 
-The new design EXTENDS this schema — it does NOT replace or conflict with existing tables.
+| File | Change |
+|---|---|
+| `app/ingestion/metadata_enricher.py` | Remove langchain_openai / ChatOpenAI; use Anthropic haiku-4-5 SDK directly; update output schema to match typed columns (see §3 of design) |
+| `scripts/ingest_laws.py` | Remove Pinecone/Supabase path; wire through new pipeline |
+| `app/ingestion/__init__.py` | Remove HierarchicalChunker, PineconeIndexer; export LawsChunker, NKPChunker, PIIRedactor, PgvectorIndexer, IngestionPipeline |
 
----
+## Files to DELETE
 
-## Data sources — sample only (DO NOT read full files)
+- `app/ingestion/pinecone_indexer.py` — replaced by pgvector_indexer.py
+- `app/ingestion/hierarchical_chunker.py` — replaced by laws_chunker.py + nkp_chunker.py
 
-**`output/nkp_cases.jsonl`** — 1,022 Supreme Court decisions (Nepali Devanagari)
-Fields: `case_id`, `decision_number`, `part`, `year_bs`, `month`, `issue_number`,
-`decision_date`, `views`, `court`, `bench`, `case_number`, `case_type`,
-`appellant`, `respondent`, `full_text`
+## Files to touch ONLY to fix broken imports (no logic changes)
 
-Sample command (read 5 cases, inspect structure only):
-```
-python3 -c "
-import json
-with open('output/nkp_cases.jsonl') as f:
-    for i, line in enumerate(f):
-        if i >= 5: break
-        r = json.loads(line)
-        print('=== CASE', r['case_id'], '===')
-        print('type:', r.get('case_type'))
-        print('full_text length:', len(r.get('full_text', '')))
-        print('full_text first 600 chars:')
-        print(r.get('full_text','')[:600])
-        print()
-"
-```
+- `app/ingestion/quality_validator.py` — imports HierarchicalChunk from hierarchical_chunker; remove that import, keep all other logic intact
+- `scripts/ingest_documents.py` — PDF pipeline (PE-B scope); just fix the import of HierarchicalChunker/PineconeIndexer so it doesn't crash at startup; do NOT change its logic
 
-**`laws.jsonl`** — 677 Acts/Regulations (Nepali Devanagari)
-Fields: `url`, `name`, `english_name`, `document_type`, `page`, `content`, `_id`
-Note: `full_text` is empty — actual text is in `content`.
+## Files NOT to touch
 
-Sample command:
-```
-python3 -c "
-import json
-with open('laws.jsonl') as f:
-    for i, line in enumerate(f):
-        if i >= 5: break
-        r = json.loads(line)
-        print('=== LAW', r.get('name'), '===')
-        print('type:', r.get('document_type'))
-        print('content length:', len(r.get('content','')))
-        print('content first 800 chars:')
-        print(r.get('content','')[:800])
-        print()
-"
-```
-
-**`regulations.json`** — unknown schema. Sample it first:
-```
-python3 -c "
-import json
-with open('regulations.json') as f:
-    data = json.load(f)
-    if isinstance(data, list):
-        print('list of', len(data), 'items')
-        print('first item keys:', list(data[0].keys()))
-        print(json.dumps(data[0], ensure_ascii=False, indent=2)[:800])
-    else:
-        print('type:', type(data))
-        print(str(data)[:800])
-"
-```
-
-**IMPORTANT:** Read only 5–10 records per file. Do not iterate the full corpus.
+Everything in `app/retrieval/`, `app/authority/`, `app/main.py`, `app/eval/`, `tests/` except the new test file. `app/ingestion/document_processor.py` stays (PDF, PE-B). `migrations/001–004` stay.
 
 ---
 
-## Design tasks
+## Migration 005 spec
 
-### 1. Chunking strategy (the most critical output)
+Start with the DDL block from `docs/ingestion_design.md §5` verbatim (the CREATE EXTENSION vector, enums, documents, chunks, pii_vault, indexes, role grant). Then append:
 
-After sampling the data, identify the natural structure breaks in each source:
+```sql
+-- pg_search (ParadeDB): BM25 full-text index on chunks.
+-- REQUIRES: ParadeDB extension installed on the PostgreSQL host.
+-- If unavailable, comment this out and fall back to GIN tsvector (Option A).
+CREATE EXTENSION IF NOT EXISTS pg_search;
 
-**For NKP cases:**
-- Does `full_text` have recognizable Nepali section headers (facts, issues/प्रश्न, ruling/आदेश, rationale/विवेचना, headnotes/सिद्धान्त)?
-- Are headers consistent across cases or variable?
-- Recommend: split at section boundaries (structure-aware) vs. semantic chunking (embedding-similarity splits) vs. hybrid?
-- What chunk size targets are appropriate (in characters, not tokens — Devanagari chars count differently)?
-
-**For laws:**
-- Does `content` reliably follow ऐन → परिच्छेद → दफा → उपदफा hierarchy?
-- Are section markers consistent (e.g. `दफा ३.` or `३.`)?
-- A proviso/स्पष्टीकरण must co-retrieve with its operative clause (PS-16). How does chunking enforce this?
-- Recommend boundary rules.
-
-**For regulations:**
-- Inspect the actual structure and recommend accordingly.
-
-**Fixed-size chunking with overlap is NOT acceptable.** The final recommendation must be one of:
-- Structure-aware (regex/pattern splits at legal section markers)
-- Semantic (embedding-based split points)
-- Hybrid (structure-aware first, semantic for oversized sections)
-
-Justify the choice with evidence from the sampled text.
-
-### 2. Metadata schema per chunk
-
-Every chunk must carry typed metadata columns (NOT a JSON blob) to enable relational filtering
-without hitting the vector index.
-
-Design the fields for each source type:
-
-**NKP case chunks — starting schema (confirm, adjust, or add fields):**
-| Field | Type | Source | Extraction method |
-|---|---|---|---|
-| case_id | text | record | deterministic |
-| case_type | text | record | deterministic |
-| court | text | record | deterministic |
-| bench_type | text | record | deterministic |
-| decision_date_ad | date | record | BS→AD via bs_ad_calendar.py |
-| year_bs | int | record | deterministic |
-| section_label | text | chunk | structure parser |
-| section_type | enum | chunk | deterministic (facts/issues/ruling/rationale/order) |
-| is_landmark | bool | ? | specify how to determine |
-| parties_redacted | text | appellant+respondent | PII redaction (see §3) |
-| cited_statutes | text[] | full_text | LLM extraction (haiku) |
-| headnotes | text | full_text | LLM extraction (haiku) |
-| keywords | text[] | chunk | LLM extraction (haiku) |
-| relevant_questions | text[] | chunk | LLM generation (haiku, 3–5 Qs) |
-
-**Law/Regulation chunks — starting schema:**
-| Field | Type | Source | Extraction method |
-|---|---|---|---|
-| work_id | uuid | FK to work table | deterministic |
-| act_name | text | record | deterministic |
-| english_name | text | record | deterministic |
-| document_type | text | record | deterministic |
-| section_number | text | chunk | structure parser |
-| section_title | text | chunk | structure parser |
-| chapter_number | text | chunk | structure parser |
-| level | enum | chunk | (act/chapter/section/subsection/proviso) |
-| parent_section | text | chunk | structure parser |
-| effective_date_ad | date | ? | specify source |
-| keywords | text[] | chunk | LLM extraction (haiku) |
-| relevant_questions | text[] | chunk | LLM generation (haiku, 3–5 Qs) |
-
-**LLM model for all extraction:** `claude-haiku-4-5-20251001`. Specify which calls can be batched.
-
-### 3. PII redaction for NKP cases
-
-`appellant` and `respondent` contain real person names + addresses. `full_text` likely repeats them.
-
-Recommend a redaction strategy given that Nepali NER tooling is immature:
-- Option A: LLM-based redaction (send appellant/respondent strings to haiku, extract entity spans, replace in full_text)
-- Option B: Rule-based (the appellant/respondent field values are known strings — do exact-match + fuzzy replacement in full_text)
-- Option C: Hybrid (rule-based first pass, LLM second pass for variants)
-
-For each option: what precision/recall tradeoff, what failure modes, what is your recommendation?
-
-**Storage model:**
-- Redacted text goes in the `chunks` table (public-facing)
-- Original unredacted content goes in a `pii_vault` table (locked, separate access)
-- The `pii_vault` must link back to the chunk/document with a stable `document_id`
-- Access to `pii_vault` should require a separate PostgreSQL role
-
-### 4. PostgreSQL schema (DDL)
-
-Design the tables needed. Write actual DDL ready to paste into `migrations/005_ingestion_pipeline.sql`.
-
-Required extensions: `pgcrypto`, `btree_gist` already in migration 001. Add `vector` (pgvector) here.
-
-Tables to design:
-
-**`documents`** — one row per source document before chunking
-Must include:
-- `source_type`: enum('nkp_case', 'act', 'regulation')
-- `source_id`: the original ID from the JSONL (case_id or _id)
-- `content_hash`: SHA-256 of raw content (idempotency key — prevents double-ingestion)
-- `ingestion_status`: enum('pending', 'approved', 'rejected') — maps to PS-2 dual approval gate
-- `valid_from`, `valid_to`: tstzrange (bitemporal)
-- `ingested_at`: timestamptz
-- `approved_by`, `second_approved_by`: text (dual approval names — PS-2)
-- `raw_content`: text (immutable after write)
-- Unique constraint on `(source_type, source_id)`
-
-**`chunks`** — one row per chunk (the main retrieval unit)
-Must include:
-- `id`: uuid primary key
-- `document_id`: uuid FK → documents
-- `embedding`: vector(N) — specify dimensionality based on recommended model
-- `chunk_index`: int (position within document)
-- `chunk_text`: text (redacted for NKP cases)
-- `chunk_type`: text (section_label)
-- All typed metadata columns from §2 above (NOT a jsonb blob)
-- `created_at`: timestamptz
-- HNSW index on embedding (specify ef_construction and m params)
-- B-tree indexes on (source_type, case_type, decision_date_ad, court)
-
-**`pii_vault`** — unredacted NKP content
-Must include:
-- `id`: uuid primary key
-- `document_id`: uuid FK → documents
-- `appellant_raw`: text
-- `respondent_raw`: text
-- `full_text_raw`: text
-- `stored_at`: timestamptz
-- Document the required PostgreSQL role restriction as a DDL comment
-
-**Note on embedding model:** Do NOT use OpenAI or Pinecone. Recommend a multilingual model
-strong on Devanagari. Candidates: `intfloat/multilingual-e5-large` (1024-dim),
-`sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (768-dim),
-`BAAI/bge-m3` (1024-dim). State the dimensionality so the vector column size is concrete.
-
-### 5. BM25 gap (open architectural question — research and recommend)
-
-The system design §8 requires "BM25 Nepali" in the retrieval stack. pgvector provides only kNN.
-Evaluate and recommend one of:
-- **Option A:** PostgreSQL `tsvector` + `GIN` index for text search (limited Nepali stemming support — what is the actual Nepali tokenizer situation?)
-- **Option B:** Keep OpenSearch for BM25, use pgvector in PostgreSQL for vectors (two systems)
-- **Option C:** Use `pg_search` (ParadeDB) which provides BM25 within PostgreSQL
-
-State tradeoffs concretely. This will be decided by Prakash before implementation.
-
-### 6. Ingestion pipeline stages
-
-Design the pipeline as ordered stages. For each stage: inputs, outputs, failure mode, retry policy.
-
-```
-load → validate → redact_pii → chunk → extract_metadata → embed → upsert
+-- BM25 index for Nepali text search. ParadeDB tokenizes on unicode word boundaries
+-- (no Nepali stemmer — morphological variants handled at query time via variant expansion).
+-- Consult the ParadeDB version installed for exact index syntax; the form below is
+-- correct for ParadeDB ≥0.8.
+CALL paradedb.create_bm25(
+    index_name => 'chunks_bm25',
+    table_name => 'chunks',
+    key_field  => 'id',
+    text_fields => paradedb.field('chunk_text', tokenizer => paradedb.tokenizer('unicode'))
+);
 ```
 
-Answer:
-- Which stages are parallelizable across documents?
-- Which stages are parallelizable within a single document?
-- Where are the rate-limit chokepoints (haiku API calls, embedding throughput)?
-- How does the `content_hash` idempotency check work exactly?
-- Where does the dual approval gate (PS-2) pause the pipeline?
+If the `paradedb.create_bm25` syntax differs for the installed version, look it up from
+`SELECT paradedb.schema_version()` at runtime and adjust. The comment in the migration
+must document the version assumption.
 
 ---
 
-## Deliverable
+## laws_chunker.py spec
 
-Create `docs/ingestion_design.md` with these sections:
-1. **Data observations** — what you found in the samples (concrete, not generic)
-2. **Chunking strategy per source** — with rationale tied to actual text patterns observed
-3. **Metadata schema per source** — final tables
-4. **PII redaction recommendation** — with tradeoffs
-5. **PostgreSQL DDL** — migration 005, copy-paste ready
-6. **Pipeline stage diagram** — ASCII art
-7. **Open questions for Prakash** — BM25/text-search choice, embedding model choice, any other gaps
+```python
+# Input: one record from laws.jsonl (dict with 'content', 'name', 'english_name', '_id', 'document_type')
+# Output: list of LawChunk dataclasses
+
+@dataclass
+class LawChunk:
+    chunk_index: int
+    chunk_text: str         # verbatim from content (including <amend> tags)
+    embed_text: str         # <amend>…</amend> and ✂ stripped, for embedding only
+    level: str              # 'act' | 'chapter' | 'section' | 'subsection' | 'proviso'
+    section_number: str | None
+    section_title: str | None
+    chapter_number: str | None
+    parent_section: str | None   # दफा number when level='subsection'/'proviso'
+    co_retrieve_parent_index: int | None  # chunk_index of operative clause (PS-16)
+```
+
+Split rules (from design §2.1):
+1. Extract preamble/header block (everything before first `**[०-९]` bold heading) → one chunk, `level='act'`
+2. Split on `(?=\*\*[०-९]+\.)` to get दफा chunks; track enclosing `## परिच्छेद-N` for chapter_number
+3. If दफा chunk > 2,400 chars, split at उपदफा `^\([०-९]+\)` boundaries; each piece is `level='subsection'`, `parent_section=दफा_number`
+4. स्पष्टीकरण blocks (`स्पष्टीकरण\s*[:：]` line) within a chunk: if within size limit, keep inline (don't orphan). If the containing दफा was split, create a `level='proviso'` chunk with `co_retrieve_parent_index` pointing at the operative subsection chunk_index.
+5. After splitting, normalize Devanagari (unicodedata.normalize('NFC', text)) on chunk_text.
+6. embed_text = chunk_text with `<amend>[^<]+</amend>` replaced by `[संशोधित]` and `✂+\.+` replaced by `[…]`.
+7. Emit chunks in document order; chunk_index is 0-based.
+
+Minimum chunk size: 400 chars. If a दफा is < 400 chars and has a sibling दफा, do NOT merge — emit as-is (legal units must not be merged across boundaries).
 
 ---
 
-## Governing design references
+## nkp_chunker.py spec
 
-- `SYSTEM_DESIGN.md` §2 (Core Invariants), §4 (Data model), §5 (Ingestion plane), §8 (retrieval BM25 requirement), §12 (Tech stack swappable)
-- `SYSTEM_DESIGN.md` §14:
-  - **PS-2** dual approval gate (ingestion_status = pending until approved)
-  - **PS-3** citations to authoritative instrument chain
-  - **PS-14** PII / trace redaction (pii_vault design)
-  - **PS-16** provisos must co-retrieve with operative clause (chunking constraint)
-
-## Explicitly forbidden
-
-- Do NOT modify any existing file in `app/`, `migrations/`, `tests/`, or `scripts/`
-- Do NOT implement code — design document only
-- Do NOT use Pinecone, OpenAI embeddings, or Supabase client in the design
-- Do NOT put all metadata in a `jsonb` blob — typed columns required
-- Do NOT recommend fixed-size chunking with overlap
-- Do NOT silently resolve the BM25 gap — flag it explicitly
-
-## Required checks before committing
-
-```bash
-make lint    # must pass (no Python changes expected, but run it)
+```python
+@dataclass
+class NKPChunk:
+    chunk_index: int
+    chunk_text: str          # redacted text
+    embed_text: str          # same as chunk_text (NKP has no markup to strip)
+    section_type: str        # caption | headnote | advocates | opinion | order | colophon | body
+    section_label: str       # human-readable label
 ```
+
+Primary split anchors (apply in order; each match consumes the text up to the next anchor):
+
+| Pattern | section_type | Notes |
+|---|---|---|
+| `^सर्वोच्च अदालत` to end of judge-name lines | `caption` | First lines of document |
+| `^आदेश मिति\s*:` or `^मुद्दाः` or `^विषयः` lines | `caption` | Optional; merge into caption if adjacent |
+| Text before first `का तर्फबाट` / `न्या\.` line | `headnote` | सिद्धान्त statements |
+| Lines matching `[^।]+का तर्फबाट\s*:` | `advocates` | All advocate lines as one chunk |
+| `न्या\.[^\s]+\s*:` opener through start of order block | `opinion` | Longest section |
+| Line-start `^[०-९]+\.` numbered items (the tail) | `order` | Dispositive section |
+| `^इति संवत्` | `colophon` | Document terminator |
+
+Anything not matched: `section_type='body'`, do not silently drop.
+
+Secondary split (for chunks > 2,400 chars — mainly `opinion`):
+1. Split at line-start `^[०-९]+\.` (numbered items within opinion)
+2. Else split at `\s। \s` (sentence boundary on Nepali danda)
+3. Never split mid-word. Each piece inherits parent's section_type.
+
+chunk_text is the redacted text (redaction happens BEFORE chunking in the pipeline — see pipeline.py).
+
+---
+
+## pii_redactor.py spec
+
+```python
+class PIIRedactor:
+    def redact(self, full_text: str, appellant: str, respondent: str) -> tuple[str, list[str]]:
+        """
+        Returns: (redacted_text, list_of_redaction_warnings)
+        Raises: RedactionVerificationError if any raw token ≥4 chars survives in output.
+        """
+```
+
+Stage 1 — deterministic (rule-based):
+1. Normalize appellant and respondent to NFC + digit-fold (replace Devanagari digits with ASCII equivalents for comparison only; the stored text keeps original).
+2. Split each into tokens on spaces/punctuation.
+3. Build a set of tokens ≥4 chars from both strings.
+4. Exact-string replace the full `appellant` string and the full `respondent` string with `[[वादी]]` and `[[प्रतिवादी]]` respectively.
+5. Also replace each individual token ≥4 chars (Devanagari word boundary `\b` doesn't work for Devanagari — use `(?<![^\s।,।])token(?![^\s।,।])` anchors or just replace all occurrences).
+
+Stage 2 — haiku second pass:
+- Only run if Stage 1 detected > 0 replacements in the text (if no replacements, Stage 1 already confirmed no PII).
+- Call `claude-haiku-4-5-20251001` with a prompt like: "Given these party names: [appellant], [respondent] — identify any variant mentions (abbreviated names, honorifics, partial names) in the following text and return a JSON list of spans to replace. Format: [{\"original\": \"...\", \"replacement\": \"[[वादी]]\"}]". Apply the replacements.
+- This call is per-document (not batched), with a 30-second timeout.
+
+Stage 3 — verification assertion:
+- For every token ≥4 chars from appellant/respondent, assert it does not appear in redacted_text.
+- If assertion fails: raise `RedactionVerificationError(token=..., document_id=...)`. The pipeline catches this and sets `ingestion_status='pending'` with a flag — the document is quarantined for human review, never silently passed.
+
+```python
+class RedactionVerificationError(Exception):
+    def __init__(self, token: str, document_id: str): ...
+```
+
+---
+
+## pgvector_indexer.py spec
+
+```python
+class PgvectorIndexer:
+    def __init__(self, conn: psycopg2.connection): ...
+
+    def embed_chunks(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        """Load BAAI/bge-m3 once (cache on self), encode texts in batches, normalize."""
+
+    def upsert_document(self, document: dict, chunks: list[LawChunk | NKPChunk], embeddings: list[list[float]]) -> str:
+        """
+        Insert documents row + all chunk rows in one transaction.
+        Returns document_id (UUID).
+        Inserts chunks in chunk_index order (0, 1, 2 …) to respect co_retrieve_parent_id FK.
+        On UNIQUE(document_id, chunk_index) conflict: DELETE existing chunks for this document, re-insert.
+        """
+
+    def insert_pii_vault(self, document_id: str, appellant: str, respondent: str, full_text_raw: str) -> None:
+        """Write to pii_vault. Called only for nkp_case source_type."""
+```
+
+Use `psycopg2-binary` (already in requirements.txt) and `pgvector` Python package for the vector column type. Register the pgvector adapter with `register_vector(conn)` from `pgvector.psycopg2`.
+
+Load bge-m3:
+```python
+from sentence_transformers import SentenceTransformer
+self._model = SentenceTransformer('BAAI/bge-m3')
+```
+Normalize embeddings (`normalize_embeddings=True`). Dimensionality: 1024.
+
+---
+
+## metadata_enricher.py spec (rewrite)
+
+Remove all `langchain_openai` / `ChatOpenAI` imports. Use `anthropic` SDK directly.
+
+```python
+import anthropic
+
+_client = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY from env
+
+def enrich_law_chunks(act_record: dict, chunks: list[LawChunk]) -> list[dict]:
+    """
+    One haiku call per act: send numbered chunk list, get back keywords + relevant_questions per chunk.
+    Returns list of metadata dicts aligned by chunk_index.
+    """
+
+def enrich_nkp_chunks(case_record: dict, chunks: list[NKPChunk]) -> list[dict]:
+    """
+    Two haiku calls per case:
+    1. cited_statutes + headnotes cleanup over full redacted text.
+    2. keywords + relevant_questions per chunk (batched).
+    """
+```
+
+Use `claude-haiku-4-5-20251001`. Parse all LLM outputs as JSON. If JSON parsing fails, log a warning and return empty values (never crash the pipeline; NULL columns are acceptable).
+
+For the Message Batches API (offline ingestion — 50% cost):
+Use `_client.messages.batches.create(requests=[...])` if the batch covers ≥10 documents.
+For smaller runs, use individual `_client.messages.create(...)` calls.
+
+---
+
+## pipeline.py spec
+
+```python
+class IngestionPipeline:
+    def ingest_law(self, record: dict) -> str | None:
+        """Run stages 1–8 for a laws.jsonl record. Returns document_id or None if skipped."""
+
+    def ingest_nkp_case(self, record: dict) -> str | None:
+        """Run stages 1–8 for an nkp_cases.jsonl record."""
+```
+
+Stages (from design §6):
+1. **LOAD**: compute `content_hash = hashlib.sha256(unicodedata.normalize('NFC', content).encode()).hexdigest()`. Check `documents` table for `(source_type, source_id)`. If exists + same hash → return None (skip). If exists + different hash → update `valid_time` upper bound on the old row, insert new row `status='pending'`. If new → insert `status='pending'`.
+2. **VALIDATE**: check content not empty; for laws, verify at least one `**[०-९]` heading found. Else set `status='rejected'`, return None.
+3. **REDACT_PII** (nkp_case only): call `PIIRedactor.redact()`. On `RedactionVerificationError`: log error, leave `status='pending'` with a `redaction_failed=True` flag (add this boolean column to documents in the migration), return None.
+4. **CHUNK**: call LawsChunker or NKPChunker depending on source_type.
+5. **EXTRACT_METADATA**: call MetadataEnricher; retry haiku calls up to 3× with exponential backoff on 429/5xx; on persistent failure, leave LLM columns NULL.
+6. **EMBED**: call `PgvectorIndexer.embed_chunks()` on `embed_text` list. Batch size 32. On OOM, halve batch size and retry ×3.
+7. **UPSERT**: call `PgvectorIndexer.upsert_document()` and (for NKP) `insert_pii_vault()`.
+8. **DUAL APPROVAL PAUSE**: the document is now `status='pending'` in the DB. Do NOT set `status='approved'` in the pipeline. Log "document {document_id} awaiting dual approval." This is where humans intervene via a separate admin path.
+
+The pipeline must never crash on a single document's failure — catch per-document exceptions, log them with the source_id, and continue to the next document.
+
+---
+
+## scripts/ingest_laws.py spec (rewrite)
+
+```python
+# Usage: python scripts/ingest_laws.py --input laws.jsonl [--limit N] [--dry-run]
+# Iterates laws.jsonl line by line, calls pipeline.ingest_law(record) for each.
+# Reports: processed / skipped / rejected / failed counts.
+```
+
+---
+
+## scripts/ingest_nkp.py (new)
+
+```python
+# Usage: python scripts/ingest_nkp.py --input output/nkp_cases.jsonl [--limit N] [--dry-run]
+# Iterates nkp_cases.jsonl, calls pipeline.ingest_nkp_case(record) for each.
+# Reports same counts.
+```
+
+---
+
+## requirements.txt changes
+
+Add only these three lines (do NOT remove anything — other packages may be used by retrieval-side code):
+```
+anthropic>=0.40.0
+sentence-transformers>=3.0.0
+pgvector>=0.3.0
+```
+
+Do NOT remove `langchain-openai`, `pinecone`, `supabase`, or `chromadb` — check imports before touching anything. If a package is only imported in the two files being deleted (pinecone_indexer.py, hierarchical_chunker.py), note it in your return report but do NOT remove it from requirements.txt in this PR (that's a separate cleanup).
+
+---
+
+## Tests (tests/test_ingestion_pipeline.py)
+
+Write unit tests for the following (mock DB and haiku calls; do NOT hit real APIs in tests):
+
+1. **LawsChunker**: feed a 3-दफा act fixture (inline string), assert chunk count, levels, co_retrieve links, and that no दफा boundary is crossed mid-chunk.
+2. **NKPChunker**: feed a minimal NKP case fixture, assert caption/headnote/order sections are correctly identified.
+3. **PIIRedactor**: assert Stage 1 replaces the exact appellant/respondent strings; assert Stage 3 raises `RedactionVerificationError` if a token ≥4 chars survives.
+4. **Pipeline idempotency**: mock the DB to return an existing row with the same content_hash; assert `ingest_law()` returns None without calling embed or upsert.
+5. **Dual approval gate (DDL)**: run the migration SQL against a test SQLite-like fixture — actually, use psycopg2 with a real local DB if available; otherwise just parse the CHECK constraint logic and assert it would reject single-approver approval. Note if skipped.
+
+Run with `make test`. All 5 tests must pass.
+
+---
+
+## BS→AD conversion
+
+Use the existing `app.authority.bs_ad_calendar` module (Phase PC-A implementation). Do NOT use any date library.
+
+```python
+from app.authority.bs_ad_calendar import lookup, BeyondCalendarRange
+
+def parse_decision_date(decision_date_bs: str) -> tuple[date | None, bool]:
+    """
+    Parses '२०८१/०१/०३' (Devanagari digits, BS) to AD date.
+    Returns (ad_date, is_boundary_window).
+    Returns (None, False) if unparseable or out of calendar range (log warning).
+    """
+    def devanagari_to_int(s: str) -> int:
+        return int(''.join(str(ord(c) - ord('०')) for c in s))
+    ...
+```
+
+---
 
 ## Commit authorship
 
@@ -301,7 +342,16 @@ Every commit must use:
 ```
 git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"
 ```
-Never add Co-Authored-By, Generated-with, or any AI attribution line to commits.
+Never add Co-Authored-By or any AI attribution line.
+
+---
+
+## Required checks before reporting back
+
+```bash
+make lint    # ruff + mypy — must be clean
+make test    # all tests green
+```
 
 ---
 
@@ -309,7 +359,7 @@ Never add Co-Authored-By, Generated-with, or any AI attribution line to commits.
 
 Report:
 1. Commit hash
-2. Key findings from data sampling (2–3 sentences on actual text structure observed)
-3. Your chunking recommendation and the primary evidence for it
-4. Your BM25 recommendation
-5. Any PS requirement you think the design could conflict with
+2. Files created / modified / deleted
+3. `make lint` and `make test` output (or paste the summary)
+4. Any assumption you made that wasn't in this brief
+5. Any PS-* requirement you think your implementation might be touching unexpectedly
