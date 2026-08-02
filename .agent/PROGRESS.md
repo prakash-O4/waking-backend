@@ -14,18 +14,41 @@ Deliverable: `docs/ingestion_design.md` (design only, no implementation).
 `pe-a/ingestion-pipeline`
 
 ## Status
-**IN PROGRESS** — task.md written, branch pushed. Assigned to Kimi.
+**DESIGN APPROVED** — `docs/ingestion_design.md` reviewed and approved (commit ab4dcb4).
+Three open questions require Prakash's decision before implementation begins (see below).
 
-## PS requirements in scope
-- PS-2: dual approval gate (ingestion_status enum)
-- PS-3: citations to authoritative chain (not chunks)
-- PS-14: PII redaction (pii_vault table)
-- PS-16: provisos co-retrieve with operative clause (chunking constraint)
+## PS requirements in scope — all verified GREEN
+- PS-2: dual-approval CHECK constraint in DDL; effective_date_ad NULL-pending (never fabricated)
+- PS-3: laws.jsonl content treated as derived_verified (consolidation); <amend> tags preserved
+- PS-5: BS→AD only via bs_ad_calendar; boundary-window dates flagged for human review
+- PS-10: ocr_confidence column on documents; regulations OCR provenance explicit
+- PS-14: pii_vault with REVOKE ALL + pii_vault_reader role; retrieval path never sees raw PII
+- PS-16: co_retrieve_parent_id FK enforces proviso co-retrieval; eval-asserted
 
-## Open architectural question (Prakash must decide before implementation)
-BM25 gap: pgvector alone drops BM25 Nepali retrieval (required by §8).
-Options: PostgreSQL tsvector / keep OpenSearch / pg_search (ParadeDB).
-Kimi will research and recommend; Prakash decides.
+## Implementation note (minor, not a blocker)
+co_retrieve_parent_id is a self-referential FK on chunks. UPSERT stage must insert
+parent chunks before child (proviso) chunks within each document — chunk_index order
+guarantees this, but the implementation engineer must not batch-insert out of order.
+
+## Open questions — Prakash decides before implementation
+
+1. **BM25 / text-search**: Kimi recommends pg_search (ParadeDB) — same transaction boundary,
+   no OpenSearch. All options lack Nepali stemming, so morphology is better at query time.
+   Fallback: PostgreSQL tsvector simple config if ParadeDB unavailable on host.
+   → **Prakash: confirm Option C (pg_search) or override.**
+
+2. **Regulations scope**: regulations.json has no text — only PDF URLs. Ingesting regulations
+   requires a fetch + PDF→markdown + parse step (Azure DI quota + PDF availability to confirm).
+   → **Prakash: is regulation ingestion in PE-B scope or later?**
+
+3. **Embedding model**: bge-m3 (1024-dim) recommended; bake-off on golden eval slice before
+   full embed run. DDL is already sized at vector(1024) for both bge-m3 and e5-large.
+   → **Prakash: confirm bge-m3 or request bake-off first.**
+
+## Next action
+Prakash decides the three open questions above.
+Once decided: implementation engineer (Kimi, same branch) writes migration 005 and
+the ingestion pipeline code.
 
 ---
 
