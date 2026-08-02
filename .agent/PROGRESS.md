@@ -1,35 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PB-A** — Orchestrator + degraded-mode ladder (Phase B)
+None — Phase B complete. Awaiting next task.
 
 ## Base branch
 `dev`
 
 ## Working branch
-`phase-b/orchestrator-resilience`
+None
 
 ## Status
-**IN PROGRESS** — task brief written, awaiting Pi.
-
-## Owner
-Pi
-
-## Governing design refs
-- system-design.md §2 (Core Invariants), §8 (Query plane), §9 (Degraded-mode ladder), §13 (Phase B), §14 (PS-6, PS-7, PS-11)
-- AGENTS.md (prime directive, definition of done)
-
-## PS requirements in scope
-- PS-6: Per-claim as_of — each result carries the as_of used to validate it
-- PS-7: Model abstention advisory; server gate owns abstention on every path
-- PS-11: Postgres-down → HTTP 503, no fallback to index-only answers
-
-## Zero-tolerance gates (must stay 0)
-- `repealed-as-current = 0`
-- `not-yet-effective-as-current = 0`
-
-## Next action
-Prakash runs Pi on `phase-b/orchestrator-resilience`. Returns result to Claude for review.
+**IDLE** — Phase B merged.
 
 ---
 
@@ -44,11 +25,33 @@ Prakash runs Pi on `phase-b/orchestrator-resilience`. Returns result to Claude f
 - migration 002: eligibility gate suspend fix
 
 ### PA-A — Wire /ask with bitemporal gated pipeline (MERGED, commit d270be2)
-- `app/main.py`: Pinecone/Cohere removed; eligibility gate → dumb_retriever →
-  model (claims+evidence_ids) → validate_and_render; as_of per-request
+- `app/main.py`: eligibility gate → dumb_retriever → model (claims+evidence_ids) → validate_and_render
 - `tests/test_ask_pipeline.py`: 4 tests
-- make lint / make test / make eval-gates all green
+
+### PB-A — Gated orchestrator + degraded-mode ladder (MERGED, commit 5dfbfcc)
+- `app/retrieval/gated_orchestrator.py`: LLM router (simple/complex), multi-hop up to 3
+  sub-queries each with own as_of, wall-clock cap 20s, all paths gate-validated
+- `app/retrieval/postgres_retriever.py`: ILIKE fallback retriever with eligibility gate
+- `app/main.py`: delegates to orchestrator_answer(); Postgres-down → HTTP 503 (PS-11)
+- `tests/test_degraded_modes.py` + `tests/test_orchestrator.py`: 10 new tests
+- make lint / make test (15 passed) / make eval-gates all green
+
+## Phase 0 + A + B status
+**COMPLETE.**
+- Eligibility gate + validation gate on every path (including all degraded modes)
+- Model never writes citations; server gate owns citation render and abstention
+- Per-claim as_of enforced on every hop
+- Postgres-down → 503, no index-only fallback
+- Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0
 
 ## Operational steps still pending (on Prakash)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch (requires env vars)
 - Run `scripts/migrate.py` to apply migration 002 to Supabase
+
+## Governing design refs
+- system-design.md §2 (Core Invariants), §8, §9, §13, §14 (PS-6, PS-7, PS-11)
+- AGENTS.md (prime directive, definition of done)
+
+## Next action
+Awaiting Prakash's direction. Next milestone: Phase C (language hardening —
+Romanized Nepali slice, BS↔AD canonical calendar) or Phase D (precedent).
