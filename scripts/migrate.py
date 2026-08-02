@@ -9,6 +9,7 @@ import psycopg2
 MIGRATIONS = [
     Path(__file__).resolve().parents[1] / "migrations" / "001_bitemporal_schema.sql",
     Path(__file__).resolve().parents[1] / "migrations" / "002_gate_suspend_fix.sql",
+    Path(__file__).resolve().parents[1] / "migrations" / "003_bs_ad_calendar.sql",
 ]
 
 

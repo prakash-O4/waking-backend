@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import unquote
 
+from app.authority.bs_ad_calendar import BeyondCalendarRange, lookup
 from app.authority.models import WorkType
 
 
@@ -43,11 +44,6 @@ _HEADER_RE = re.compile(
 
 def _ascii_digits(text: str) -> str:
     return text.translate(_DIGITS)
-
-
-def bs_to_ad_approx(bs_year: int, bs_month: int) -> date:
-    # PHASE-C-TODO: replace with canonical bs_ad_calendar lookup.
-    return date(bs_year - 57 if bs_month <= 3 else bs_year - 56, 1, 1)
 
 
 def make_uri(name: str, doc_type: str, record_id: str | None = None) -> str:
@@ -88,8 +84,12 @@ def _enactment_ad(content: str) -> date | None:
     )
     if not match:
         return None
-    year, month, _day = (int(_ascii_digits(group)) for group in match.groups())
-    return bs_to_ad_approx(year, month)
+    year, month, day = (int(_ascii_digits(group)) for group in match.groups())
+    try:
+        ad_date, _ = lookup(year, month, day)
+    except BeyondCalendarRange:
+        return None
+    return ad_date
 
 
 def _clean_text(text: str) -> str:
