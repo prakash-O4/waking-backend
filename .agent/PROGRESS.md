@@ -1,18 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PD-A** — Phase D: Precedent Schema + Eval Gate + Retriever  
-Branch: `phase-d/precedent`  
-Status: **ASSIGNED to Pi**
+None — Phase D complete. Awaiting next task.
 
 ## Base branch
 `dev`
 
 ## Working branch
-`phase-d/precedent`
+None
 
 ## Status
-**IN PROGRESS** — task brief written; awaiting Pi's implementation.
+**IDLE** — Phase D merged.
 
 ---
 
@@ -44,37 +42,34 @@ Status: **ASSIGNED to Pi**
 - `app/eval/golden/romanized.json`: 10 romanized queries with real corpus URIs
 - 9 new tests (24 total passing)
 
-## Phase 0 + A + B + C status
+### PD-A — Precedent schema + eval gate + retriever skeleton (MERGED, commit 96533eb)
+- `migrations/004_precedent_schema.sql`: `precedent`, `precedent_holding`, `precedent_relation` tables + `is_good_law(uuid, date)` SQL function
+- `app/authority/precedent_models.py`: `RelationType` enum, `PrecedentRelation` dataclass
+- `app/retrieval/precedent_retriever.py`: ILIKE over holdings with `is_good_law()` filter
+- `app/eval/gates.py`: `check_overruled_as_good_law()` + updated `main()`
+- `scripts/migrate.py`: applies migration 004
+- `tests/test_precedent_gate.py`: 5 mock-based tests
+- 5 new tests (29 total passing, 1 skipped)
+
+## Phase 0 + A + B + C + D status
 **COMPLETE.**
 - All gates enforced on every path (including all degraded modes)
 - bs_to_ad_approx() eliminated; canonical calendar live (PS-5)
 - Romanized Nepali is a first-class eval slice with Recall@5 (PS-8)
-- Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0
+- Precedent subsystem: holding-level model, bench-competence gate (PS-1)
+- Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0, overruled-as-good-law = 0
 
 ## Operational steps still pending (on Prakash)
-- Run `scripts/migrate.py` (applies migrations 001-003; 004 after PD-A merges)
+- Run `scripts/migrate.py` (applies migrations 001-004)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch
 - Run `scripts/seed_bs_ad_calendar.py` after migration 003
 - Run `make eval` against live env to get baseline Recall@5
-
-## Phase D scope (PD-A)
-New files:
-- `migrations/004_precedent_schema.sql` — `precedent`, `precedent_holding`, `precedent_relation` + `is_good_law()`
-- `app/authority/precedent_models.py` — `RelationType` enum + `PrecedentRelation` dataclass
-- `app/retrieval/precedent_retriever.py` — ILIKE over holdings with `is_good_law()` filter
-- `tests/test_precedent_gate.py` — mock-based tests for gate + retriever
-
-Modified:
-- `app/eval/gates.py` — add `check_overruled_as_good_law()`, update `main()`
-- `scripts/migrate.py` — apply migration 004
-- `Makefile` — add new files to lint targets
-
-Zero-tolerance gate added: `overruled-as-good-law = 0`
-Retriever NOT wired into orchestrator yet (no corpus; wired after ingestion).
+- Run `make eval-gates` against live env to verify all gates against real DB
+- Ingest precedent corpus (then wire `retrieve_precedent` into orchestrator)
 
 ## Governing design refs
 - system-design.md §2, §6, §7.6, §10, §13, §14 (PS-1, PS-5, PS-8)
 - AGENTS.md (prime directive, definition of done)
 
 ## Next action
-Pi implements PD-A. Claude reviews on return.
+Awaiting Prakash's direction. All four build phases complete.
