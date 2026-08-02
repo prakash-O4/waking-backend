@@ -19,9 +19,9 @@ test: ## pytest tests/
 	python3 -m pytest tests/
 
 lint: ## ruff check . && ruff format --check .
-	python3 -m ruff check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
-	python3 -m ruff format --check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
-	python3 -m mypy --strict --follow-imports=skip --disable-error-code=misc app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
+	python3 -m ruff check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
+	python3 -m ruff format --check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
+	python3 -m mypy --strict --follow-imports=skip --disable-error-code=misc app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py
 
 eval: ## no cases yet
 	@python3 -c 'print("no eval cases yet")'
