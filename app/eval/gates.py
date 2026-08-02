@@ -85,18 +85,77 @@ def check_not_yet_effective_as_current(
     return _isolated_check(conn, component_uri, "commence", "gazette_notification")
 
 
+def check_overruled_as_good_law(
+    conn: connection, os_client: object | None = None
+) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SAVEPOINT precedent_gate_check")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO precedent (uri, title, bench_size) "
+                "VALUES (%s,%s,%s) RETURNING id",
+                ("/test/target", "Target Case", 3),
+            )
+            row = cur.fetchone()
+            if not row:
+                return 1
+            target_case_id = row[0]
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO precedent_holding (precedent_id, holding_text) "
+                "VALUES (%s,%s) RETURNING id",
+                (target_case_id, "Test holding text"),
+            )
+            row = cur.fetchone()
+            if not row:
+                return 1
+            holding_id = row[0]
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO precedent (uri, title, bench_size) "
+                "VALUES (%s,%s,%s) RETURNING id",
+                ("/test/source", "Source Case", 5),
+            )
+            row = cur.fetchone()
+            if not row:
+                return 1
+            source_case_id = row[0]
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO precedent_relation
+                    (source_case_id, target_holding_id, relation_type, bench_strength,
+                     legal_valid_time, approval_status)
+                VALUES (%s, %s, 'overrules', 5, '[2020-01-01,)'::tstzrange, 'approved')
+                """,
+                (source_case_id, holding_id),
+            )
+        with conn.cursor() as cur:
+            cur.execute("SELECT is_good_law(%s, %s)", (holding_id, date(2024, 1, 1)))
+            row = cur.fetchone()
+        is_good = bool(row[0]) if row else True
+        return int(is_good)
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("ROLLBACK TO SAVEPOINT precedent_gate_check")
+
+
 def main() -> None:
     if not os.getenv("SUPABASE_DB_URL"):
         print("repealed-as-current: 0")
         print("not-yet-effective-as-current: 0")
+        print("overruled-as-good-law: 0")
         return
     with connect() as conn:
         repealed = check_repealed_as_current(conn)
         pending = check_not_yet_effective_as_current(conn)
+        overruled = check_overruled_as_good_law(conn)
         conn.commit()
     print(f"repealed-as-current: {repealed}")
     print(f"not-yet-effective-as-current: {pending}")
-    raise SystemExit(1 if repealed or pending else 0)
+    print(f"overruled-as-good-law: {overruled}")
+    raise SystemExit(1 if repealed or pending or overruled else 0)
 
 
 if __name__ == "__main__":
