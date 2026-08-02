@@ -1,16 +1,34 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — Phase B complete. Awaiting next task.
+**PC-A** — BS↔AD canonical calendar + Romanized Nepali eval slice (Phase C)
 
 ## Base branch
 `dev`
 
 ## Working branch
-None
+`phase-c/language-hardening`
 
 ## Status
-**IDLE** — Phase B merged.
+**IN PROGRESS** — task brief written, awaiting Pi.
+
+## Owner
+Pi
+
+## Governing design refs
+- system-design.md §2 (Core Invariants), §7.6 (BS↔AD as canonical data), §10 (eval), §13 (Phase C), §14 (PS-5, PS-8)
+- AGENTS.md (prime directive, definition of done)
+
+## PS requirements in scope
+- PS-5: BS↔AD is versioned canonical data; BeyondCalendarRange for out-of-range dates
+- PS-8: Romanized Nepali is a first-class eval slice with its own Recall@5 metric
+
+## Zero-tolerance gates (must stay 0)
+- `repealed-as-current = 0`
+- `not-yet-effective-as-current = 0`
+
+## Next action
+Prakash runs Pi on `phase-c/language-hardening`. Returns result to Claude for review.
 
 ---
 
@@ -29,29 +47,11 @@ None
 - `tests/test_ask_pipeline.py`: 4 tests
 
 ### PB-A — Gated orchestrator + degraded-mode ladder (MERGED, commit 5dfbfcc)
-- `app/retrieval/gated_orchestrator.py`: LLM router (simple/complex), multi-hop up to 3
-  sub-queries each with own as_of, wall-clock cap 20s, all paths gate-validated
-- `app/retrieval/postgres_retriever.py`: ILIKE fallback retriever with eligibility gate
-- `app/main.py`: delegates to orchestrator_answer(); Postgres-down → HTTP 503 (PS-11)
-- `tests/test_degraded_modes.py` + `tests/test_orchestrator.py`: 10 new tests
-- make lint / make test (15 passed) / make eval-gates all green
-
-## Phase 0 + A + B status
-**COMPLETE.**
-- Eligibility gate + validation gate on every path (including all degraded modes)
-- Model never writes citations; server gate owns citation render and abstention
-- Per-claim as_of enforced on every hop
-- Postgres-down → 503, no index-only fallback
-- Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0
+- `app/retrieval/gated_orchestrator.py`, `app/retrieval/postgres_retriever.py`
+- Degraded modes: Postgres-down→503, OpenSearch-down→Postgres fallback, model-down→extractive
+- 10 new tests; make lint / make test (15 passed) / make eval-gates all green
 
 ## Operational steps still pending (on Prakash)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch (requires env vars)
-- Run `scripts/migrate.py` to apply migration 002 to Supabase
-
-## Governing design refs
-- system-design.md §2 (Core Invariants), §8, §9, §13, §14 (PS-6, PS-7, PS-11)
-- AGENTS.md (prime directive, definition of done)
-
-## Next action
-Awaiting Prakash's direction. Next milestone: Phase C (language hardening —
-Romanized Nepali slice, BS↔AD canonical calendar) or Phase D (precedent).
+- Run `scripts/migrate.py` to apply migrations 002 + 003 to Supabase
+- Run `scripts/seed_bs_ad_calendar.py` after migration 003 is applied
