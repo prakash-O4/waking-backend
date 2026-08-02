@@ -1,16 +1,31 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — Phase D complete. Awaiting next task.
+**PE-A — Ingestion Pipeline Research & Design**
+Stack migration: Supabase + Pinecone → plain PostgreSQL + pgvector.
+Redesign chunking (structure-aware for Nepali legal text), metadata extraction,
+PII redaction, hybrid RDB+vector schema, and pipeline stages.
+Deliverable: `docs/ingestion_design.md` (design only, no implementation).
 
 ## Base branch
 `dev`
 
 ## Working branch
-None
+`pe-a/ingestion-pipeline`
 
 ## Status
-**IDLE** — Phase D merged.
+**IN PROGRESS** — task.md written, branch pushed. Assigned to Kimi.
+
+## PS requirements in scope
+- PS-2: dual approval gate (ingestion_status enum)
+- PS-3: citations to authoritative chain (not chunks)
+- PS-14: PII redaction (pii_vault table)
+- PS-16: provisos co-retrieve with operative clause (chunking constraint)
+
+## Open architectural question (Prakash must decide before implementation)
+BM25 gap: pgvector alone drops BM25 Nepali retrieval (required by §8).
+Options: PostgreSQL tsvector / keep OpenSearch / pg_search (ParadeDB).
+Kimi will research and recommend; Prakash decides.
 
 ---
 
