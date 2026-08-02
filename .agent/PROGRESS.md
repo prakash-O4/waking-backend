@@ -1,16 +1,18 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — Phase C complete. Awaiting next task.
+**PD-A** — Phase D: Precedent Schema + Eval Gate + Retriever  
+Branch: `phase-d/precedent`  
+Status: **ASSIGNED to Pi**
 
 ## Base branch
 `dev`
 
 ## Working branch
-None
+`phase-d/precedent`
 
 ## Status
-**IDLE** — Phase C merged.
+**IN PROGRESS** — task brief written; awaiting Pi's implementation.
 
 ---
 
@@ -50,15 +52,29 @@ None
 - Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0
 
 ## Operational steps still pending (on Prakash)
-- Run `scripts/migrate.py` (applies migrations 001-003)
+- Run `scripts/migrate.py` (applies migrations 001-003; 004 after PD-A merges)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch
 - Run `scripts/seed_bs_ad_calendar.py` after migration 003
 - Run `make eval` against live env to get baseline Recall@5
 
+## Phase D scope (PD-A)
+New files:
+- `migrations/004_precedent_schema.sql` — `precedent`, `precedent_holding`, `precedent_relation` + `is_good_law()`
+- `app/authority/precedent_models.py` — `RelationType` enum + `PrecedentRelation` dataclass
+- `app/retrieval/precedent_retriever.py` — ILIKE over holdings with `is_good_law()` filter
+- `tests/test_precedent_gate.py` — mock-based tests for gate + retriever
+
+Modified:
+- `app/eval/gates.py` — add `check_overruled_as_good_law()`, update `main()`
+- `scripts/migrate.py` — apply migration 004
+- `Makefile` — add new files to lint targets
+
+Zero-tolerance gate added: `overruled-as-good-law = 0`
+Retriever NOT wired into orchestrator yet (no corpus; wired after ingestion).
+
 ## Governing design refs
-- system-design.md §2, §7.6, §10, §13, §14 (PS-5, PS-8)
+- system-design.md §2, §6, §7.6, §10, §13, §14 (PS-1, PS-5, PS-8)
 - AGENTS.md (prime directive, definition of done)
 
 ## Next action
-Awaiting Prakash's direction. Next milestone: Phase D (precedent subsystem —
-holding-level model, bench-competence gate, overruled-as-good-law = 0).
+Pi implements PD-A. Claude reviews on return.
