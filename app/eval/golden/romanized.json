@@ -1,0 +1,62 @@
+[
+  {
+    "query": "bhrastachar niwaran ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2059/59486624-bfcf-5223-9bc3-2baaf2932564"],
+    "note": "Prevention of Corruption Act"
+  },
+  {
+    "query": "shram ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2074/a279a04e-8f07-5cbd-8e60-b54b9fb2d477"],
+    "note": "Labour Act"
+  },
+  {
+    "query": "nijamati sewa ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2049/eaae597b-e840-559a-9050-63bd4b29c121"],
+    "note": "Civil Service Act"
+  },
+  {
+    "query": "praman ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2031/20cfb1a9-960d-53d2-b553-6ecbf6956bf3"],
+    "note": "Evidence Act"
+  },
+  {
+    "query": "bal shram nishedh ra niyamit garne ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2056/c70d5bd6-0c84-59ef-bf37-05da81d17dd5"],
+    "note": "Child Labour Act"
+  },
+  {
+    "query": "upabhokta sanrakshan ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2075/f51f6361-e659-5625-972f-be10b6dcfecb"],
+    "note": "Consumer Protection Act"
+  },
+  {
+    "query": "batawaran sanrakshan ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2076/8a0d1a53-3534-5737-b3e1-8766049d279c"],
+    "note": "Environment Protection Act"
+  },
+  {
+    "query": "samaajik suraksha ain",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2075/74ad0a83-5a71-5faa-b86f-5a263164ef5e"],
+    "note": "Social Security Act"
+  },
+  {
+    "query": "muluki aparadh samhita",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2074/a2e80349-1480-5cc9-b8d5-e631d889d227"],
+    "note": "Muluki Criminal Code"
+  },
+  {
+    "query": "muluki dewani samhita",
+    "as_of": "2024-01-01",
+    "expected_uris": ["/np/act/2074/0cb8b9cc-3f53-52a6-ba9e-302610f4f298"],
+    "note": "Muluki Civil Code"
+  }
+]
