@@ -1,36 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PA-A** — Wire `/ask` with bitemporal gated pipeline (Phase A)
+None — Phase A complete. Awaiting next task.
 
 ## Base branch
 `dev`
 
 ## Working branch
-`phase-a/statute-path`
+None
 
 ## Status
-**IN PROGRESS** — task brief written, awaiting Pi.
-
-## Owner
-Pi
-
-## Governing design refs
-- system-design.md §2 (Core Invariants), §13 (Phase A), §14 (PS-3, PS-6, PS-7)
-- AGENTS.md (prime directive, definition of done)
-
-## PS requirements in scope
-- PS-3: Citations from `source_publication + work` metadata only, via `validate_and_render()`
-- PS-6: `as_of` per-request, passed to every retrieve + validate call
-- PS-7: Model abstention advisory; server validation gate owns abstention
-
-## Zero-tolerance gates (must stay 0)
-- `repealed-as-current = 0`
-- `not-yet-effective-as-current = 0`
-
-## Next action
-Prakash runs Pi on `phase-a/statute-path` with the prompt below.
-Pi implements, tests, commits. Returns result to Claude for review.
+**IDLE** — Phase A merged.
 
 ---
 
@@ -49,12 +29,29 @@ Pi implements, tests, commits. Returns result to Claude for review.
 - `scripts/ingest_laws.py`: ingests 677 laws from laws.jsonl
 - `scripts/query.py`: end-to-end CLI demo
 - migration 002: eligibility gate suspend fix
-- loguru added to requirements.txt (pre-existing gap)
 
-## Phase 0 status
-**COMPLETE.** Schema migrated, 677-law corpus ingestable, dumb BM25 baseline
-with eligibility + validation gates wired, eval-gates green.
+### PA-A — Wire /ask with bitemporal gated pipeline (MERGED, commit d270be2)
+- `app/main.py`: Pinecone/Cohere path removed; /ask now uses dumb_retriever →
+  model (claims+evidence_ids only) → validate_and_render(); as_of per-request
+- `tests/test_ask_pipeline.py`: 4 tests (happy path, no-hits, model abstain, gate abstain)
+- `Makefile`: app/main.py added to lint paths
+- make lint / make test / make eval-gates all green
+
+## Phase 0 + A status
+**COMPLETE.**
+- 677-law corpus ingestable (dumb BM25 baseline)
+- Eligibility gate + validation gate on every /ask path
+- Model never writes citations; server gate owns citation render and abstention
+- Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0
 
 ## Operational steps still pending (on Prakash)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch (requires env vars)
 - Run `scripts/migrate.py` to apply migration 002 to Supabase
+
+## Governing design refs
+- system-design.md §2 (Core Invariants), §13 (Phase A), §14 (PS-1…PS-18)
+- AGENTS.md (prime directive, definition of done)
+
+## Next action
+Awaiting Prakash's direction. Next milestone: Phase B (orchestrator + resilience)
+or any sub-task Prakash prioritises.
