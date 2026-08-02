@@ -1,42 +1,32 @@
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
-import json
-from tenacity import retry, stop_after_attempt, wait_exponential
+from __future__ import annotations
 
-# LangChain and AI imports
-from langchain.schema import AIMessage, HumanMessage
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_pinecone import PineconeVectorStore
-from langchain.schema import Document
+import json
+import os
+from datetime import date
+from typing import Any, Optional, cast
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
+
+from app.authority.writer import connect
+from app.retrieval.dumb_retriever import retrieve
+from app.retrieval.validation_gate import validate_and_render
+from app.utils.helpers import SupabaseHelper
 from app.utils.loggers import logger
 
-# Utility imports
-import os
-
-# Local imports
-from app.utils.helpers import SupabaseHelper
-from app.utils.token_buffer import TokenBuffer
-
-# Load environment variables
 load_dotenv()
 
-# Set up environment configurations
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_PROJECT"] = f"Wakil-G"
+os.environ["LANGCHAIN_PROJECT"] = "Wakil-G"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
-openai_api_key = os.getenv("OPENAI_API_KEY")
-os.environ['PINECONE_API_KEY'] = os.getenv("PINECONE_API_KEY")
+if os.getenv("LANGCHAIN_API_KEY"):
+    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
 
-# Initialize FastAPI app
 app = FastAPI()
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,281 +36,79 @@ app.add_middleware(
 )
 
 
-
-# Initialize OpenAI embeddings
-embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-
-def create_advanced_retriever(base_retriever):
-    def decompose_query(query: str, chat_history: List[dict]) -> List[str]:
-        """
-        Decompose complex queries into sub-queries using both the current question and chat history.
-        Ensure sources are empty for queries outside the legal domain.
-
-        :param query: The current user query.
-        :param chat_history: List of messages representing the chat history.
-        :return: A list of decomposed sub-queries or an empty list if the query is outside the legal domain.
-        """
-        llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
-
-        # Combine chat history and current query into a formatted input
-        conversation_context = "\n".join(
-            [f"Human: {entry['question']}\nAI: {entry['answer']}" for entry in chat_history]
-        )
-        decomposition_prompt = f"""
-        Your task is to determine whether the user's query is within the legal domain and, if so, decompose it into specific, actionable sub-queries (maximum 3). If the query is outside the legal domain, respond only with "OUTSIDE_DOMAIN" and do not provide sub-queries.
-
-        **Instructions:**
-        - A query is considered within the legal domain if it relates to laws, regulations, legal cases, rights, or legal procedures.
-        - Use the conversation history below to understand the context of the current query.
-        - If the query is ambiguous or overlaps with multiple domains, determine whether it has a clear legal component.
-        - For queries outside the legal domain, avoid decomposition and only return "OUTSIDE_DOMAIN".
-
-        **Format of Output:**
-        - If the query is within the legal domain, list up to 3 clear and concise sub-queries.
-        - If the query is outside the legal domain, return "OUTSIDE_DOMAIN" without additional text.
-
-        **Conversation History:**
-        {conversation_context}
-
-        **Current Query:**
-        {query}
-        """
-        
-        try:
-            response = llm.invoke(decomposition_prompt).content.strip()
-            if response == "OUTSIDE_DOMAIN":
-                # If the query is outside the domain, return an empty list to signify no sources
-                return []
-            else:
-                # Ensure we get exactly 3 or fewer queries, removing any empty lines
-                decomposed_queries = [q.strip() for q in response.split('\n') if q.strip()][:3]
-                return decomposed_queries
-        except Exception as e:
-            logger.warning(f"Query decomposition failed: {e}")
-            return [query]
-
-    class AdvancedLegalRAGRetriever:
-        def __init__(self, retriever):
-            self.retriever = retriever
-
-        def invoke(self, query: str, chat_history: List[dict]) -> List[Document]:
-            # Step 1: Query Decomposition
-            decomposed_queries = decompose_query(query,chat_history)
-            
-            if(len(decomposed_queries) == 0):
-                return []
-            # Step 2: Retrieve documents
-            all_docs = []
-            unique_docs = set()
-
-            # Retrieve for original query and decomposed queries
-            queries_to_search = [query] + decomposed_queries
-            for search_query in queries_to_search:
-                retrieved_docs = self.retriever.invoke(search_query)
-                for doc in retrieved_docs:
-                    if doc.page_content not in unique_docs:
-                        all_docs.append(doc)
-                        unique_docs.add(doc.page_content)
-
-            # Rank and filter documents
-            return self.rank_documents(all_docs)[:5]  # Top 5 most relevant documents
-
-        def rank_documents(self, documents: List[Document]) -> List[Document]:
-            """
-            Custom ranking logic for retrieved documents
-            """
-            return sorted(
-                documents, 
-                key=lambda doc: len(doc.page_content), 
-                reverse=True
-            )
-
-    # Return the advanced retriever
-    return AdvancedLegalRAGRetriever(base_retriever)
-# Pinecone initialization with advanced retrieval
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def initialize_pinecone():
-    """
-    Initialize a Pinecone connection and return an advanced retriever object.
-    The advanced retriever will decompose queries into sub-queries and retrieve documents
-    using the decomposed queries. It will then rank and filter the retrieved documents
-    using a custom ranking logic.
-
-    The function will retry up to 3 times with exponential backoff if the Pinecone
-    connection fails.
-    """
-    logger.info("Initializing Pinecone connection")
-    index_name = "wakil-g"
-    try:
-        vector_store = PineconeVectorStore(
-            index_name=index_name,
-            embedding=embeddings,
-            pinecone_api_key=os.getenv("PINECONE_API_KEY")
-        )
-        base_retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        
-        # Create advanced retriever
-        advanced_retriever = create_advanced_retriever(base_retriever)
-        
-        logger.info("Pinecone connection successful with advanced retrieval")
-        return advanced_retriever
-    except Exception as e:
-        logger.error(f"Failed to initialize Pinecone: {e}")
-        raise
-
-# QA prompt (kept from original implementation)
-qa_system_prompt = """
-You are Wakil-G, an AI assistant specializing in Nepal's laws and constitution. Your primary goal is to provide clear, accurate, and detailed explanations to users about Nepal's legal and constitutional matters.
-
-Your answers should be precise, user-friendly, and accessible to individuals of all levels, from beginners to experts. Where applicable, include sources such as the relevant article, sub-article, or section of the law or constitution.
-
-Guidelines for Responses:
-
-1. Provide accurate and comprehensive answers, referencing specific legal provisions such as articles, sub-articles, or clauses where applicable.
-2. Use simple and clear language to explain legal concepts, ensuring the information is accessible to all users.
-3. Structure your response using natural and logical paragraphs, avoiding unnecessary bullet points, headings, or special formatting unless it enhances understanding.
-4. Where relevant, include examples that illustrate the concept or provision in practical terms.
-5. Recommend consulting a legal advisor only if the issue is complex, sensitive, or requires legal action. Avoid generic disclaimers.
-
-Special Instruction: If a user asks a question outside the legal domain of Nepal, respond humorously and in a friendly tone, making the interaction enjoyable while gently steering the conversation back to legal matters if necessary.
-
-Examples:
-
-Example 1:
-Human: What is the official language of Nepal according to the constitution?
-Wakil-G: The official language of Nepal is Nepali, written in the Devanagari script, as stated in Article 7, Clause (1) of the Constitution of Nepal.
-
-Additionally, Article 7, Clause (2) recognizes all languages spoken as mother tongues in Nepal as national languages. For instance, while Nepali is the primary language for official communication, local governments may allow the use of other languages spoken as mother tongues for official purposes, fostering inclusivity and respect for Nepal's diverse linguistic heritage.
-
-Example 2:
-Human: Can you explain the right to equality in the Constitution of Nepal?
-Wakil-G: The right to equality is enshrined in Article 18 of the Constitution of Nepal. This article guarantees that all individuals are equal before the law and are entitled to equal protection under the law. It also prohibits discrimination based on religion, race, caste, sex, or other grounds (Article 18, Clause 1 and Clause 2).
-
-Moreover, the state is empowered to make special provisions for the protection and advancement of certain groups, such as women, Dalits, or people with disabilities (Article 18, Clause 3).
-
-For example, if a public institution denies admission to a student solely because of their caste, it would violate the right to equality as guaranteed by the constitution. Similarly, state-run programs promoting education among Dalit children align with the constitution's commitment to special provisions for marginalized groups.
-
-Example 3:
-Human: What does the Constitution of Nepal say about the separation of powers?
-Wakil-G: The Constitution of Nepal establishes a separation of powers among the three branches of government: the legislature, the executive, and the judiciary. This system ensures checks and balances and prevents the concentration of power.
-
-Legislative authority is vested in the federal parliament and provincial assemblies (Articles 83 and 175), while executive power lies with the President, the Council of Ministers, and provincial executives (Articles 74–77 and 162). Judicial authority is assigned to an independent judiciary, including the Supreme Court, High Courts, and District Courts (Articles 126 and 127).
-
-For example, if the legislature passes a law that violates the fundamental rights of citizens, the judiciary has the power to nullify it, safeguarding constitutional principles and citizens' rights.
-
-Example 4:
-Human: Can you suggest the best way to cook momos?
-Wakil-G: I’d love to help, but I specialize in Nepal's laws and constitution, not recipes. If you're curious about rights to food security, though, I’m your go-to assistant!
-
-Now, please answer the following question based on the provided context:
-{context}
-"""
-
-qa_prompt = ChatPromptTemplate.from_messages([
-    ("system", qa_system_prompt),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("human", "{question}"),
-])
-
-# FastAPI models
-class QuestionInput(BaseModel):
+class AskRequest(BaseModel):
     question: str
+    as_of: Optional[date] = None
 
-def format_sse(event: str, data: str) -> str:
-    # Replace newlines in the data with '__n__'
-    
-    formatted_data = data.replace("\n", "__n__")
-    # Format the SSE message
-    res = f"event: {event}\ndata: {formatted_data}\n\n"
-    return res
+
+def _claims_from_model(
+    question: str, hits: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    context = "\n\n---\n\n".join(
+        f"[{h['component_uri']}]\n{h['text_ne']}" for h in hits
+    )
+    system = (
+        "You are Wakil-G. Answer using ONLY the provided context. "
+        "Output JSON only — no markdown, no explanation outside the JSON:\n"
+        '{"claims": [{"claim": "<answer text>", '
+        '"evidence_id": "<component_uri from context>"}]}\n'
+        'If context is insufficient: {"claims": [], "abstain": true}\n'
+        "Do not write citations. Do not include anything not in the context."
+    )
+    llm = ChatOpenAI(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-mini",
+        temperature=0.0,
+    )
+    response = llm.invoke(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+        ]
+    )
+    parsed = json.loads(response.content.strip())
+    return cast(dict[str, Any], parsed)
+
 
 @app.post("/ask")
-async def ask_question(input: QuestionInput, authorization: str = Header(None)):
-    try:
-        supabase_helper = SupabaseHelper()
-        # Verify token and get user ID
-        user_id = supabase_helper.get_user_id(authorization)
-
-        # check if user has reached daily quota
-
-        if supabase_helper.check_daily_quota(user_id):
-            raise HTTPException(
-                status_code=404,
-                detail={"message": "You have reached your daily quota. Please try again tomorrow."}
-            )
-        
-        # Get user's chat history
-        chat_histories = supabase_helper.get_user_chat_history(user_id)
-
-        chat_history = []
-        for msg in chat_histories:
-            if msg['id'] is not None:  # Check if there's an ID
-                chat_history.append(HumanMessage(content=msg['question']))
-                chat_history.append(AIMessage(content=msg['answer']))
-
-        # Use new advanced RAG pipeline
-        from app.retrieval import RetrievalOrchestrator
-
-        orchestrator = RetrievalOrchestrator()
-
-        # Retrieve relevant documents using advanced retrieval orchestrator
-        retrieval_result = orchestrator.retrieve(
-            query=input.question,
-            chat_history=chat_histories,
-            k=5  # Get top 5 documents
+async def ask_question(
+    req: AskRequest, authorization: Optional[str] = Header(default=None)
+) -> dict[str, Any]:
+    supabase_helper = SupabaseHelper()
+    user_id = supabase_helper.get_user_id(authorization)
+    if supabase_helper.check_daily_quota(user_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Daily quota reached."},
         )
 
-        if retrieval_result["documents"] and retrieval_result["metadata"]["is_legal_domain"]:
-            context = retrieval_result["context"]
-            source = retrieval_result["sources"]
-        else:
-            context = "No relevant information found, question may be outside the legal domain."
-            source = []
+    as_of = req.as_of or date.today()
+    hits = retrieve(req.question, as_of, k=5)
+    if not hits:
+        return {"as_of": as_of.isoformat(), "abstained": True, "results": []}
 
-        # Prepare the prompt
-        prompt = qa_prompt.format(context=context, question=input.question, chat_history=chat_history)
+    try:
+        parsed = _claims_from_model(req.question, hits)
+    except Exception as exc:
+        logger.error(f"Model call or parse failed: {exc}")
+        return {"as_of": as_of.isoformat(), "abstained": True, "results": []}
 
-        # Initialize ChatOpenAI with streaming
-        llm = ChatOpenAI(openai_api_key=openai_api_key, streaming=True,model="gpt-4o-mini")
+    if not parsed or parsed.get("abstain") or not parsed.get("claims"):
+        return {"as_of": as_of.isoformat(), "abstained": True, "results": []}
 
-        async def generate_sse():
-            yield format_sse("start", json.dumps({"start": True}))
-    
-            token_buffer = TokenBuffer()
-            
-            async for chunk in llm.astream(prompt):
-                if chunk.content:
-                    complete_words = token_buffer.add_token(chunk.content)
-                    if complete_words:
-                        yield format_sse("data", complete_words)
-            
-            # Flush any remaining content in the buffer at the end
-            if token_buffer.buffer:
-                yield format_sse("data", token_buffer.buffer)
-            
-            yield format_sse("end", json.dumps({"end": True, "sources": source}))
+    with connect() as conn:
+        validated = validate_and_render(parsed["claims"], as_of, conn)
 
+    return {"as_of": as_of.isoformat(), "abstained": False, "results": validated}
 
-        return StreamingResponse(generate_sse(), media_type="text/event-stream")
-    
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        elif "insufficient_quota" in str(e):
-            raise HTTPException(
-                status_code=429,
-                detail="Oops! Looks like AI funds are running low."
-            )
-        else:
-            logger.error(f"Error in /ask endpoint: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
-def read_root():
+def read_root() -> dict[str, str]:
     logger.info("Checking in home")
     return {"message": "Welcome to Wakil-G!"}
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

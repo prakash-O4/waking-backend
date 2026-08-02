@@ -1,16 +1,38 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — Phase 0 complete. Awaiting next task.
+**PA-A** — Wire `/ask` with bitemporal gated pipeline (Phase A)
 
 ## Base branch
 `dev`
 
 ## Working branch
-None
+`phase-a/statute-path`
 
 ## Status
-**IDLE** — Phase 0 merged.
+**IN PROGRESS** — task brief written, awaiting Pi.
+
+## Owner
+Pi
+
+## Governing design refs
+- system-design.md §2 (Core Invariants), §13 (Phase A), §14 (PS-3, PS-6, PS-7)
+- AGENTS.md (prime directive, definition of done)
+
+## PS requirements in scope
+- PS-3: Citations from `source_publication + work` metadata only, via `validate_and_render()`
+- PS-6: `as_of` per-request, passed to every retrieve + validate call
+- PS-7: Model abstention advisory; server validation gate owns abstention
+
+## Zero-tolerance gates (must stay 0)
+- `repealed-as-current = 0`
+- `not-yet-effective-as-current = 0`
+
+## Next action
+Prakash runs Pi on `phase-a/statute-path` with the prompt below.
+Pi implements, tests, commits. Returns result to Claude for review.
+
+---
 
 ## Completed tasks
 
@@ -29,25 +51,10 @@ None
 - migration 002: eligibility gate suspend fix
 - loguru added to requirements.txt (pre-existing gap)
 
-**Review findings resolved:**
-- Pi blocker: `app/retrieval/__init__.py` clobbered → restored by Pi
-- loguru missing dep → fixed by Claude during merge
-
 ## Phase 0 status
 **COMPLETE.** Schema migrated, 677-law corpus ingestable, dumb BM25 baseline
 with eligibility + validation gates wired, eval-gates green.
 
-**Still pending before Phase A:**
+## Operational steps still pending (on Prakash)
 - Run `scripts/ingest_laws.py` against real Supabase + OpenSearch (requires env vars)
 - Run `scripts/migrate.py` to apply migration 002 to Supabase
-- Wire new pipeline into `app/main.py` `/ask` endpoint (Phase A)
-- Replace Phase 0 stub dual-approval with real human-gating UI (Phase A)
-- BS↔AD canonical calendar table (Phase C)
-
-## Governing design refs
-- SYSTEM_DESIGN.md §2 (Core Invariants), §14 (PS-1…PS-18)
-- AGENTS.md (prime directive, definition of done)
-
-## Next action
-Awaiting Prakash's direction. Next milestone: Phase A (statute path — both gates
-fully wired into /ask, per-claim as-of, zero-tolerance eval gates green in prod).
