@@ -1,20 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PE-A/fix — Provider-agnostic LLM via LangChain 1.3.0**
-Replace hardcoded `anthropic` SDK (orchestrator error in PE-A brief) with
-LangChain 1.3.0 `init_chat_model`. Model configured via `LLM_MODEL` env var;
-default `openai:gpt-4o-mini`. Scope: `metadata_enricher.py`, `pii_redactor.py`,
-`config.py`, `requirements.txt`.
-
-## Base branch
-`dev`
-
-## Working branch
-`pe-a/langchain-llm`
+None. Awaiting Prakash's direction.
 
 ## Status
-**ASSIGNED TO KIMI** — task.md committed (599daef).
+**IDLE** — PE-A/fix merged to dev (2026-08-03).
 
 ---
 
@@ -49,6 +39,12 @@ default `openai:gpt-4o-mini`. Scope: `metadata_enricher.py`, `pii_redactor.py`,
 - `app/authority/precedent_models.py`, `app/retrieval/precedent_retriever.py`
 - `app/eval/gates.py`: `check_overruled_as_good_law()` wired
 - 5 new tests (29 total passing, 1 skipped)
+
+### PE-A/fix — Provider-agnostic LLM via LangChain 1.3.0 (MERGED to dev, 2026-08-03)
+- `metadata_enricher.py`, `pii_redactor.py`: `anthropic` SDK replaced with `init_chat_model(settings.LLM_MODEL)`
+- `config.py`: `LLM_MODEL: str = "openai:gpt-4o-mini"` — swap provider via env var, no code change
+- `requirements.txt`: langchain==1.3.14, langchain-openai==1.4.1, langchain-community==0.4.2; anthropic removed
+- Collateral: `langchain.schema.Document` → `langchain_core.documents.Document` (removed in LangChain 1.x)
 
 ### PE-A — PostgreSQL + pgvector + bge-m3 ingestion pipeline (MERGED to dev, 2026-08-03)
 - `migrations/005_ingestion_pipeline.sql`: documents, chunks (pgvector 1024-dim, HNSW), pii_vault,
