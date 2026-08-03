@@ -1,41 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PE-A — Ingestion Pipeline Research & Design**
-Stack migration: Supabase + Pinecone → plain PostgreSQL + pgvector.
-Redesign chunking (structure-aware for Nepali legal text), metadata extraction,
-PII redaction, hybrid RDB+vector schema, and pipeline stages.
-Deliverable: `docs/ingestion_design.md` (design only, no implementation).
-
-## Base branch
-`dev`
-
-## Working branch
-`pe-a/ingestion-pipeline`
+None. Awaiting Prakash's direction.
 
 ## Status
-**IMPLEMENTATION IN PROGRESS** — design approved (ab4dcb4), decisions locked, task.md updated for implementation. Assigned to Kimi.
-
-## PS requirements in scope — all verified GREEN
-- PS-2: dual-approval CHECK constraint in DDL; effective_date_ad NULL-pending (never fabricated)
-- PS-3: laws.jsonl content treated as derived_verified (consolidation); <amend> tags preserved
-- PS-5: BS→AD only via bs_ad_calendar; boundary-window dates flagged for human review
-- PS-10: ocr_confidence column on documents; regulations OCR provenance explicit
-- PS-14: pii_vault with REVOKE ALL + pii_vault_reader role; retrieval path never sees raw PII
-- PS-16: co_retrieve_parent_id FK enforces proviso co-retrieval; eval-asserted
-
-## Implementation note (minor, not a blocker)
-co_retrieve_parent_id is a self-referential FK on chunks. UPSERT stage must insert
-parent chunks before child (proviso) chunks within each document — chunk_index order
-guarantees this, but the implementation engineer must not batch-insert out of order.
-
-## Decisions locked (Prakash, 2026-08-02)
-- BM25: pg_search (ParadeDB)
-- Embedding: bge-m3 direct (no bake-off)
-- Regulations: PE-B scope, out of PE-A
-
-## Next action
-Kimi implements on pe-a/ingestion-pipeline. Claude reviews diff when Kimi reports back.
+**IDLE** — PE-A merged to dev (merge commit on dev, 2026-08-03).
 
 ---
 
@@ -59,42 +28,52 @@ Kimi implements on pe-a/ingestion-pipeline. Claude reviews diff when Kimi report
 - 10 new tests
 
 ### PC-A — Canonical BS/AD calendar + romanized eval slice (MERGED, commit 4b74709)
-- `app/authority/bs_ad_calendar.py`: embedded month-lengths BS 2000-2090, lookup(),
-  BeyondCalendarRange, _BOUNDARY_WINDOWS infra
+- `app/authority/bs_ad_calendar.py`: BS 2000-2090 lookup, BeyondCalendarRange, boundary-window infra
 - `app/authority/parser.py`: bs_to_ad_approx() deleted; canonical lookup in place
 - `migrations/003_bs_ad_calendar.sql`, `scripts/seed_bs_ad_calendar.py`
-- `app/eval/romanized_slice.py`: Recall@5 harness
-- `app/eval/golden/romanized.json`: 10 romanized queries with real corpus URIs
+- `app/eval/romanized_slice.py`: Recall@5 harness; 10 golden queries
 - 9 new tests (24 total passing)
 
 ### PD-A — Precedent schema + eval gate + retriever skeleton (MERGED, commit 96533eb)
-- `migrations/004_precedent_schema.sql`: `precedent`, `precedent_holding`, `precedent_relation` tables + `is_good_law(uuid, date)` SQL function
-- `app/authority/precedent_models.py`: `RelationType` enum, `PrecedentRelation` dataclass
-- `app/retrieval/precedent_retriever.py`: ILIKE over holdings with `is_good_law()` filter
-- `app/eval/gates.py`: `check_overruled_as_good_law()` + updated `main()`
-- `scripts/migrate.py`: applies migration 004
-- `tests/test_precedent_gate.py`: 5 mock-based tests
+- `migrations/004_precedent_schema.sql`: precedent/holding/relation tables + `is_good_law(uuid, date)`
+- `app/authority/precedent_models.py`, `app/retrieval/precedent_retriever.py`
+- `app/eval/gates.py`: `check_overruled_as_good_law()` wired
 - 5 new tests (29 total passing, 1 skipped)
 
-## Phase 0 + A + B + C + D status
+### PE-A — PostgreSQL + pgvector + bge-m3 ingestion pipeline (MERGED to dev, 2026-08-03)
+- `migrations/005_ingestion_pipeline.sql`: documents, chunks (pgvector 1024-dim, HNSW), pii_vault,
+  pg_search BM25 index; dual-approval DDL (PS-2); REVOKE ALL on pii_vault (PS-14)
+- `app/ingestion/laws_chunker.py`: दफा-anchor structure-aware chunker; PS-16 co-retrieval links
+- `app/ingestion/nkp_chunker.py`: hybrid anchor chunker (caption/headnote/opinion/order/colophon)
+- `app/ingestion/pii_redactor.py`: deterministic + haiku second pass + verification assertion
+- `app/ingestion/pgvector_indexer.py`: bge-m3 embed, chunk upsert in index order, pii_vault write
+- `app/ingestion/pipeline.py`: 8-stage orchestrator; never sets approved; quarantines on redaction failure
+- `app/ingestion/metadata_enricher.py`: rewritten to Anthropic SDK (haiku-4-5); LangChain removed
+- `scripts/ingest_laws.py`, `scripts/ingest_nkp.py`: CLI scripts with dry-run mode
+- `tests/test_ingestion_pipeline.py`: 35 passing, 2 skipped (live-DB dual-approval test conditional)
+- PS-2 / PS-3 / PS-5 / PS-10 / PS-14 / PS-16 all verified GREEN
+
+## Phase 0 + A + B + C + D + E status
 **COMPLETE.**
 - All gates enforced on every path (including all degraded modes)
-- bs_to_ad_approx() eliminated; canonical calendar live (PS-5)
-- Romanized Nepali is a first-class eval slice with Recall@5 (PS-8)
-- Precedent subsystem: holding-level model, bench-competence gate (PS-1)
+- Canonical BS/AD calendar live (PS-5); romanized eval slice live (PS-8)
+- Precedent subsystem with holding-level model and bench-competence gate (PS-1)
+- Ingestion pipeline: PostgreSQL + pgvector + bge-m3 + pg_search; dual approval enforced in DDL
 - Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0, overruled-as-good-law = 0
 
 ## Operational steps still pending (on Prakash)
-- Run `scripts/migrate.py` (applies migrations 001-004)
-- Run `scripts/ingest_laws.py` against real Supabase + OpenSearch
+- Run `scripts/migrate.py` (applies migrations 001-005; 005 requires ParadeDB or comment out BM25 block)
+- Run `scripts/ingest_laws.py` against real PostgreSQL + pgvector DB
+- Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (after PII review policy confirmed)
 - Run `scripts/seed_bs_ad_calendar.py` after migration 003
-- Run `make eval` against live env to get baseline Recall@5
-- Run `make eval-gates` against live env to verify all gates against real DB
+- Run `make eval` + `make eval-gates` against live env to get baseline Recall@5 and verify zero-tolerance gates
 - Ingest precedent corpus (then wire `retrieve_precedent` into orchestrator)
+- Decide whether to commit/discard `app/config.py` working-tree change (`extra = "ignore"` in Settings.Config)
 
 ## Governing design refs
-- system-design.md §2, §6, §7.6, §10, §13, §14 (PS-1, PS-5, PS-8)
+- SYSTEM_DESIGN.md §2, §6, §7.6, §10, §13, §14
 - AGENTS.md (prime directive, definition of done)
+- docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction. All four build phases complete.
+Awaiting Prakash's direction.
