@@ -1,10 +1,20 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. Awaiting Prakash's direction.
+**PE-A/fix — Provider-agnostic LLM via LangChain 1.3.0**
+Replace hardcoded `anthropic` SDK (orchestrator error in PE-A brief) with
+LangChain 1.3.0 `init_chat_model`. Model configured via `LLM_MODEL` env var;
+default `openai:gpt-4o-mini`. Scope: `metadata_enricher.py`, `pii_redactor.py`,
+`config.py`, `requirements.txt`.
+
+## Base branch
+`dev`
+
+## Working branch
+`pe-a/langchain-llm`
 
 ## Status
-**IDLE** — PE-A merged to dev (merge commit on dev, 2026-08-03).
+**ASSIGNED TO KIMI** — task.md committed (599daef).
 
 ---
 
