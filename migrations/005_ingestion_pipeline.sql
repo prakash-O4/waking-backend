@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     ),
     CONSTRAINT chunks_law_shape CHECK (
         source_type = 'nkp_case'
-        OR (work_id IS NOT NULL AND section_number IS NOT NULL AND level IS NOT NULL)
+        OR (work_id IS NOT NULL AND level IS NOT NULL)
     )
 );
 
