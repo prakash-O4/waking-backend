@@ -1,16 +1,41 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None — Phase D complete. Awaiting next task.
+**PE-A — Ingestion Pipeline Research & Design**
+Stack migration: Supabase + Pinecone → plain PostgreSQL + pgvector.
+Redesign chunking (structure-aware for Nepali legal text), metadata extraction,
+PII redaction, hybrid RDB+vector schema, and pipeline stages.
+Deliverable: `docs/ingestion_design.md` (design only, no implementation).
 
 ## Base branch
 `dev`
 
 ## Working branch
-None
+`pe-a/ingestion-pipeline`
 
 ## Status
-**IDLE** — Phase D merged.
+**IMPLEMENTATION IN PROGRESS** — design approved (ab4dcb4), decisions locked, task.md updated for implementation. Assigned to Kimi.
+
+## PS requirements in scope — all verified GREEN
+- PS-2: dual-approval CHECK constraint in DDL; effective_date_ad NULL-pending (never fabricated)
+- PS-3: laws.jsonl content treated as derived_verified (consolidation); <amend> tags preserved
+- PS-5: BS→AD only via bs_ad_calendar; boundary-window dates flagged for human review
+- PS-10: ocr_confidence column on documents; regulations OCR provenance explicit
+- PS-14: pii_vault with REVOKE ALL + pii_vault_reader role; retrieval path never sees raw PII
+- PS-16: co_retrieve_parent_id FK enforces proviso co-retrieval; eval-asserted
+
+## Implementation note (minor, not a blocker)
+co_retrieve_parent_id is a self-referential FK on chunks. UPSERT stage must insert
+parent chunks before child (proviso) chunks within each document — chunk_index order
+guarantees this, but the implementation engineer must not batch-insert out of order.
+
+## Decisions locked (Prakash, 2026-08-02)
+- BM25: pg_search (ParadeDB)
+- Embedding: bge-m3 direct (no bake-off)
+- Regulations: PE-B scope, out of PE-A
+
+## Next action
+Kimi implements on pe-a/ingestion-pipeline. Claude reviews diff when Kimi reports back.
 
 ---
 

@@ -32,6 +32,9 @@ uvicorn==0.32.0
 ujson==5.10.0
 uvloop==0.20.0
 watchfiles==0.24.0
+anthropic>=0.40.0
+sentence-transformers>=3.0.0
+pgvector>=0.3.0
 
 mypy==1.11.2
 opensearch-py==2.7.1

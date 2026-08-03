@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 from app.rag_config import config
 from app.utils.loggers import logger
-from app.ingestion.hierarchical_chunker import HierarchicalChunk
+
+# HierarchicalChunk was removed with hierarchical_chunker.py in PE-A; the
+# validator's runtime logic is unchanged and only duck-types chunk objects.
+HierarchicalChunk = Any
 
 
 @dataclass
