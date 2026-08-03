@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
 import cohere
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings
 

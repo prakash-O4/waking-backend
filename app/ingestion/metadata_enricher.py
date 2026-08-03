@@ -1,17 +1,14 @@
 """
-Metadata enrichment via Anthropic haiku (design §3).
+Metadata enrichment via provider-agnostic LLM (design §3).
 
-Replaces the old langchain_openai/ChatOpenAI enricher. All LLM outputs are
+Replaces the old Anthropic-specific enricher. All LLM outputs are
 proposals: JSON parse failures log a warning and leave columns empty (NULL) —
 the pipeline never crashes and never guesses metadata.
 
-Model: claude-haiku-4-5-20251001 for all extraction.
 Batching note (design §3.3): keywords + relevant_questions for all chunks of
-one document go in a single haiku call. The Anthropic Message Batches API
-(50% cost) only pays off across ≥10 documents; these per-document functions
-never see that many, so they use individual messages.create calls. A batch
-driver that accumulates ≥10 documents and calls _client.messages.batches.create
-is a follow-up for the full-corpus run.
+one document go in a single LLM call. Per-document functions use individual
+invoke calls; a batch driver that accumulates ≥10 documents is a follow-up for
+the full-corpus run.
 """
 
 from __future__ import annotations
@@ -20,26 +17,27 @@ import json
 import time
 from typing import Any
 
+from app.config import get_settings
 from app.ingestion.laws_chunker import LawChunk
 from app.ingestion.nkp_chunker import NKPChunk
 from app.utils.loggers import logger
 
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
 MAX_RETRIES = 3
 BATCH_API_MIN_DOCUMENTS = 10  # see module docstring
 
-_client: Any = None
+_llm: Any = None
 
 
-def _get_client() -> Any:
-    """Lazy anthropic client — import and key resolution happen at first call,
-    so the module is importable without the SDK or ANTHROPIC_API_KEY (tests)."""
-    global _client
-    if _client is None:
-        import anthropic
+def _get_llm() -> Any:
+    """Lazy LangChain LLM — import and key resolution happen at first call,
+    so the module is importable without provider SDKs or API keys (tests)."""
+    global _llm
+    if _llm is None:
+        from langchain.chat_models import init_chat_model
 
-        _client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-    return _client
+        settings = get_settings()
+        _llm = init_chat_model(settings.LLM_MODEL, temperature=0)
+    return _llm
 
 
 def _parse_json(raw: str, expected: type) -> Any:
@@ -53,30 +51,20 @@ def _parse_json(raw: str, expected: type) -> Any:
     return json.loads(raw[start : end + 1])
 
 
-def _call_haiku(prompt: str, max_tokens: int = 4096) -> str:
-    """One haiku call with exponential backoff on 429/5xx (max 3 retries)."""
-    import anthropic
+def _call_llm(prompt: str) -> str:
+    """One LLM call with exponential backoff on transient failures (max 3 retries)."""
+    from langchain_core.messages import HumanMessage
 
     delay = 1.0
     for attempt in range(MAX_RETRIES + 1):
         try:
-            response = _get_client().messages.create(
-                model=HAIKU_MODEL,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return "".join(
-                block.text
-                for block in response.content
-                if getattr(block, "type", "") == "text"
-            )
-        except anthropic.APIStatusError as exc:
-            retriable = exc.status_code == 429 or exc.status_code >= 500
-            if not retriable or attempt == MAX_RETRIES:
+            response = _get_llm().invoke([HumanMessage(content=prompt)])
+            return response.content
+        except Exception as exc:  # noqa: BLE001 — provider-agnostic retry
+            if attempt == MAX_RETRIES:
                 raise
             logger.warning(
-                f"haiku call failed ({exc.status_code}), retry {attempt + 1} "
-                f"in {delay:.0f}s"
+                f"llm call failed ({exc}), retry {attempt + 1} in {delay:.0f}s"
             )
             time.sleep(delay)
             delay *= 2
@@ -116,7 +104,7 @@ def _apply_chunk_metadata(
     try:
         parsed = _parse_json(raw, list)
     except (ValueError, json.JSONDecodeError) as exc:
-        logger.warning(f"haiku chunk metadata not parseable, columns left NULL: {exc}")
+        logger.warning(f"llm chunk metadata not parseable, columns left NULL: {exc}")
         return metadata
     by_index = {
         int(item["chunk_index"]): item
@@ -139,7 +127,7 @@ def enrich_law_chunks(
     act_record: dict[str, Any], chunks: list[LawChunk]
 ) -> list[dict[str, Any]]:
     """
-    One haiku call per act: send the numbered chunk list, get back keywords +
+    One LLM call per act: send the numbered chunk list, get back keywords +
     relevant_questions per chunk. Returns metadata dicts aligned by chunk_index.
     """
     if not chunks:
@@ -149,7 +137,7 @@ def enrich_law_chunks(
         chunks,
         f"You are indexing the Nepali act «{act_name}» for legal search.",
     )
-    raw = _call_haiku(prompt)
+    raw = _call_llm(prompt)
     return _apply_chunk_metadata(chunks, raw)
 
 
@@ -157,7 +145,7 @@ def enrich_nkp_chunks(
     case_record: dict[str, Any], chunks: list[NKPChunk]
 ) -> list[dict[str, Any]]:
     """
-    Two haiku calls per case:
+    Two LLM calls per case:
     1. cited_statutes + headnotes cleanup over the full redacted text.
     2. keywords + relevant_questions per chunk (single batched call).
     Returns metadata dicts aligned by chunk_index; each also carries the
@@ -167,7 +155,7 @@ def enrich_nkp_chunks(
 
     doc_extra: dict[str, Any] = {"cited_statutes": None, "headnotes": None}
     try:
-        raw = _call_haiku(
+        raw = _call_llm(
             "You are indexing a Nepali Supreme Court decision for legal search.\n"
             "From the redacted full text below, extract:\n"
             '- "cited_statutes": names of Nepali acts/regulations cited (Nepali)\n'
@@ -180,11 +168,11 @@ def enrich_nkp_chunks(
         doc_extra["cited_statutes"] = parsed.get("cited_statutes") or None
         doc_extra["headnotes"] = parsed.get("headnotes") or None
     except (ValueError, json.JSONDecodeError) as exc:
-        logger.warning(f"haiku case-level metadata not parseable, left NULL: {exc}")
+        logger.warning(f"llm case-level metadata not parseable, left NULL: {exc}")
 
     metadata = _empty_chunk_metadata(chunks)
     if chunks:
-        raw = _call_haiku(
+        raw = _call_llm(
             _chunk_metadata_prompt(
                 chunks,
                 "You are indexing a Nepali Supreme Court decision for legal search.",

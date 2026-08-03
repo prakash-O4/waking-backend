@@ -24,9 +24,13 @@ class Settings(BaseSettings):
     API_KEY: str = ""
     API_SECRET: str = ""
     LOG_LEVEL: str = "INFO"
+    LLM_MODEL: str = "openai:gpt-4o-mini"
     
     class Config:
         env_file = ".env"
+        # Tolerate unrelated keys in .env (e.g. legacy pinecone/supabase entries);
+        # without this, Settings() raises on any extra key and nothing boots.
+        extra = "ignore"
 
 def initialize_keys():
     """
