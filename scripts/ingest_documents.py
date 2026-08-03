@@ -23,13 +23,22 @@ from typing import Optional
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.ingestion import (
-    DocumentProcessor,
-    HierarchicalChunker,
-    MetadataEnricher,
-    PineconeIndexer,
-    QualityValidator
-)
+from app.ingestion import DocumentProcessor, QualityValidator
+
+# PE-B NOTE: HierarchicalChunker / MetadataEnricher / PineconeIndexer were
+# removed or rewritten in PE-A (branch pe-a/ingestion-pipeline). This PDF
+# pipeline is PE-B scope; the guarded import keeps module startup working
+# while its runtime path is reworked against the new ingestion stack.
+try:
+    from app.ingestion import (  # type: ignore[attr-defined]
+        HierarchicalChunker,
+        MetadataEnricher,
+        PineconeIndexer,
+    )
+except ImportError:  # pragma: no cover
+    HierarchicalChunker = None  # type: ignore[assignment]
+    MetadataEnricher = None  # type: ignore[assignment]
+    PineconeIndexer = None  # type: ignore[assignment]
 from app.rag_config import config
 from app.utils.loggers import logger
 
