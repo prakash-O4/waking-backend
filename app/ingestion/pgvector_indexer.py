@@ -58,10 +58,10 @@ class PgvectorIndexer:
             from pgvector.psycopg2 import register_vector
 
             register_vector(conn)
-        except ImportError:
+        except Exception:  # noqa: BLE001 — ImportError when absent, ProgrammingError on mocked connections
             # pgvector is only needed for real DB writes; unit tests run with
             # mocked connections and without the package installed.
-            logger.warning("pgvector package not installed; vector adapter not registered")
+            logger.warning("pgvector vector adapter not registered (mocked connection or package missing)")
 
     def embed_chunks(
         self, texts: list[str], batch_size: int = DEFAULT_BATCH_SIZE

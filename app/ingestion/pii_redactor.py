@@ -20,7 +20,6 @@ from app.utils.loggers import logger
 APPELLANT_PLACEHOLDER = "[[वादी]]"
 RESPONDENT_PLACEHOLDER = "[[प्रतिवादी]]"
 MIN_TOKEN_CHARS = 4
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 _TOKEN_SPLIT_RE = re.compile(r"[\s,।:;()\[\]\"'\-–—/]+")
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
@@ -128,25 +127,23 @@ class PIIRedactor:
                 raise RedactionVerificationError(token=token, document_id=document_id)
 
     def _haiku_second_pass(self, text: str, appellant: str, respondent: str) -> str:
-        import anthropic  # lazy: SDK is an ingestion-time-only dependency
+        from langchain.chat_models import init_chat_model
+        from langchain_core.messages import HumanMessage
+        from app.config import get_settings
 
-        client = anthropic.Anthropic(timeout=self._llm_timeout)
+        llm = init_chat_model(
+            get_settings().LLM_MODEL, temperature=0, timeout=self._llm_timeout
+        )
         prompt = (
-            f"Given these party names: [{appellant}], [{respondent}] — identify any "
+            f"Given these party names: [{appellant}], [{respondent}] - identify any "
             "variant mentions (abbreviated names, honorifics, partial names) in the "
             "following text and return a JSON list of spans to replace. Format: "
             '[{"original": "...", "replacement": "[[वादी]]"}]. Use [[वादी]] for the '
             "appellant and [[प्रतिवादी]] for the respondent. Return ONLY the JSON "
             f"list.\n\nText:\n{text}"
         )
-        response = client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = "".join(
-            block.text for block in response.content if getattr(block, "type", "") == "text"
-        )
+        response = llm.invoke([HumanMessage(content=prompt)])
+        raw = response.content
         spans = json.loads(raw[raw.find("[") : raw.rfind("]") + 1])
         for span in spans:
             original = str(span.get("original") or "")
