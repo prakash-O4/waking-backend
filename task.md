@@ -1,239 +1,200 @@
-# Task: PG-A — RAGAS evaluation slices per pipeline phase
+# Task: PG-A — RAGAS eval rework (fix LangChain version conflict)
 
 ## Branch
-`PG-A/ragas-eval` (branched from `dev`)
+`PG-A/ragas-eval` (already checked out)
 
-## Objective
-Add RAGAS v0.2.x evaluation to the existing eval harness so that
-`make eval` produces a unified per-phase quality report alongside the
-existing Recall@5 and zero-tolerance gate checks. Evaluation must cover
-every live pipeline phase and must not disturb the deterministic safety
-gates (`make eval-gates`).
+## What Kimi already delivered — keep everything EXCEPT ragas_eval.py
+All slice files, golden sets, metrics, and Makefile changes are correct and must not be touched.
+The only file that needs to be fixed is `app/eval/ragas_eval.py`.
 
-## Acceptance criteria
-- [ ] `ragas==0.2.*` added to `requirements.txt`
-- [ ] `app/eval/ragas_eval.py` — shared RAGAS setup (LLM/embedding wrapper, `run_ragas()` helper)
-- [ ] `app/eval/phase_a_slice.py` — Phase A (QA pipeline): Faithfulness + ResponseRelevancy
-- [ ] `app/eval/phase_c_slice.py` — Phase C (romanized retrieval): ContextRecall + NonLLMContextPrecisionWithReference
-- [ ] `app/eval/phase_d_slice.py` — Phase D (precedent): Faithfulness + ContextRecall (stubbed: prints "skipped — no precedent corpus" if precedent table is empty)
-- [ ] `app/eval/phase_ef_slice.py` — Phase EF (summary): Faithfulness (summary vs. source chunks)
-- [ ] `app/eval/metrics/temporal_faithfulness.py` — custom `TemporalFaithfulness` metric (see spec below)
-- [ ] Golden sets: `app/eval/golden/phase_a_qa.json`, `app/eval/golden/phase_c_romanized.json`, `app/eval/golden/phase_d_precedent.json`
-- [ ] `Makefile`: `make eval` runs all slices and prints a unified score table; existing targets unchanged
-- [ ] `make test` green; `make lint` green; `make eval-gates` unchanged and green
+## Root cause of the conflict
+`LangchainLLMWrapper` (and `LangchainEmbeddingsWrapper`) are ragas's 0.2.x
+LangChain integration, built for `langchain-openai 0.1.x`. Our pipeline pins
+`langchain-openai==1.4.1` (a 1.x major version). These cannot coexist.
 
-## Governing design refs
-- `AGENTS.md` §Prime directive, §Definition of done
-- `system-design.md` §2 Core Invariants (esp. invariants 4 and 7)
-- `system-design.md` §14 PS-13 (LLM-judge κ ≥ 0.6, per-slice and rolling)
-- `system-design.md` §14 PS-6 (every claim validates against its declared as-of)
-- `docs/ingestion_design.md` (PE-A pipeline context)
+Additionally, ragas 0.2.x may import `langchain_community.chat_models.vertexai`
+which was removed in `langchain-community==0.4.2`.
 
-## PS requirements in scope
-- **PS-6**: TemporalFaithfulness metric asserts as-of compliance per claim
-- **PS-13**: RAGAS faithfulness IS the LLM-judge; eval must print per-slice scores
-
-## Allowed scope
-`requirements.txt`, `app/eval/`, `Makefile` only.
-Do NOT touch any file outside these paths.
-
-## Forbidden changes
-- Do not modify `app/eval/gates.py` or `app/eval/romanized_slice.py` — they stay exactly as-is
-- Do not add any new DB tables, migrations, or Postgres queries
-- Do not modify any ingestion, retrieval, or gate code
-- Do not add a `Co-Authored-By: Claude` trailer or AI attribution to any commit
-
-## Implementation details
-
-### 1. Dependency
-Add to `requirements.txt` after `langchain-openai==1.4.1`:
-```
-ragas==0.2.*
+## Diagnosis step (run this first)
+```bash
+python3 -c "import ragas; print('ragas ok')"
+python3 -c "from ragas.metrics import Faithfulness; print('metrics ok')"
 ```
 
-### 2. `app/eval/ragas_eval.py` — shared setup
+**If `import ragas` fails** with the vertexai error:
+→ Add `langchain-google-vertexai>=2.0.0` to `requirements.txt` (it satisfies the
+  missing `langchain_community.chat_models.vertexai` import chain in langchain-community 0.4.x).
+  Re-run the test until `import ragas` succeeds.
+
+**If `import ragas` succeeds but `from ragas.llms import LangchainLLMWrapper` fails:**
+→ The fix below is sufficient — do NOT add langchain-google-vertexai.
+
+## The fix — rewrite `app/eval/ragas_eval.py`
+
+Replace the entire file with this implementation. It uses `openai.AsyncOpenAI`
+directly — no `LangchainLLMWrapper`, no `LangchainEmbeddingsWrapper`, no
+langchain-openai dependency in the eval path.
 
 ```python
-from langchain.chat_models import init_chat_model
-from ragas.llms import LangchainLLMWrapper
-from ragas.embeddings import LangchainEmbeddingsWrapper
-from langchain_openai import OpenAIEmbeddings
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Sequence
+
+from langchain_core.outputs import Generation, LLMResult
+from openai import AsyncOpenAI
 from ragas import evaluate
 from ragas.dataset_schema import EvaluationDataset
-from app.ingestion.config import get_settings  # verify correct import path
+from ragas.embeddings.base import BaseRagasEmbeddings
+from ragas.llms.base import BaseRagasLLM
 
-def get_evaluator_llm():
-    settings = get_settings()
-    return LangchainLLMWrapper(init_chat_model(settings.LLM_MODEL))
 
-def get_evaluator_embeddings():
-    return LangchainEmbeddingsWrapper(OpenAIEmbeddings())
+class _OpenAIEvalLLM(BaseRagasLLM):
+    """Direct openai.AsyncOpenAI wrapper — avoids langchain-openai version conflict."""
 
-def run_ragas(dataset: EvaluationDataset, metrics: list, label: str) -> dict:
-    result = evaluate(dataset=dataset, metrics=metrics, raise_exceptions=False, show_progress=False)
-    scores = result.to_pandas().mean(numeric_only=True).to_dict()
+    def __init__(self, model: str = "gpt-4o-mini") -> None:
+        self._client = AsyncOpenAI()
+        self._model = model
+
+    async def agenerate(
+        self,
+        prompts: Sequence[Any],
+        n: int = 1,
+        temperature: float = 1e-8,
+        stop: list[str] | None = None,
+        callbacks: Any = None,
+    ) -> LLMResult:
+        all_gens: list[list[Generation]] = []
+        for prompt in prompts:
+            if isinstance(prompt, str):
+                messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+            elif isinstance(prompt, list):
+                messages = prompt
+            else:
+                messages = [{"role": "user", "content": str(prompt)}]
+            resp = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,  # type: ignore[arg-type]
+                n=n,
+                temperature=temperature,
+                stop=stop or None,
+            )
+            all_gens.append(
+                [Generation(text=c.message.content or "") for c in resp.choices]
+            )
+        return LLMResult(generations=all_gens)
+
+    def generate_text(
+        self,
+        prompt: str,
+        n: int = 1,
+        temperature: float = 1e-8,
+        stop: list[str] | None = None,
+        callbacks: Any = None,
+    ) -> LLMResult:
+        return asyncio.run(self.agenerate([prompt], n, temperature, stop, callbacks))
+
+    @property
+    def llm(self) -> "_OpenAIEvalLLM":
+        return self
+
+
+class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
+    """Direct openai embeddings — avoids langchain-openai version conflict."""
+
+    def __init__(self, model: str = "text-embedding-3-small") -> None:
+        self._client = AsyncOpenAI()
+        self._model = model
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        resp = await self._client.embeddings.create(input=texts, model=self._model)
+        return [d.embedding for d in resp.data]
+
+    async def aembed_query(self, text: str) -> list[float]:
+        resp = await self._client.embeddings.create(input=[text], model=self._model)
+        return resp.data[0].embedding
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return asyncio.run(self.aembed_documents(texts))
+
+    def embed_query(self, text: str) -> list[float]:
+        return asyncio.run(self.aembed_query(text))
+
+
+_llm = _OpenAIEvalLLM()
+_embeddings = _OpenAIEvalEmbeddings()
+
+
+def run_ragas(
+    dataset: EvaluationDataset, metrics: list[Any], label: str
+) -> dict[str, Any]:
+    result = evaluate(
+        dataset=dataset,
+        metrics=metrics,
+        llm=_llm,
+        embeddings=_embeddings,
+        raise_exceptions=False,
+        show_progress=False,
+    )
+    scores: dict[str, Any] = result.to_pandas().mean(numeric_only=True).to_dict()
     print(f"\n=== {label} ===")
     for k, v in scores.items():
         print(f"  {k}: {v:.3f}")
     return scores
 ```
 
-Check where `get_settings()` is actually defined (`app/config.py` or `app/ingestion/config.py`) and use the correct import.
+## Notes on the implementation
 
-### 3. Phase A slice — `app/eval/phase_a_slice.py`
+- `langchain_core.outputs.LLMResult` and `Generation` ARE present in our env
+  (`langchain==1.3.14` brings `langchain-core~=0.3`). These are stable base types.
+- `openai` package is already available (it's a dependency of `langchain-openai`).
+- `BaseRagasLLM` and `BaseRagasEmbeddings` are ragas's own abstract bases —
+  no langchain-openai required.
+- The `_llm` and `_embeddings` are module-level singletons; clients are
+  constructed lazily by the AsyncOpenAI constructor (picks up `OPENAI_API_KEY`).
 
-**Metrics**: `Faithfulness`, `ResponseRelevancy` (reference-free)
+## If langchain_core.outputs imports fail
 
-**Golden set**: `app/eval/golden/phase_a_qa.json` — 10 items:
-```json
-[
-  {"query": "muluki aparadh samhita dafa 177 ko byawastha", "as_of": "2024-01-01", "note": "Section 177 of Criminal Code"},
-  {"query": "shram ain ma bida ko byawastha", "as_of": "2024-01-01", "note": "Leave provisions in Labour Act"},
-  {"query": "upabhokta sanrakshan ain anusaar phal ko adhikar", "as_of": "2024-01-01", "note": "Consumer rights under Consumer Protection Act"},
-  {"query": "nijamati sewak ko sewaanibritta umera", "as_of": "2024-01-01", "note": "Retirement age for civil servants"},
-  {"query": "bhrastachar niwaran ain ko danda", "as_of": "2024-01-01", "note": "Penalties under Anti-Corruption Act"},
-  {"query": "bal ain anusaar balbalika ko paribhasha", "as_of": "2024-01-01", "note": "Definition of child under Children's Act"},
-  {"query": "batawaran sanrakshan ain ko uddeshya", "as_of": "2024-01-01", "note": "Objectives of Environment Protection Act"},
-  {"query": "samaajik suraksha kosh ko sthapana", "as_of": "2024-01-01", "note": "Social Security Fund establishment"},
-  {"query": "praman ain ma sakshi ko byawastha", "as_of": "2024-01-01", "note": "Witness provisions in Evidence Act"},
-  {"query": "muluki dewani samhita anusaar sambida ko prakar", "as_of": "2024-01-01", "note": "Types of contracts under Civil Code"}
-]
-```
-
-**Slice logic**:
-1. Load golden set
-2. Connect to DB via `app.authority.writer.connect()`; if fails, print `"phase_a skipped — no DB"` and exit 0
-3. For each entry: call `retrieve_postgres(conn, query, date.fromisoformat(as_of))` from `app.retrieval.postgres_retriever`
-4. Build `retrieved_contexts = [h["text_ne"] for h in hits]`; if empty, skip entry
-5. Generate response: use `init_chat_model(settings.LLM_MODEL)` with the same system prompt as `_model_claims` in `gated_orchestrator.py`. Parse the JSON claims and join claim texts as the response string.
-6. Build `SingleTurnSample(user_input=query, response=response, retrieved_contexts=retrieved_contexts)`
-7. Collect all samples into `EvaluationDataset`, call `run_ragas(..., label="Phase A — QA Pipeline")`
-
-### 4. Phase C slice — `app/eval/phase_c_slice.py`
-
-**Metrics**: `ContextRecall`, `NonLLMContextPrecisionWithReference`
-
-**Golden set**: Create `app/eval/golden/phase_c_romanized.json` — copy of `romanized.json` with a `reference` field added to each entry. Do NOT modify `romanized.json`.
-
-References to add:
-```
-bhrastachar niwaran ain     → "भ्रष्टाचार निवारण ऐन, २०५९"
-shram ain                   → "श्रम ऐन, २०७४"
-nijamati sewa ain           → "निजामती सेवा ऐन, २०४९"
-praman ain                  → "प्रमाण ऐन, २०३१"
-bal shram nishedh           → "बाल श्रम (निषेध तथा नियमित गर्ने) ऐन, २०५६"
-upabhokta sanrakshan        → "उपभोक्ता संरक्षण ऐन, २०७५"
-batawaran sanrakshan        → "वातावरण संरक्षण ऐन, २०७६"
-samaajik suraksha           → "सामाजिक सुरक्षा ऐन, २०७५"
-muluki aparadh samhita      → "मुलुकी अपराध संहिता, २०७४"
-muluki dewani samhita       → "मुलुकी देवानी संहिता, २०७४"
-```
-
-**Slice logic**:
-1. Connect to DB; if fails, print `"phase_c skipped — no DB"` and exit 0
-2. For each entry: retrieve chunks, build `SingleTurnSample(user_input=query, retrieved_contexts=chunks, reference=reference)`
-3. Run `run_ragas(..., label="Phase C — Romanized Retrieval")`
-
-### 5. Phase D slice — `app/eval/phase_d_slice.py`
-
-**Metrics**: `Faithfulness`, `ContextRecall`
-
-**Guard**: `SELECT COUNT(*) FROM precedent` — if 0, print `"phase_d skipped — precedent table empty"` and exit 0.
-
-**Golden set**: `app/eval/golden/phase_d_precedent.json` — 5 placeholder items:
-```json
-[
-  {"query": "placeholder precedent query 1", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
-  {"query": "placeholder precedent query 2", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
-  {"query": "placeholder precedent query 3", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
-  {"query": "placeholder precedent query 4", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
-  {"query": "placeholder precedent query 5", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"}
-]
-```
-
-### 6. Phase EF slice — `app/eval/phase_ef_slice.py`
-
-**Metrics**: `Faithfulness`
-
-**Logic**:
-1. Connect to DB; if fails, print `"phase_ef skipped — no DB"` and exit 0
-2. Query: `SELECT d.id, d.summary, array_agg(c.text_ne) FROM documents d JOIN chunks c ON c.document_id = d.id WHERE d.summary IS NOT NULL GROUP BY d.id LIMIT 10`
-3. If result empty, print `"phase_ef skipped — no documents with summary"` and exit 0
-4. For each row: `SingleTurnSample(user_input="Summarize this document.", response=summary, retrieved_contexts=list_of_chunks)`
-5. Run `run_ragas(..., label="Phase EF — Summary Faithfulness")`
-
-### 7. Custom metric — `app/eval/metrics/temporal_faithfulness.py`
-
-Create `app/eval/metrics/__init__.py` (empty).
+If `langchain_core.outputs.LLMResult` or `Generation` don't exist in the installed
+langchain-core version, use this fallback — define them locally:
 
 ```python
-from __future__ import annotations
-import json
-from ragas.metrics.base import MetricWithLLM, SingleTurnMetric
-from ragas.dataset_schema import SingleTurnSample
+from dataclasses import dataclass, field
 
-class TemporalFaithfulness(MetricWithLLM, SingleTurnMetric):
-    name: str = "temporal_faithfulness"
-    _required_columns: dict = {"user_input", "response", "retrieved_contexts"}
+@dataclass
+class Generation:
+    text: str
 
-    async def _single_turn_ascore(self, sample: SingleTurnSample, callbacks=None) -> float:
-        as_of = (sample.additional_metadata or {}).get("as_of", "unknown")
-        context_str = "\n".join(sample.retrieved_contexts or [])
-        prompt = (
-            f"The legal question is answered as of {as_of}.\n"
-            f"Response: {sample.response}\n"
-            f"Context: {context_str}\n\n"
-            "Does this response contain any claim implying a provision was in force "
-            "before its commencement or after its repeal?\n"
-            'Reply with JSON only: {"temporal_violation": true|false, "reason": "..."}'
-        )
-        result = await self.llm.agenerate([[{"role": "user", "content": prompt}]])
-        try:
-            parsed = json.loads(result.generations[0][0].text)
-            return 0.0 if parsed.get("temporal_violation") else 1.0
-        except Exception:
-            return 1.0  # assume no violation on parse failure
+@dataclass
+class LLMResult:
+    generations: list[list[Generation]] = field(default_factory=list)
 ```
 
-### 8. Makefile update
+Only do this if the import fails. Prefer the real import.
 
-Replace the `eval:` target:
-```makefile
-eval: ## per-phase RAGAS quality report + romanized Recall@5
-	python3 -m app.eval.romanized_slice
-	python3 -m app.eval.phase_a_slice
-	python3 -m app.eval.phase_c_slice
-	python3 -m app.eval.phase_d_slice
-	python3 -m app.eval.phase_ef_slice
+## Allowed files to change
+- `app/eval/ragas_eval.py` — rewrite as above
+- `requirements.txt` — add `langchain-google-vertexai>=2.0.0` ONLY if `import ragas` fails without it
+- No other files
+
+## Required checks
 ```
-
-Extend the `lint:` target to include the new eval files. Look at the existing `lint:` target and append:
-`app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py`
-
-to the `ruff check`, `ruff format --check`, and `mypy` commands.
-
-## Zero-tolerance gates guarded
-- `repealed-as-current = 0` (unchanged — `gates.py` untouched)
-- `not-yet-effective-as-current = 0` (unchanged — `gates.py` untouched)
-- `overruled-as-good-law = 0` (unchanged — `gates.py` untouched)
-
-## Required checks before committing
-```
+python3 -c "import ragas; from ragas.metrics import Faithfulness; print('ok')"
 make test
 make lint
 make eval-gates
+make eval  # each slice should print "skipped" gracefully (no live DB in this env)
 ```
 
 ## Commit authorship (mandatory)
-Every commit on this branch must be authored as:
 ```
 git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"
 ```
-Never add `Co-Authored-By: Claude`, `Co-Authored-By: Kimi`, or any AI attribution. Non-negotiable.
+No AI attribution in any form.
 
 ## Return to Claude
-When done, return:
-1. Commit hash(es)
-2. Files changed
-3. Checks run and results
-4. Any assumptions made or risks remaining
+1. Commit hash
+2. Whether `langchain-google-vertexai` was needed (and why)
+3. Whether `langchain_core.outputs` import worked or the fallback was used
+4. `make test`, `make lint`, `make eval-gates` results
+5. Any remaining risks
