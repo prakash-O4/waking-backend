@@ -1,22 +1,28 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PG-A — RAGAS evaluation slices per pipeline phase**
-Branch: `PG-A/ragas-eval` | Base: `dev` | Owner: **Kimi** | Status: **ASSIGNED**
-
-Adds RAGAS v0.2.x eval to `make eval`: per-phase slices (A, C, D, EF) + custom
-`TemporalFaithfulness` metric. Zero-tolerance gates and `romanized_slice.py` untouched.
-
-PS in scope: PS-6 (TemporalFaithfulness), PS-13 (LLM-judge per-slice scores).
-
-Next action: Prakash runs Kimi on branch `PG-A/ragas-eval` with `task.md`.
+None. Awaiting Prakash's direction.
 
 ## Status
-**IN PROGRESS** — Kimi assigned PG-A (2026-08-06).
+**IDLE** — RAGAS eval merged to dev (2026-08-06).
 
 ---
 
 ## Completed tasks
+
+### PG-A — RAGAS v0.2 eval slices per pipeline phase (MERGED to dev, 2026-08-06)
+- `ragas==0.2.*` added to `requirements.txt`
+- `app/eval/ragas_eval.py`: `BaseRagasLLM` + `BaseRagasEmbeddings` via `openai.AsyncOpenAI`
+  directly — no LangchainLLMWrapper, no langchain-openai version conflict
+- `app/eval/__init__.py`: minimal shim for `langchain_community.chat_models.vertexai`
+  (removed in langchain-community 0.4.x; stub lets ragas 0.2.* import cleanly)
+- Phase slices: phase_a (Faithfulness + ResponseRelevancy), phase_c (ContextRecall +
+  NonLLMContextPrecisionWithReference), phase_d (stubbed — skips if precedent empty),
+  phase_ef (summary Faithfulness vs. source chunks)
+- `app/eval/metrics/temporal_faithfulness.py`: custom PS-6-aligned LLM-judge metric
+- Golden sets: `phase_a_qa.json` (10), `phase_c_romanized.json` (10), `phase_d_precedent.json` (5 placeholders)
+- `make eval`: runs all slices + romanized Recall@5; `make eval-gates` unchanged
+- PS-6, PS-13 in scope; zero-tolerance gates all at 0
 
 ### P0-A — Infrastructure skeleton (MERGED, commit 553a4e3)
 - Makefile, bitemporal schema, OpenSearch client, Pydantic models
