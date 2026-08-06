@@ -13,13 +13,13 @@ _BM25_MARKER = "-- pg_search (ParadeDB)"
 # Ordered list of (name, path).
 # 005 is split into core + bm25; paths are resolved dynamically.
 MIGRATIONS: list[tuple[str, str | None]] = [
-    ("001_bitemporal_schema",        "001_bitemporal_schema.sql"),
-    ("002_gate_suspend_fix",         "002_gate_suspend_fix.sql"),
-    ("003_bs_ad_calendar",           "003_bs_ad_calendar.sql"),
-    ("004_precedent_schema",         "004_precedent_schema.sql"),
-    ("005_ingestion_pipeline_core",  None),   # computed below
-    ("005_ingestion_pipeline_bm25",  None),   # optional; computed below
-    ("006_add_summary",              "006_add_summary.sql"),
+    ("001_bitemporal_schema", "001_bitemporal_schema.sql"),
+    ("002_gate_suspend_fix", "002_gate_suspend_fix.sql"),
+    ("003_bs_ad_calendar", "003_bs_ad_calendar.sql"),
+    ("004_precedent_schema", "004_precedent_schema.sql"),
+    ("005_ingestion_pipeline_core", None),  # computed below
+    ("005_ingestion_pipeline_bm25", None),  # optional; computed below
+    ("006_add_summary", "006_add_summary.sql"),
 ]
 
 
@@ -54,13 +54,13 @@ def _seed_existing(cur: Any) -> None:
     insert them so subsequent runs skip them correctly.
     """
     sentinels = {
-        "001_bitemporal_schema":       "SELECT 1 FROM pg_tables WHERE tablename = 'work'",
-        "002_gate_suspend_fix":        "SELECT 1 FROM pg_tables WHERE tablename = 'work'",  # same table; 002 just alters
-        "003_bs_ad_calendar":          "SELECT 1 FROM pg_tables WHERE tablename = 'bs_ad_calendar'",
-        "004_precedent_schema":        "SELECT 1 FROM pg_tables WHERE tablename = 'precedent'",
+        "001_bitemporal_schema": "SELECT 1 FROM pg_tables WHERE tablename = 'work'",
+        "002_gate_suspend_fix": "SELECT 1 FROM pg_tables WHERE tablename = 'work'",  # same table; 002 just alters
+        "003_bs_ad_calendar": "SELECT 1 FROM pg_tables WHERE tablename = 'bs_ad_calendar'",
+        "004_precedent_schema": "SELECT 1 FROM pg_tables WHERE tablename = 'precedent'",
         "005_ingestion_pipeline_core": "SELECT 1 FROM pg_tables WHERE tablename = 'chunks'",
         "005_ingestion_pipeline_bm25": "SELECT 1 FROM pg_extension WHERE extname = 'pg_search'",
-        "006_add_summary":             "SELECT 1 FROM information_schema.columns WHERE table_name='documents' AND column_name='summary'",
+        "006_add_summary": "SELECT 1 FROM information_schema.columns WHERE table_name='documents' AND column_name='summary'",
     }
     for name, probe in sentinels.items():
         cur.execute("SELECT 1 FROM schema_migrations WHERE name = %s", (name,))

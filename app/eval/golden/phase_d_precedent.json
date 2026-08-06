@@ -1,0 +1,7 @@
+[
+  {"query": "placeholder precedent query 1", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
+  {"query": "placeholder precedent query 2", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
+  {"query": "placeholder precedent query 3", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
+  {"query": "placeholder precedent query 4", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"},
+  {"query": "placeholder precedent query 5", "as_of": "2024-01-01", "reference": "placeholder holding", "note": "placeholder — populate when precedent corpus is ingested"}
+]
