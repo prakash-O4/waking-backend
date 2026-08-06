@@ -100,12 +100,14 @@ class PgvectorIndexer:
             cur.execute(
                 """
                 INSERT INTO documents (
-                    source_type, source_id, content_hash, raw_content, ocr_confidence
+                    source_type, source_id, content_hash, raw_content,
+                    ocr_confidence, summary
                 ) VALUES (%(source_type)s, %(source_id)s, %(content_hash)s,
-                          %(raw_content)s, %(ocr_confidence)s)
+                          %(raw_content)s, %(ocr_confidence)s, %(summary)s)
                 ON CONFLICT (source_type, source_id) DO UPDATE
                 SET content_hash = EXCLUDED.content_hash,
-                    raw_content = EXCLUDED.raw_content
+                    raw_content = EXCLUDED.raw_content,
+                    summary = EXCLUDED.summary
                 RETURNING id
                 """,
                 {
@@ -114,6 +116,7 @@ class PgvectorIndexer:
                     "content_hash": document["content_hash"],
                     "raw_content": document["raw_content"],
                     "ocr_confidence": document.get("ocr_confidence"),
+                    "summary": document.get("summary"),
                 },
             )
             row = cur.fetchone()

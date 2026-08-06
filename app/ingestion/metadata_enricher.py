@@ -127,18 +127,35 @@ def enrich_law_chunks(
     act_record: dict[str, Any], chunks: list[LawChunk]
 ) -> list[dict[str, Any]]:
     """
-    One LLM call per act: send the numbered chunk list, get back keywords +
-    relevant_questions per chunk. Returns metadata dicts aligned by chunk_index.
+    Two LLM calls per act:
+    1. Document-level summary of the act.
+    2. Per-chunk keywords + relevant_questions.
+    Returns metadata dicts aligned by chunk_index; each carries the act summary.
     """
     if not chunks:
         return []
     act_name = act_record.get("name", "")
+    sample_text = "\n\n".join(c.chunk_text for c in chunks[:5])
+
+    doc_extra: dict[str, Any] = {"summary": None}
+    try:
+        raw = _call_llm(
+            f"You are indexing the Nepali act «{act_name}» for legal search.\n"
+            "Write a 2-3 sentence Nepali summary: what this act governs and its key provisions.\n"
+            'Return ONLY JSON: {"summary": "..."}'
+            f"\n\nAct excerpt:\n{sample_text[:8000]}"
+        )
+        parsed = _parse_json(raw, dict)
+        doc_extra["summary"] = parsed.get("summary") or None
+    except (ValueError, json.JSONDecodeError) as exc:
+        logger.warning(f"llm act summary not parseable, left NULL: {exc}")
+
     prompt = _chunk_metadata_prompt(
         chunks,
         f"You are indexing the Nepali act «{act_name}» for legal search.",
     )
     raw = _call_llm(prompt)
-    return _apply_chunk_metadata(chunks, raw)
+    return _apply_chunk_metadata(chunks, raw, extra=doc_extra)
 
 
 def enrich_nkp_chunks(
@@ -153,20 +170,22 @@ def enrich_nkp_chunks(
     """
     full_text = "\n\n".join(chunk.chunk_text for chunk in chunks)
 
-    doc_extra: dict[str, Any] = {"cited_statutes": None, "headnotes": None}
+    doc_extra: dict[str, Any] = {"cited_statutes": None, "headnotes": None, "summary": None}
     try:
         raw = _call_llm(
             "You are indexing a Nepali Supreme Court decision for legal search.\n"
             "From the redacted full text below, extract:\n"
             '- "cited_statutes": names of Nepali acts/regulations cited (Nepali)\n'
             '- "headnotes": cleaned-up सिद्धान्त statements as one text block\n'
+            '- "summary": 2-3 sentence Nepali summary — case topic, legal question decided, and outcome\n'
             "Return ONLY JSON: "
-            '{"cited_statutes": [...], "headnotes": "..."}'
+            '{"cited_statutes": [...], "headnotes": "...", "summary": "..."}'
             f"\n\nText:\n{full_text[:30000]}"
         )
         parsed = _parse_json(raw, dict)
         doc_extra["cited_statutes"] = parsed.get("cited_statutes") or None
         doc_extra["headnotes"] = parsed.get("headnotes") or None
+        doc_extra["summary"] = parsed.get("summary") or None
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm case-level metadata not parseable, left NULL: {exc}")
 

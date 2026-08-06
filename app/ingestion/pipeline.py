@@ -138,12 +138,14 @@ class IngestionPipeline:
             return None
 
         # Stage 5 — EXTRACT_METADATA (haiku; failures leave NULL columns).
+        summary: str | None = None
         if self._enable_llm:
             try:
                 for meta in metadata_enricher.enrich_law_chunks(record, chunks):
                     index = meta["chunk_index"]
                     chunks[index].keywords = meta.get("keywords")
                     chunks[index].relevant_questions = meta.get("relevant_questions")
+                    summary = meta.get("summary") or summary
             except Exception as exc:  # noqa: BLE001 — NULL columns, never crash
                 logger.warning(f"{source_id}: metadata extraction failed: {exc}")
 
@@ -164,6 +166,7 @@ class IngestionPipeline:
             "act_name": record.get("name"),
             "english_name": record.get("english_name"),
             "document_type": record.get("document_type"),
+            "summary": summary,
         }
         document_id = self._indexer.upsert_document(document, chunks, embeddings)
         self._conn.commit()
@@ -261,6 +264,7 @@ class IngestionPipeline:
         # Stage 5 — EXTRACT_METADATA.
         cited_statutes: list[str] | None = None
         headnotes: str | None = None
+        summary: str | None = None
         if self._enable_llm:
             try:
                 for meta in metadata_enricher.enrich_nkp_chunks(record, chunks):
@@ -269,6 +273,7 @@ class IngestionPipeline:
                     chunks[index].relevant_questions = meta.get("relevant_questions")
                     cited_statutes = meta.get("cited_statutes") or cited_statutes
                     headnotes = meta.get("headnotes") or headnotes
+                    summary = meta.get("summary") or summary
             except Exception as exc:  # noqa: BLE001 — NULL columns, never crash
                 logger.warning(f"{source_id}: metadata extraction failed: {exc}")
             cited_statutes = self._validate_cited_statutes(cited_statutes)
@@ -291,6 +296,7 @@ class IngestionPipeline:
             "parties_redacted": "[[वादी]] / [[प्रतिवादी]]",
             "cited_statutes": cited_statutes,
             "headnotes": headnotes,
+            "summary": summary,
         }
         document_id = self._indexer.upsert_document(document, chunks, embeddings)
         self._indexer.insert_pii_vault(document_id, appellant, respondent, full_text)

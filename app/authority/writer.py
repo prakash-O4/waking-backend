@@ -14,9 +14,9 @@ PHASE0_APPROVER = UUID("00000000-0000-0000-0000-000000000001")
 def connect() -> connection:
     import os
 
-    url = os.getenv("SUPABASE_DB_URL")
+    url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL")
     if not url:
-        raise RuntimeError("SUPABASE_DB_URL is not set")
+        raise RuntimeError("DATABASE_URL is not set")
     return psycopg2.connect(url)
 
 

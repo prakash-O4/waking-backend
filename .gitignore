@@ -8,6 +8,8 @@ build_push.sh
 
 source
 
+__pycache__
+
 # Large data files — keep local only
 laws.jsonl
 regulations.json

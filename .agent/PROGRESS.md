@@ -4,14 +4,14 @@
 None. Awaiting Prakash's direction.
 
 ## Status
-**IDLE** — PE-A/fix merged to dev (2026-08-03).
+**IDLE** — Local Postgres running, schema migrated, corpus ready for ingestion (2026-08-06).
 
 ---
 
 ## Completed tasks
 
 ### P0-A — Infrastructure skeleton (MERGED, commit 553a4e3)
-- Makefile, bitemporal Supabase schema, OpenSearch client, Pydantic models
+- Makefile, bitemporal schema, OpenSearch client, Pydantic models
 
 ### P0-B — Full corpus ingestion + dumb baseline (MERGED, commit 9f0f086 + beeb05bf + 9b08516)
 - `app/authority/parser.py`, `writer.py`, `eligibility_gate.py`, `dumb_retriever.py`,
@@ -40,46 +40,66 @@ None. Awaiting Prakash's direction.
 - `app/eval/gates.py`: `check_overruled_as_good_law()` wired
 - 5 new tests (29 total passing, 1 skipped)
 
+### PE-A — PostgreSQL + pgvector + bge-m3 ingestion pipeline (MERGED to dev, 2026-08-03)
+- `migrations/005_ingestion_pipeline.sql`: documents, chunks (pgvector 1024-dim, HNSW), pii_vault,
+  pg_search BM25 index; dual-approval DDL (PS-2); REVOKE ALL on pii_vault (PS-14)
+- `app/ingestion/laws_chunker.py`: दफा-anchor structure-aware chunker; PS-16 co-retrieval links
+- `app/ingestion/nkp_chunker.py`: hybrid anchor chunker (caption/headnote/opinion/order/colophon)
+- `app/ingestion/pii_redactor.py`: deterministic + LLM second pass + verification assertion
+- `app/ingestion/pgvector_indexer.py`: bge-m3 embed, chunk upsert in index order, pii_vault write
+- `app/ingestion/pipeline.py`: 8-stage orchestrator; never sets approved; quarantines on redaction failure
+- `scripts/ingest_laws.py`, `scripts/ingest_nkp.py`: CLI scripts with dry-run mode
+- `tests/test_ingestion_pipeline.py`: 35 passing, 2 skipped
+- PS-2 / PS-3 / PS-5 / PS-10 / PS-14 / PS-16 all verified GREEN
+
 ### PE-A/fix — Provider-agnostic LLM via LangChain 1.3.0 (MERGED to dev, 2026-08-03)
 - `metadata_enricher.py`, `pii_redactor.py`: `anthropic` SDK replaced with `init_chat_model(settings.LLM_MODEL)`
 - `config.py`: `LLM_MODEL: str = "openai:gpt-4o-mini"` — swap provider via env var, no code change
 - `requirements.txt`: langchain==1.3.14, langchain-openai==1.4.1, langchain-community==0.4.2; anthropic removed
 - Collateral: `langchain.schema.Document` → `langchain_core.documents.Document` (removed in LangChain 1.x)
 
-### PE-A — PostgreSQL + pgvector + bge-m3 ingestion pipeline (MERGED to dev, 2026-08-03)
-- `migrations/005_ingestion_pipeline.sql`: documents, chunks (pgvector 1024-dim, HNSW), pii_vault,
-  pg_search BM25 index; dual-approval DDL (PS-2); REVOKE ALL on pii_vault (PS-14)
-- `app/ingestion/laws_chunker.py`: दफा-anchor structure-aware chunker; PS-16 co-retrieval links
-- `app/ingestion/nkp_chunker.py`: hybrid anchor chunker (caption/headnote/opinion/order/colophon)
-- `app/ingestion/pii_redactor.py`: deterministic + haiku second pass + verification assertion
-- `app/ingestion/pgvector_indexer.py`: bge-m3 embed, chunk upsert in index order, pii_vault write
-- `app/ingestion/pipeline.py`: 8-stage orchestrator; never sets approved; quarantines on redaction failure
-- `app/ingestion/metadata_enricher.py`: rewritten to Anthropic SDK (haiku-4-5); LangChain removed
-- `scripts/ingest_laws.py`, `scripts/ingest_nkp.py`: CLI scripts with dry-run mode
-- `tests/test_ingestion_pipeline.py`: 35 passing, 2 skipped (live-DB dual-approval test conditional)
-- PS-2 / PS-3 / PS-5 / PS-10 / PS-14 / PS-16 all verified GREEN
+### PF-A — Local Postgres setup + summary field (2026-08-06, on dev)
+- **Local Postgres**: Docker container `wakilg-postgres` (pgvector/pgvector:pg17, port 5433)
+  - All 13 tables created; pgvector extension live; 33,238 BS/AD calendar rows seeded
+  - `DATABASE_URL=postgresql://wakilg:wakilg@localhost:5433/wakilg` in `.env`
+- **`app/authority/writer.py`**: reads `DATABASE_URL` first, falls back to `SUPABASE_DB_URL`
+- **`migrations/006_add_summary.sql`**: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary TEXT`
+- **`app/ingestion/metadata_enricher.py`**: summary added to both enrichment paths
+  - NKP: extracted in same first LLM call as `cited_statutes` + `headnotes` (no extra API call)
+  - Laws: one extra LLM call per act (act name + first 5 chunks → 2-3 sentence Nepali summary)
+- **`app/ingestion/pipeline.py`**: extracts `summary` from enricher output, passes to document dict
+- **`app/ingestion/pgvector_indexer.py`**: writes `summary` into documents upsert
+- **`scripts/migrate.py`**: fully rewritten — idempotent via `schema_migrations` tracking table;
+  detects pre-existing migrations by object probes; BM25 block auto-skipped on standard Postgres
+- Dry-run verified: 1022 NKP cases in `output/nkp_cases.jsonl`, 5/5 sample valid, 0 rejected
 
-## Phase 0 + A + B + C + D + E status
-**COMPLETE.**
+## Phase 0 + A + B + C + D + E + F status
+**Schema and pipeline COMPLETE. Corpus ready. Ingestion not yet run.**
 - All gates enforced on every path (including all degraded modes)
 - Canonical BS/AD calendar live (PS-5); romanized eval slice live (PS-8)
 - Precedent subsystem with holding-level model and bench-competence gate (PS-1)
-- Ingestion pipeline: PostgreSQL + pgvector + bge-m3 + pg_search; dual approval enforced in DDL
+- Ingestion pipeline: PostgreSQL + pgvector + bge-m3; dual approval enforced in DDL
+- Documents carry: keywords, relevant_questions, cited_statutes, headnotes, **summary**
 - Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0, overruled-as-good-law = 0
 
 ## Operational steps still pending (on Prakash)
-- Run `scripts/migrate.py` (applies migrations 001-005; 005 requires ParadeDB or comment out BM25 block)
-- Run `scripts/ingest_laws.py` against real PostgreSQL + pgvector DB
-- Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (after PII review policy confirmed)
-- Run `scripts/seed_bs_ad_calendar.py` after migration 003
-- Run `make eval` + `make eval-gates` against live env to get baseline Recall@5 and verify zero-tolerance gates
+- Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (1022 cases; needs OPENAI_API_KEY for metadata)
+- Run `scripts/ingest_laws.py` against local DB (laws corpus path TBD)
+- Run `make eval` + `make eval-gates` against live env (baseline Recall@5 + zero-tolerance gate check)
 - Ingest precedent corpus (then wire `retrieve_precedent` into orchestrator)
-- Decide whether to commit/discard `app/config.py` working-tree change (`extra = "ignore"` in Settings.Config)
+- Rewrite `app/main.py` auth layer (Supabase auth → new architecture; `app/utils/helpers.py` SupabaseHelper to be replaced)
+- Push `dev` to origin when ready
+
+## Architecture notes
+- **DB**: Self-hosted PostgreSQL on VPS (Docker locally). No Supabase dependency for ingestion or retrieval.
+  `app/main.py` still has Supabase auth — that is old architecture, to be replaced.
+- **LLM**: Provider-agnostic via `LLM_MODEL` env var (default `openai:gpt-4o-mini`).
+  Switch provider without code change (e.g. `LLM_MODEL=google_genai:gemini-1.5-flash`).
+- **BM25**: pg_search (ParadeDB) not available on standard Postgres — falls back to GIN tsvector at query time.
 
 ## Governing design refs
-- SYSTEM_DESIGN.md §2, §6, §7.6, §10, §13, §14
 - AGENTS.md (prime directive, definition of done)
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction.
+Awaiting Prakash's direction — likely full NKP corpus ingestion.
