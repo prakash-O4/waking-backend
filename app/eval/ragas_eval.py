@@ -12,6 +12,23 @@ from ragas.run_config import RunConfig
 
 from app.config import get_settings
 
+# USD per 1M tokens: {model: (input_rate, output_rate)}
+_LLM_RATES: dict[str, tuple[float, float]] = {
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4-turbo": (10.00, 30.00),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "o1-mini": (1.10, 4.40),
+    "o1": (15.00, 60.00),
+}
+
+# USD per 1M tokens: {model: rate}
+_EMBEDDING_RATES: dict[str, float] = {
+    "text-embedding-ada-002": 0.10,
+    "text-embedding-3-small": 0.02,
+    "text-embedding-3-large": 0.13,
+}
+
 
 def _openai_model_name(settings_model: str) -> str:
     """Strip a provider prefix (e.g. 'openai:gpt-4o-mini') if present."""
@@ -66,10 +83,18 @@ class _OpenAIEvalLLM(BaseRagasLLM):
         api_key = os.getenv("OPENAI_API_KEY")
         self._async_client = AsyncOpenAI(api_key=api_key)
         self._sync_client = OpenAI(api_key=api_key)
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
         self.set_run_config(RunConfig())
 
     def _get_messages(self, prompt: Any) -> list[dict[str, str]]:
         return _messages_to_openai(prompt.to_messages())
+
+    def _accrue(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        if usage:
+            self.prompt_tokens += getattr(usage, "prompt_tokens", 0)
+            self.completion_tokens += getattr(usage, "completion_tokens", 0)
 
     def generate_text(
         self,
@@ -89,6 +114,7 @@ class _OpenAIEvalLLM(BaseRagasLLM):
             stop=stop,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return _llm_result_from_openai(response, n)
 
     async def agenerate_text(
@@ -109,6 +135,7 @@ class _OpenAIEvalLLM(BaseRagasLLM):
             stop=stop,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return _llm_result_from_openai(response, n)
 
     def is_finished(self, response: LLMResult) -> bool:
@@ -127,6 +154,15 @@ class _OpenAIEvalLLM(BaseRagasLLM):
         self.run_config = run_config
         self.run_config.exception_types = RateLimitError
 
+    def cost_usd(self) -> float | None:
+        rates = _LLM_RATES.get(self._model)
+        if rates is None:
+            return None
+        in_rate, out_rate = rates
+        return (
+            self.prompt_tokens * in_rate + self.completion_tokens * out_rate
+        ) / 1_000_000
+
 
 class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
     def __init__(self) -> None:
@@ -135,7 +171,13 @@ class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
         api_key = os.getenv("OPENAI_API_KEY")
         self._async_client = AsyncOpenAI(api_key=api_key)
         self._sync_client = OpenAI(api_key=api_key)
+        self.total_tokens: int = 0
         self.set_run_config(RunConfig())
+
+    def _accrue(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        if usage:
+            self.total_tokens += getattr(usage, "total_tokens", 0)
 
     def embed_query(self, text: str) -> list[float]:
         response = self._sync_client.embeddings.create(
@@ -143,6 +185,7 @@ class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
             input=text,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return cast(list[float], response.data[0].embedding)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -151,6 +194,7 @@ class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
             input=texts,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return cast(list[list[float]], [d.embedding for d in response.data])
 
     async def aembed_query(self, text: str) -> list[float]:
@@ -159,6 +203,7 @@ class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
             input=text,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return cast(list[float], response.data[0].embedding)
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -167,18 +212,25 @@ class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
             input=texts,
             timeout=self.run_config.timeout,
         )
+        self._accrue(response)
         return cast(list[list[float]], [d.embedding for d in response.data])
 
     def set_run_config(self, run_config: RunConfig) -> None:
         self.run_config = run_config
         self.run_config.exception_types = RateLimitError
 
+    def cost_usd(self) -> float | None:
+        rate = _EMBEDDING_RATES.get(self._model)
+        if rate is None:
+            return None
+        return self.total_tokens * rate / 1_000_000
 
-def get_evaluator_llm() -> BaseRagasLLM:
+
+def get_evaluator_llm() -> _OpenAIEvalLLM:
     return _OpenAIEvalLLM()
 
 
-def get_evaluator_embeddings() -> BaseRagasEmbeddings:
+def get_evaluator_embeddings() -> _OpenAIEvalEmbeddings:
     return _OpenAIEvalEmbeddings()
 
 
@@ -187,16 +239,40 @@ def run_ragas(
 ) -> dict[str, Any]:
     from ragas import evaluate
 
+    llm = get_evaluator_llm()
+    embeddings = get_evaluator_embeddings()
+
     result = evaluate(
         dataset=dataset,
         metrics=metrics,
-        llm=get_evaluator_llm(),
-        embeddings=get_evaluator_embeddings(),
+        llm=llm,
+        embeddings=embeddings,
         raise_exceptions=False,
         show_progress=False,
     )
     scores = cast(dict[str, Any], result.to_pandas().mean(numeric_only=True).to_dict())
+
     print(f"\n=== {label} ===")
     for k, v in scores.items():
         print(f"  {k}: {v:.3f}")
+
+    # Cost report
+    prompt_tok = llm.prompt_tokens
+    completion_tok = llm.completion_tokens
+    embed_tok = embeddings.total_tokens
+    llm_cost = llm.cost_usd()
+    emb_cost = embeddings.cost_usd()
+
+    print(f"  --- cost ({llm._model} / {embeddings._model}) ---")
+    print(
+        f"  llm tokens   : {prompt_tok:,} in + {completion_tok:,} out = {prompt_tok + completion_tok:,} total"
+    )
+    print(f"  embed tokens : {embed_tok:,}")
+    if llm_cost is not None and emb_cost is not None:
+        print(f"  est. cost    : ${llm_cost + emb_cost:.4f} USD")
+    elif llm_cost is not None:
+        print(f"  est. cost    : ${llm_cost:.4f} USD (embeddings model unknown)")
+    else:
+        print("  est. cost    : unknown model — tokens only")
+
     return scores
