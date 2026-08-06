@@ -1,10 +1,18 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. Awaiting Prakash's direction.
+**PG-A — RAGAS evaluation slices per pipeline phase**
+Branch: `PG-A/ragas-eval` | Base: `dev` | Owner: **Kimi** | Status: **ASSIGNED**
+
+Adds RAGAS v0.2.x eval to `make eval`: per-phase slices (A, C, D, EF) + custom
+`TemporalFaithfulness` metric. Zero-tolerance gates and `romanized_slice.py` untouched.
+
+PS in scope: PS-6 (TemporalFaithfulness), PS-13 (LLM-judge per-slice scores).
+
+Next action: Prakash runs Kimi on branch `PG-A/ragas-eval` with `task.md`.
 
 ## Status
-**IDLE** — Local Postgres running, schema migrated, corpus ready for ingestion (2026-08-06).
+**IN PROGRESS** — Kimi assigned PG-A (2026-08-06).
 
 ---
 
