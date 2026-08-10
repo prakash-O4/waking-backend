@@ -11,7 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 # LangChain and AI imports
 from langchain.schema import AIMessage, HumanMessage
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, AzureChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 from langchain.schema import Document
 
@@ -34,6 +34,12 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 os.environ['PINECONE_API_KEY'] = os.getenv("PINECONE_API_KEY")
+
+# Azure OpenAI LLM config (chat / streaming)
+_azure_llm_full_endpoint = os.getenv("AZURE_OPENAI_LLM_ENDPOINT", "")
+azure_llm_key = os.getenv("AZURE_OPENAI_LLM_KEY")
+# Base URL: strip the /openai/deployments/... path
+azure_llm_base = _azure_llm_full_endpoint.split("/openai/")[0] if "/openai/" in _azure_llm_full_endpoint else _azure_llm_full_endpoint
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -66,7 +72,13 @@ def create_advanced_retriever(base_retriever):
         :param chat_history: List of messages representing the chat history.
         :return: A list of decomposed sub-queries or an empty list if the query is outside the legal domain.
         """
-        llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_llm_base,
+            azure_deployment="gpt-4.1-mini",
+            openai_api_version="2025-01-01-preview",
+            api_key=azure_llm_key,
+            temperature=0,
+        )
 
         # Combine chat history and current query into a formatted input
         conversation_context = "\n".join(
@@ -282,7 +294,13 @@ async def ask_question(input: QuestionInput, authorization: str = Header(None)):
         prompt = qa_prompt.format(context=context, question=input.question, chat_history=chat_history)
 
         # Initialize ChatOpenAI with streaming
-        llm = ChatOpenAI(openai_api_key=openai_api_key, streaming=True,model="gpt-4o-mini")
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_llm_base,
+            azure_deployment="gpt-4.1-mini",
+            openai_api_version="2025-01-01-preview",
+            api_key=azure_llm_key,
+            streaming=True,
+        )
 
         async def generate_sse():
             yield format_sse("start", json.dumps({"start": True}))
