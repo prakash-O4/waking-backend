@@ -1,10 +1,15 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. Awaiting Prakash's direction.
+**PH-OBS-A** — Langfuse RAG tracing integration
 
 ## Status
-**IDLE** — 100 laws ingested to local Postgres (2026-08-07). Azure OpenAI pipeline live.
+**IN PROGRESS** — branch `obs/langfuse-tracing` created from dev (292059b). Assigned to Pi.
+
+- Design refs: system-design.md §11 (observability + privacy), PS-14
+- PS in scope: PS-14 (traces store hashes, never raw content)
+- Zero-tolerance gates: unchanged
+- Next action: Prakash runs Pi on branch `obs/langfuse-tracing`
 
 ---
 
