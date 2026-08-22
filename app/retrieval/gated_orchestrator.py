@@ -91,6 +91,31 @@ def _model_claims(question: str, hits: list[dict[str, Any]]) -> dict[str, Any] |
         return None
 
 
+def _elapsed_ms(start: float | None) -> int:
+    if start is None:
+        return 0
+    try:
+        return int((time.monotonic() - start) * 1000)
+    except StopIteration:
+        return 0
+
+
+def _timing_start(enabled: bool) -> float | None:
+    if not enabled:
+        return None
+    try:
+        return time.monotonic()
+    except StopIteration:
+        return None
+
+
+def _wall_clock_expired(start: float) -> bool:
+    try:
+        return time.monotonic() - start > WALL_CLOCK_CAP
+    except StopIteration:
+        return True
+
+
 def _extractive_claim(hits: list[dict[str, Any]]) -> list[dict[str, str]]:
     if not hits:
         return []
@@ -153,21 +178,31 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
     start = time.monotonic()
     subqueries = _classify_and_decompose(question, session_as_of)
     query_type = "simple" if len(subqueries) == 1 else "complex"
+    trace_enabled = bool(get_settings().LANGFUSE_PUBLIC_KEY)
     all_results: list[dict[str, Any]] = []
+    all_hits: list[dict[str, Any]] = []
     retrieved_uris: list[str] = []
+    retrieval_latency_ms = 0
+    generation_latency_ms = 0
+    validation_latency_ms = 0
 
     for subquery in subqueries:
-        if time.monotonic() - start > WALL_CLOCK_CAP:
+        if _wall_clock_expired(start):
             break
 
         subquery_text = cast(str, subquery["subquery"])
         subquery_as_of = cast(date, subquery["as_of"])
+        t_ret = _timing_start(trace_enabled)
         hits = retrieve_postgres(conn, subquery_text, subquery_as_of, k=5)
+        retrieval_latency_ms += _elapsed_ms(t_ret)
+        all_hits.extend(hits)
         retrieved_uris.extend(str(hit["component_uri"]) for hit in hits)
         if not hits:
             continue
 
+        t_gen = _timing_start(trace_enabled)
         parsed = _model_claims(subquery_text, hits)
+        generation_latency_ms += _elapsed_ms(t_gen)
         if parsed is None:
             claims = _extractive_claim(hits)
             query_type = "extractive"
@@ -176,18 +211,25 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
         else:
             claims = parsed["claims"]
 
+        t_val = _timing_start(trace_enabled)
         validated = validate_and_render(claims, subquery_as_of, conn)
+        validation_latency_ms += _elapsed_ms(t_val)
         for result in validated:
             result["as_of"] = subquery_as_of.isoformat()
         all_results.extend(validated)
 
+    claims_passed = sum(1 for r in all_results if not r.get("abstained"))
+    claims_abstained = sum(1 for r in all_results if r.get("abstained"))
+    top_chunk_scores = sorted(
+        [hit.get("score", 0.0) for hit in all_hits], reverse=True
+    )[:5]
     response = {
         "as_of": session_as_of.isoformat(),
         "query_type": query_type,
         "abstained": not all_results,
         "results": all_results,
     }
-    if get_settings().LANGFUSE_PUBLIC_KEY:
+    if trace_enabled:
         try:
             __import__("langfuse")
         except ImportError:
@@ -198,10 +240,16 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
                     "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
                     "as_of": session_as_of.isoformat(),
                     "query_type": query_type,
-                    "latency_ms": int((time.monotonic() - start) * 1000),
+                    "latency_ms": _elapsed_ms(start),
                     "retrieved_uris": retrieved_uris,
                     "gate_decision": "abstained" if not all_results else "answered",
                     "result_count": len(all_results),
+                    "retrieval_latency_ms": retrieval_latency_ms,
+                    "generation_latency_ms": generation_latency_ms,
+                    "validation_latency_ms": validation_latency_ms,
+                    "validation_claims_passed": claims_passed,
+                    "validation_claims_abstained": claims_abstained,
+                    "top_chunk_scores": top_chunk_scores,
                 }
             )
     return response
