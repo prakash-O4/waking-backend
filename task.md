@@ -1,83 +1,138 @@
-# Task PH-OBS-A: Langfuse RAG tracing integration
+# Task PH-OBS-B: Full stage-level ingestion tracing
 
 **Engineer:** Pi  
-**Branch:** `obs/langfuse-tracing`  
-**Base:** `dev` (commit 292059b)
+**Branch:** `obs/langfuse-ingestion-stages`  
+**Base:** `dev` (commit 7236d61)
 
 ---
 
 ## Objective
 
-Wire Langfuse as the traceability layer for the Wakil-G query and ingestion
-pipelines. Langfuse runs self-hosted; connection is configured via env vars.
-**PS-14 is the primary constraint** — traces store IDs/hashes, never raw
-legal text.
+Replace the current terminal-only `_emit_ingestion_span` with a proper
+per-document trace that wraps all ingestion stages as timed child spans.
+Every document — whether it succeeds or fails — must appear in Langfuse with
+one span per pipeline stage, each showing stage name, outcome, and latency_ms.
+
+**File in scope: `app/ingestion/pipeline.py` only.**
 
 ---
 
-## Acceptance criteria
+## What exists now (replace this)
 
-1. `langfuse>=2.0` added to `requirements.txt`; no version conflict with
-   existing deps (langchain 1.3.14, langchain-openai 1.4.1, openai).
-2. Three new settings in `app/config.py`:
-   ```
-   LANGFUSE_PUBLIC_KEY: str = ""
-   LANGFUSE_SECRET_KEY: str = ""
-   LANGFUSE_HOST: str = "http://localhost:3000"
-   ```
-3. `LangfuseCallbackHandler` wired into the LangChain LLM calls inside
-   `app/retrieval/gated_orchestrator.py`. When `LANGFUSE_PUBLIC_KEY` is set,
-   calls appear as spans in Langfuse automatically.
-4. `answer()` in `gated_orchestrator.py` emits a top-level Langfuse trace
-   containing **only**:
-   - `query_hash` — SHA-256 of the question (NOT the raw question string)
-   - `as_of` — the date string
-   - `query_type` — `simple | complex | extractive`
-   - `latency_ms`
-   - `retrieved_uris` — list of `component_uri` strings from hits (NOT `text_ne`)
-   - `gate_decision` — `answered | abstained`
-   - `result_count`
-5. `IngestionPipeline` in `app/ingestion/pipeline.py` emits per-document spans
-   containing **only**: `source_id`, `source_type`, stage name, outcome
-   (`ingested | skipped | rejected | quarantined`). Never `raw_content`,
-   `full_text`, or `redacted_text`.
-6. Langfuse is **optional**: if `LANGFUSE_PUBLIC_KEY` is empty/unset, no
-   Langfuse client initializes and the pipeline runs identically to before —
-   no import error, no crash, no changed behaviour.
-7. `make test` green. `make lint` green.
-8. Zero-tolerance eval gates untouched.
+`_emit_ingestion_span(source_id, source_type, stage, outcome)` is called only
+at exit points (failure or final success). A successfully ingested law produces
+exactly one span (`DUAL_APPROVAL_PAUSE / ingested`). Intermediate stages are
+invisible. The function also creates a new `Langfuse` client on every call —
+replace with a module-level singleton.
 
 ---
 
-## PS-14 hard constraints — never violate
+## Required design
 
-| What | Rule |
+### 1. Module-level Langfuse client singleton
+
+```python
+_lf_client: "Langfuse | None" = None
+
+def _get_lf_client() -> "Langfuse | None":
+    from app.config import get_settings
+    if not get_settings().LANGFUSE_PUBLIC_KEY:
+        return None
+    global _lf_client
+    if _lf_client is None:
+        from langfuse import Langfuse
+        s = get_settings()
+        _lf_client = Langfuse(
+            public_key=s.LANGFUSE_PUBLIC_KEY,
+            secret_key=s.LANGFUSE_SECRET_KEY,
+            host=s.LANGFUSE_HOST,
+        )
+    return _lf_client
+```
+
+### 2. One trace per document
+
+At the START of `ingest_law()` and `ingest_nkp_case()`, open a trace:
+
+```python
+lf = _get_lf_client()
+trace = lf.trace(
+    name="ingestion.law",          # or "ingestion.nkp_case"
+    metadata={"source_id": source_id, "source_type": source_type},
+) if lf else None
+```
+
+### 3. One span per stage, with timing
+
+Helper to emit a completed stage span:
+
+```python
+def _span(trace: Any, stage: str, *, outcome: str, latency_ms: int) -> None:
+    if trace is None:
+        return
+    trace.span(
+        name=f"stage.{stage}",
+        metadata={"outcome": outcome, "latency_ms": latency_ms},
+    )
+```
+
+Pattern inside each stage:
+
+```python
+t0 = time.monotonic()
+# ... stage work ...
+_span(trace, "STAGE_NAME", outcome="passed", latency_ms=int((time.monotonic()-t0)*1000))
+```
+
+At every return path (early exit or success), flush before returning:
+
+```python
+if lf:
+    lf.flush()
+```
+
+### 4. Stages to trace
+
+**Laws (`ingest_law`):**
+
+| Stage | outcome values |
 |---|---|
-| Query text | SHA-256 hash only — never the raw string in any span |
-| Retrieved statutory text | `component_uri` only — never `text_ne` |
-| LLM prompts / completions | Do NOT add to span metadata; LangChain callbacks handle these — do not re-add |
-| `raw_content`, `full_text`, `redacted_text` | Never in any span, ever |
+| `LOAD` | `skipped` (unchanged hash) or `passed` |
+| `VALIDATE` | `rejected` or `passed` |
+| `CHUNK` | `rejected` or `passed` |
+| `EXTRACT_METADATA` | `failed` (LLM error, caught) or `passed` |
+| `EMBED_AND_UPSERT` | `passed` |
+| `DUAL_APPROVAL_PAUSE` | `ingested` |
 
-system-design.md §11 governs. Redaction is at the instrumentation layer, not
-the Langfuse server.
+**NKP cases (`ingest_nkp_case`):**
+
+| Stage | outcome values |
+|---|---|
+| `LOAD` | `skipped` or `passed` |
+| `VALIDATE` | `rejected` or `passed` |
+| `REDACT_PII` | `quarantined` or `passed` |
+| `CHUNK` | `rejected` or `passed` |
+| `EXTRACT_METADATA` | `failed` or `passed` |
+| `EMBED_AND_UPSERT` | `passed` |
+| `DUAL_APPROVAL_PAUSE` | `ingested` |
+
+On early exit, emit only the terminal stage span then flush. Do not emit spans
+for stages that were never reached.
 
 ---
 
-## Files in scope
+## PS-14 constraints — unchanged
 
-- `requirements.txt`
-- `app/config.py`
-- `app/retrieval/gated_orchestrator.py`
-- `app/ingestion/pipeline.py`
+- `source_id`, stage name, outcome, `latency_ms` in spans: allowed
+- `raw_content`, `full_text`, `redacted_text`, any chunk text: never in any span
 
-## Files explicitly out of scope
+---
 
-- Any gate logic (`eligibility_gate.py`, `validation_gate.py`, `gates.py`)
-- Chunkers, parsers, writer, calendar
-- Eval harness or eval metrics
-- `app/main.py`
-- Langfuse server setup (ops, not this task)
-- LangSmith wiring in `app/main.py` (separate cleanup task)
+## What does NOT change
+
+- `_langfuse_callback()` and `_emit_answer_trace()` in `gated_orchestrator.py`
+- All gate logic, chunkers, parsers, writer, eval harness
+- Opt-in: if `LANGFUSE_PUBLIC_KEY` unset, pipeline runs identically
 
 ---
 
@@ -88,14 +143,13 @@ make test
 make lint
 ```
 
-Run both. Return results.
+Return commit hash, checks run/results.
 
 ---
 
 ## Commit authorship
 
-Every commit on this branch:
 ```
 git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"
 ```
-No `Co-Authored-By`, no AI attribution in commit messages or files.
+No `Co-Authored-By`, no AI attribution.
