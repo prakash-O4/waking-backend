@@ -1,17 +1,23 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**CLEANUP-A** — Remove OpenSearch
+None.
 
 ## Status
-**IN PROGRESS** — branch `cleanup/remove-opensearch` from dev (bd3870b). Assigned to Pi.
-
-- No PS requirements in scope — pure deletion, no gate logic touched
-- Next action: Prakash runs Pi on branch `cleanup/remove-opensearch`
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
 ## Completed tasks
+
+### CLEANUP-A — Remove OpenSearch (MERGED to dev, 2026-08-22)
+- Deleted: `app/search/client.py`, `app/search/__init__.py`, `app/retrieval/dumb_retriever.py`, `docker-compose.yml`
+- `gated_orchestrator.py`: removed `_try_retrieve`, direct `retrieve_postgres` call
+- `requirements.txt`: removed `opensearch-py==2.7.1`
+- `Makefile`: removed OpenSearch startup from `setup` target
+- `tests/test_degraded_modes.py`: deleted 2 OS tests, fixed 1 mock
+- Eval slices + `scripts/query.py`: swapped to `retrieve_postgres` + `connect()`
+- 33 passed, 2 skipped, 0 failed (count drop = 2 deleted OS tests that were passing)
 
 ### PH-OBS-B — Full stage-level ingestion tracing (MERGED to dev, 2026-08-22)
 - Replaced terminal-only `_emit_ingestion_span` with per-document traces
@@ -158,4 +164,4 @@
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction — likely ingest remaining 577 laws or NKP corpus.
+Awaiting Prakash's direction.
