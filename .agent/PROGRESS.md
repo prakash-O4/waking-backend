@@ -1,18 +1,24 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PH-OBS-B** — Full stage-level ingestion tracing
+None. Awaiting Prakash's direction.
 
 ## Status
-**IN PROGRESS** — branch `obs/langfuse-ingestion-stages` created from dev (7236d61). Assigned to Pi.
-
-- Design refs: system-design.md §11, PS-14
-- File in scope: `app/ingestion/pipeline.py` only
-- Next action: Prakash runs Pi on branch `obs/langfuse-ingestion-stages`
+**IDLE**
 
 ---
 
 ## Completed tasks
+
+### PH-OBS-B — Full stage-level ingestion tracing (MERGED to dev, 2026-08-22)
+- Replaced terminal-only `_emit_ingestion_span` with per-document traces
+- Module-level Langfuse singleton — one client for entire ingestion run
+- One trace per document (`ingestion.law` / `ingestion.nkp_case`)
+- One timed child span per stage: LOAD, VALIDATE, CHUNK, EXTRACT_METADATA,
+  EMBED_AND_UPSERT, DUAL_APPROVAL_PAUSE (+ REDACT_PII for NKP)
+- Each span carries: stage name, outcome, latency_ms
+- `ImportError` guard — degrades to no-op if langfuse package not installed
+- PS-14 compliant; 35 tests passing
 
 ### PH-OBS-A — Langfuse RAG tracing integration (MERGED to dev, 2026-08-22)
 - `langfuse>=2.0` added to `requirements.txt`
