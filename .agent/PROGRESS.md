@@ -1,18 +1,24 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**RET-A** — Retrieval layer rewrite
+None.
 
 ## Status
-**IN PROGRESS** — branch `feat/retrieval-rewrite` from dev. Assigned to Pi.
-
-- PS-6, PS-7, PS-12 in scope
-- Replaces empty-table ILIKE with vector + lexical + RRF + reranker
-- Next action: Prakash runs Pi on branch `feat/retrieval-rewrite`
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
 ## Completed tasks
+
+### RET-A — Retrieval layer rewrite (MERGED to dev, 2026-08-23)
+- `postgres_retriever.py`: full rewrite — preprocessing, Azure query embedding,
+  eligibility gate, vector ANN + tsvector GIN, RRF fusion, relevance gate, Cohere rerank
+- `eligibility_gate.py`: new `eligible_chunk_ids()` querying `documents`/`chunks` (not old `lifecycle_effect`)
+- `reranker.py`: new Cohere wrapper, opt-in (no-op if `COHERE_API_KEY` unset)
+- `validation_gate.py`: resolves evidence_ids against `chunks` table (not `expression`)
+- `migrations/007_retrieval_indexes.sql`: GIN tsvector index on `chunks.chunk_text`
+- `config.py`: added `COHERE_API_KEY: str = ""`
+- PS-6, PS-7, PS-12 verified; 42 tests passing, 2 skipped
 
 ### CLEANUP-A — Remove OpenSearch (MERGED to dev, 2026-08-22)
 - Deleted: `app/search/client.py`, `app/search/__init__.py`, `app/retrieval/dumb_retriever.py`, `docker-compose.yml`
