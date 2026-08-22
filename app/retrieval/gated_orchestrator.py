@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -8,6 +9,7 @@ from typing import Any, cast
 
 from psycopg2.extensions import connection
 
+from app.config import Settings
 from app.retrieval.dumb_retriever import retrieve as os_retrieve
 from app.retrieval.postgres_retriever import retrieve_postgres
 from app.retrieval.validation_gate import validate_and_render
@@ -15,6 +17,38 @@ from app.retrieval.validation_gate import validate_and_render
 WALL_CLOCK_CAP = 20.0
 MAX_SUBQUERIES = 3
 EXTRACTIVE_CHARS = 300
+
+
+def _langfuse_callback() -> list[Any]:
+    settings = Settings()
+    if not settings.LANGFUSE_PUBLIC_KEY:
+        return []
+    from langfuse.callback import (  # type: ignore[import-not-found]
+        CallbackHandler as LangfuseCallbackHandler,
+    )
+
+    return [
+        LangfuseCallbackHandler(
+            public_key=settings.LANGFUSE_PUBLIC_KEY,
+            secret_key=settings.LANGFUSE_SECRET_KEY,
+            host=settings.LANGFUSE_HOST,
+        )
+    ]
+
+
+def _emit_answer_trace(metadata: dict[str, Any]) -> None:
+    settings = Settings()
+    if not settings.LANGFUSE_PUBLIC_KEY:
+        return
+    from langfuse import Langfuse  # type: ignore[import-not-found]
+
+    client = Langfuse(
+        public_key=settings.LANGFUSE_PUBLIC_KEY,
+        secret_key=settings.LANGFUSE_SECRET_KEY,
+        host=settings.LANGFUSE_HOST,
+    )
+    client.trace(name="rag.answer", metadata=metadata)
+    client.flush()
 
 
 def _try_retrieve(
@@ -60,7 +94,8 @@ def _model_claims(question: str, hits: list[dict[str, Any]]) -> dict[str, Any] |
                     "role": "user",
                     "content": f"Context:\n{context}\n\nQuestion: {question}",
                 },
-            ]
+            ],
+            config={"callbacks": _langfuse_callback()},
         )
         return cast(dict[str, Any], json.loads(resp.content.strip()))
     except Exception:
@@ -102,7 +137,8 @@ def _classify_and_decompose(question: str, session_as_of: date) -> list[dict[str
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": question},
-            ]
+            ],
+            config={"callbacks": _langfuse_callback()},
         )
         parsed = json.loads(resp.content.strip())
         if parsed.get("type") != "complex":
@@ -126,17 +162,21 @@ def _classify_and_decompose(question: str, session_as_of: date) -> list[dict[str
 
 def answer(question: str, session_as_of: date, conn: connection) -> dict[str, Any]:
     start = time.monotonic()
+    last_now = start
     subqueries = _classify_and_decompose(question, session_as_of)
     query_type = "simple" if len(subqueries) == 1 else "complex"
     all_results: list[dict[str, Any]] = []
+    retrieved_uris: list[str] = []
 
     for subquery in subqueries:
-        if time.monotonic() - start > WALL_CLOCK_CAP:
+        last_now = time.monotonic()
+        if last_now - start > WALL_CLOCK_CAP:
             break
 
         subquery_text = cast(str, subquery["subquery"])
         subquery_as_of = cast(date, subquery["as_of"])
         hits = _try_retrieve(conn, subquery_text, subquery_as_of)
+        retrieved_uris.extend(str(hit["component_uri"]) for hit in hits)
         if not hits:
             continue
 
@@ -154,9 +194,21 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
             result["as_of"] = subquery_as_of.isoformat()
         all_results.extend(validated)
 
-    return {
+    response = {
         "as_of": session_as_of.isoformat(),
         "query_type": query_type,
         "abstained": not all_results,
         "results": all_results,
     }
+    _emit_answer_trace(
+        {
+            "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
+            "as_of": session_as_of.isoformat(),
+            "query_type": query_type,
+            "latency_ms": int((last_now - start) * 1000),
+            "retrieved_uris": retrieved_uris,
+            "gate_decision": "abstained" if not all_results else "answered",
+            "result_count": len(all_results),
+        }
+    )
+    return response

@@ -34,6 +34,33 @@ _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789
 _LANDMARK_BENCHES = {"पूर्ण इजलास", "संवैधानिक इजलास"}
 
 
+def _emit_ingestion_span(
+    source_id: str, source_type: str, stage: str, outcome: str
+) -> None:
+    from app.config import Settings
+
+    settings = Settings()
+    if not settings.LANGFUSE_PUBLIC_KEY:
+        return
+    from langfuse import Langfuse  # type: ignore[import-not-found]
+
+    metadata = {
+        "source_id": source_id,
+        "source_type": source_type,
+        "stage": stage,
+        "outcome": outcome,
+    }
+    client = Langfuse(
+        public_key=settings.LANGFUSE_PUBLIC_KEY,
+        secret_key=settings.LANGFUSE_SECRET_KEY,
+        host=settings.LANGFUSE_HOST,
+    )
+    trace = client.trace(name="ingestion.document", metadata=metadata)
+    span = trace.span(name=f"ingestion.{stage}", metadata=metadata)
+    span.end()
+    client.flush()
+
+
 def _content_hash(content: str) -> str:
     return hashlib.sha256(
         unicodedata.normalize("NFC", content).encode("utf-8")
@@ -92,6 +119,7 @@ class IngestionPipeline:
         if existing and existing[1] == content_hash:
             logger.info(f"{source_id}: unchanged content_hash, skipping")
             self.last_outcome = "skipped"
+            _emit_ingestion_span(source_id, source_type, "LOAD", "skipped")
             return None
 
         # The work row is upserted during document load (design §3.2).
@@ -126,6 +154,7 @@ class IngestionPipeline:
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
+            _emit_ingestion_span(source_id, source_type, "VALIDATE", "rejected")
             return None
 
         # Stage 4 — CHUNK.
@@ -135,6 +164,7 @@ class IngestionPipeline:
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
+            _emit_ingestion_span(source_id, source_type, "CHUNK", "rejected")
             return None
 
         # Stage 5 — EXTRACT_METADATA (haiku; failures leave NULL columns).
@@ -174,6 +204,7 @@ class IngestionPipeline:
         # Stage 8 — DUAL APPROVAL PAUSE (PS-2): nothing is searchable yet.
         logger.info(f"document {document_id} awaiting dual approval.")
         self.last_outcome = "ingested"
+        _emit_ingestion_span(source_id, source_type, "DUAL_APPROVAL_PAUSE", "ingested")
         return document_id
 
     # -------------------------------------------------------------- nkp cases
@@ -189,6 +220,7 @@ class IngestionPipeline:
         if existing and existing[1] == content_hash:
             logger.info(f"{source_id}: unchanged content_hash, skipping")
             self.last_outcome = "skipped"
+            _emit_ingestion_span(source_id, "nkp_case", "LOAD", "skipped")
             return None
         if existing:
             document_id = existing[0]
@@ -214,6 +246,7 @@ class IngestionPipeline:
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
+            _emit_ingestion_span(source_id, "nkp_case", "VALIDATE", "rejected")
             return None
 
         # Stage 3 — REDACT_PII.
@@ -234,6 +267,7 @@ class IngestionPipeline:
             )
             self._conn.commit()
             self.last_outcome = "quarantined"
+            _emit_ingestion_span(source_id, "nkp_case", "REDACT_PII", "quarantined")
             return None
 
         # Stage 4 — CHUNK (on redacted text).
@@ -243,6 +277,7 @@ class IngestionPipeline:
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
+            _emit_ingestion_span(source_id, "nkp_case", "CHUNK", "rejected")
             return None
 
         # Deterministic case metadata (design §3.1).
@@ -305,11 +340,14 @@ class IngestionPipeline:
         # Stage 8 — DUAL APPROVAL PAUSE (PS-2).
         logger.info(f"document {document_id} awaiting dual approval.")
         self.last_outcome = "ingested"
+        _emit_ingestion_span(source_id, "nkp_case", "DUAL_APPROVAL_PAUSE", "ingested")
         return document_id
 
     # ---------------------------------------------------------------- helpers
 
-    def _find_existing(self, source_type: str, source_id: str) -> tuple[str, str] | None:
+    def _find_existing(
+        self, source_type: str, source_id: str
+    ) -> tuple[str, str] | None:
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT id, content_hash FROM documents "
@@ -352,7 +390,9 @@ class IngestionPipeline:
         unverified (PS-2) or on any lookup failure (cache, never authority)."""
         if not section_number:
             return None
-        component_uri = f"{work_uri}/dafa/{section_number.translate(_DEVANAGARI_DIGITS)}"
+        component_uri = (
+            f"{work_uri}/dafa/{section_number.translate(_DEVANAGARI_DIGITS)}"
+        )
         try:
             with self._conn.cursor() as cur:
                 cur.execute(
@@ -378,7 +418,9 @@ class IngestionPipeline:
         try:
             with self._conn.cursor() as cur:
                 for title in cited:
-                    cur.execute("SELECT 1 FROM work WHERE title_ne = %s LIMIT 1", (title,))
+                    cur.execute(
+                        "SELECT 1 FROM work WHERE title_ne = %s LIMIT 1", (title,)
+                    )
                     if cur.fetchone():
                         validated.append(title)
         except Exception as exc:  # noqa: BLE001

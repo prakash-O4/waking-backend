@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     API_SECRET: str = ""
     LOG_LEVEL: str = "INFO"
     LLM_MODEL: str = "openai:gpt-4o-mini"
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "http://localhost:3000"
     # Embedding (text-embedding-3-large)
     AZURE_OPENAI_KEY: str = ""
     AZURE_OPENAI_ENDPOINT: str = ""  # full deployment URL or base URL
