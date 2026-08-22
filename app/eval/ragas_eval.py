@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Sequence, cast
 
 from langchain_core.messages import BaseMessage
-from openai import AsyncOpenAI, OpenAI, RateLimitError
+from openai import AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 from ragas.dataset_schema import EvaluationDataset
 from ragas.embeddings.base import BaseRagasEmbeddings
 from ragas.llms.base import BaseRagasLLM, ChatGeneration, LLMResult
 from ragas.run_config import RunConfig
 
-from app.config import get_settings
+from app.config import azure_base_url, get_settings
 
 # USD per 1M tokens: {model: (input_rate, output_rate)}
 _LLM_RATES: dict[str, tuple[float, float]] = {
+    "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "gpt-4-turbo": (10.00, 30.00),
@@ -28,13 +28,6 @@ _EMBEDDING_RATES: dict[str, float] = {
     "text-embedding-3-small": 0.02,
     "text-embedding-3-large": 0.13,
 }
-
-
-def _openai_model_name(settings_model: str) -> str:
-    """Strip a provider prefix (e.g. 'openai:gpt-4o-mini') if present."""
-    if ":" in settings_model:
-        return settings_model.split(":", 1)[1]
-    return settings_model
 
 
 def _messages_to_openai(messages: Sequence[BaseMessage]) -> list[dict[str, str]]:
@@ -79,10 +72,19 @@ def _llm_result_from_openai(response: Any, n: int) -> LLMResult:
 class _OpenAIEvalLLM(BaseRagasLLM):
     def __init__(self) -> None:
         super().__init__()
-        self._model = _openai_model_name(get_settings().LLM_MODEL)
-        api_key = os.getenv("OPENAI_API_KEY")
-        self._async_client = AsyncOpenAI(api_key=api_key)
-        self._sync_client = OpenAI(api_key=api_key)
+        s = get_settings()
+        self._model = s.AZURE_OPENAI_LLM_DEPLOYMENT
+        base = azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT)
+        self._async_client = AsyncAzureOpenAI(
+            api_key=s.AZURE_OPENAI_LLM_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=base,
+        )
+        self._sync_client = AzureOpenAI(
+            api_key=s.AZURE_OPENAI_LLM_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=base,
+        )
         self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
         self.set_run_config(RunConfig())
@@ -167,10 +169,19 @@ class _OpenAIEvalLLM(BaseRagasLLM):
 class _OpenAIEvalEmbeddings(BaseRagasEmbeddings):
     def __init__(self) -> None:
         super().__init__()
-        self._model = "text-embedding-ada-002"
-        api_key = os.getenv("OPENAI_API_KEY")
-        self._async_client = AsyncOpenAI(api_key=api_key)
-        self._sync_client = OpenAI(api_key=api_key)
+        s = get_settings()
+        self._model = s.AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+        base = azure_base_url()
+        self._async_client = AsyncAzureOpenAI(
+            api_key=s.AZURE_OPENAI_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=base,
+        )
+        self._sync_client = AzureOpenAI(
+            api_key=s.AZURE_OPENAI_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=base,
+        )
         self.total_tokens: int = 0
         self.set_run_config(RunConfig())
 

@@ -60,31 +60,47 @@ def main() -> None:
         _dry_run(records)
         return
 
+    from langchain_community.callbacks import get_openai_callback
+
     from app.authority.writer import connect
     from app.ingestion.pipeline import IngestionPipeline
 
     counts = {"processed": 0, "skipped": 0, "rejected": 0, "failed": 0}
-    with connect() as conn:
-        pipeline = IngestionPipeline(conn)
-        for record in records:
-            source_id = str(record.get("_id") or record.get("name") or "?")
-            try:
-                document_id = pipeline.ingest_law(record)
-            except Exception as exc:  # noqa: BLE001 - keep the batch moving
-                conn.rollback()
-                counts["failed"] += 1
-                print(f"error: {source_id} failed: {exc}")
-                continue
-            if document_id is not None:
-                counts["processed"] += 1
-            elif pipeline.last_outcome == "skipped":
-                counts["skipped"] += 1
-            else:
-                counts["rejected"] += 1
+    total = len(records)
+    print(f"starting ingestion of {total} records…")
+    with get_openai_callback() as cb:
+        with connect() as conn:
+            pipeline = IngestionPipeline(conn)
+            for i, record in enumerate(records, 1):
+                source_id = str(record.get("_id") or record.get("name") or "?")
+                print(f"[{i}/{total}] {source_id} …", flush=True)
+                try:
+                    document_id = pipeline.ingest_law(record)
+                except Exception as exc:  # noqa: BLE001 - keep the batch moving
+                    conn.rollback()
+                    counts["failed"] += 1
+                    print(f"  ✗ failed: {exc}", flush=True)
+                    continue
+                outcome = pipeline.last_outcome if document_id is None else "ingested"
+                print(f"  ✓ {outcome}", flush=True)
+                if document_id is not None:
+                    counts["processed"] += 1
+                elif pipeline.last_outcome == "skipped":
+                    counts["skipped"] += 1
+                else:
+                    counts["rejected"] += 1
+
     print(
         "done: "
         f"processed={counts['processed']} skipped={counts['skipped']} "
         f"rejected={counts['rejected']} failed={counts['failed']}"
+    )
+    print(
+        f"\n=== ingestion cost ===\n"
+        f"  llm tokens   : {cb.prompt_tokens:,} in + {cb.completion_tokens:,} out"
+        f" = {cb.total_tokens:,} total\n"
+        f"  embed tokens : 0 (bge-m3 local)\n"
+        f"  est. cost    : ${cb.total_cost:.4f} USD"
     )
 
 

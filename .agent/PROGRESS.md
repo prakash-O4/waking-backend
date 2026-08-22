@@ -4,11 +4,29 @@
 None. Awaiting Prakash's direction.
 
 ## Status
-**IDLE** — RAGAS eval merged to dev (2026-08-06).
+**IDLE** — 100 laws ingested to local Postgres (2026-08-07). Azure OpenAI pipeline live.
 
 ---
 
 ## Completed tasks
+
+### PG-B — Azure OpenAI + laws ingestion (2026-08-07, on dev)
+- Switched embeddings: `BAAI/bge-m3` (local SentenceTransformer) → Azure OpenAI `text-embedding-3-large`
+  - `dimensions=1024` preserves existing schema; no migration required
+  - `DEFAULT_BATCH_SIZE` raised from 32 → 512 (no GPU memory constraint with API)
+- Switched LLM: standard OpenAI → Azure OpenAI `gpt-4.1-mini`
+  - `AzureChatOpenAI` in `metadata_enricher.py`; `AzureOpenAI/AsyncAzureOpenAI` in `ragas_eval.py`
+  - Separate `AZURE_OPENAI_LLM_KEY` + `AZURE_OPENAI_LLM_ENDPOINT` fields (distinct from embedding)
+  - `azure_base_url()` helper in `config.py` strips deployment path from full endpoint URL
+- `sentence-transformers` removed from `requirements.txt`
+- Ingestion optimisations:
+  - Chunk-metadata LLM call batched at 20 chunks/call (was unbounded — caused 2+ min hangs on large acts)
+  - Batches parallelised via `ThreadPoolExecutor(max_workers=3)` — ~2.5× speedup on large acts
+  - 60s timeout on `AzureChatOpenAI` (was SDK default 600s — caused silent 10-min hangs)
+  - OOM retry loop removed from `_embed()` — irrelevant for API calls
+- `scripts/ingest_laws.py`: per-record progress printed to stdout (`[N/total] source_id … ✓ ingested`)
+- **100 laws ingested** to local Postgres: 4,263 chunks, Nepali summaries + keywords generated
+- Est. cost for 100 laws: ~$1.10 (LLM ~$0.90 + embeddings ~$0.20)
 
 ### PG-A — RAGAS v0.2 eval slices per pipeline phase (MERGED to dev, 2026-08-06)
 - `ragas==0.2.*` added to `requirements.txt`
@@ -97,8 +115,8 @@ None. Awaiting Prakash's direction.
 - Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0, overruled-as-good-law = 0
 
 ## Operational steps still pending (on Prakash)
-- Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (1022 cases; needs OPENAI_API_KEY for metadata)
-- Run `scripts/ingest_laws.py` against local DB (laws corpus path TBD)
+- Run `scripts/ingest_laws.py` for remaining 577 laws (100 done, 677 total)
+- Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (1022 NKP cases)
 - Run `make eval` + `make eval-gates` against live env (baseline Recall@5 + zero-tolerance gate check)
 - Ingest precedent corpus (then wire `retrieve_precedent` into orchestrator)
 - Rewrite `app/main.py` auth layer (Supabase auth → new architecture; `app/utils/helpers.py` SupabaseHelper to be replaced)
@@ -107,8 +125,8 @@ None. Awaiting Prakash's direction.
 ## Architecture notes
 - **DB**: Self-hosted PostgreSQL on VPS (Docker locally). No Supabase dependency for ingestion or retrieval.
   `app/main.py` still has Supabase auth — that is old architecture, to be replaced.
-- **LLM**: Provider-agnostic via `LLM_MODEL` env var (default `openai:gpt-4o-mini`).
-  Switch provider without code change (e.g. `LLM_MODEL=google_genai:gemini-1.5-flash`).
+- **LLM**: Azure OpenAI `gpt-4.1-mini` via `AzureChatOpenAI`. Keys: `AZURE_OPENAI_LLM_KEY` + `AZURE_OPENAI_LLM_ENDPOINT`.
+- **Embeddings**: Azure OpenAI `text-embedding-3-large` at `dimensions=1024`. Keys: `AZURE_OPENAI_KEY` + `AZURE_OPENAI_ENDPOINT`.
 - **BM25**: pg_search (ParadeDB) not available on standard Postgres — falls back to GIN tsvector at query time.
 
 ## Governing design refs
@@ -116,4 +134,4 @@ None. Awaiting Prakash's direction.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction — likely full NKP corpus ingestion.
+Awaiting Prakash's direction — likely ingest remaining 577 laws or NKP corpus.

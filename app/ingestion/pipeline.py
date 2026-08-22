@@ -24,7 +24,7 @@ from app.authority.writer import upsert_work
 from app.ingestion import metadata_enricher
 from app.ingestion.laws_chunker import LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
-from app.ingestion.pgvector_indexer import DEFAULT_BATCH_SIZE, PgvectorIndexer
+from app.ingestion.pgvector_indexer import PgvectorIndexer
 from app.ingestion.pii_redactor import PIIRedactor, RedactionVerificationError
 from app.utils.loggers import logger
 
@@ -387,14 +387,4 @@ class IngestionPipeline:
         return validated or None
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
-        """Batch 32; on OOM halve the batch and retry, max 3 attempts (§6)."""
-        batch_size = DEFAULT_BATCH_SIZE
-        for attempt in range(3):
-            try:
-                return self._indexer.embed_chunks(texts, batch_size=batch_size)
-            except RuntimeError as exc:
-                if "out of memory" not in str(exc).lower() or attempt == 2:
-                    raise
-                batch_size = max(1, batch_size // 2)
-                logger.warning(f"embedder OOM, retrying with batch_size={batch_size}")
-        raise RuntimeError("unreachable")
+        return self._indexer.embed_chunks(texts)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from app.config import get_settings
@@ -24,19 +25,30 @@ from app.utils.loggers import logger
 
 MAX_RETRIES = 3
 BATCH_API_MIN_DOCUMENTS = 10  # see module docstring
+CHUNK_BATCH_SIZE = 20  # max chunks per LLM call — keeps prompts under ~10k tokens
+MAX_CONCURRENT_LLM = 3  # concurrent batch calls — polite ceiling for Azure rate limits
 
 _llm: Any = None
 
 
 def _get_llm() -> Any:
-    """Lazy LangChain LLM — import and key resolution happen at first call,
+    """Lazy AzureChatOpenAI — import and key resolution happen at first call,
     so the module is importable without provider SDKs or API keys (tests)."""
     global _llm
     if _llm is None:
-        from langchain.chat_models import init_chat_model
+        from langchain_openai import AzureChatOpenAI
+
+        from app.config import azure_base_url
 
         settings = get_settings()
-        _llm = init_chat_model(settings.LLM_MODEL, temperature=0)
+        _llm = AzureChatOpenAI(
+            azure_endpoint=azure_base_url(settings.AZURE_OPENAI_LLM_ENDPOINT),
+            api_key=settings.AZURE_OPENAI_LLM_KEY,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+            azure_deployment=settings.AZURE_OPENAI_LLM_DEPLOYMENT,
+            temperature=0,
+            timeout=60,
+        )
     return _llm
 
 
@@ -123,6 +135,30 @@ def _apply_chunk_metadata(
     return metadata
 
 
+def _parallel_chunk_metadata(chunks: list[Any], intro: str) -> list[dict[str, Any]]:
+    """Split chunks into CHUNK_BATCH_SIZE groups, call LLM on each concurrently
+    (≤ MAX_CONCURRENT_LLM at a time), merge results by chunk_index."""
+    metadata = _empty_chunk_metadata(chunks)
+    batches = [
+        chunks[i : i + CHUNK_BATCH_SIZE]
+        for i in range(0, len(chunks), CHUNK_BATCH_SIZE)
+    ]
+
+    def _process(batch: list[Any]) -> list[dict[str, Any]]:
+        return _apply_chunk_metadata(batch, _call_llm(_chunk_metadata_prompt(batch, intro)))
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LLM) as pool:
+        futures = {pool.submit(_process, batch): batch for batch in batches}
+        for future in as_completed(futures):
+            try:
+                for entry in future.result():
+                    metadata[entry["chunk_index"]].update(entry)
+            except Exception as exc:  # noqa: BLE001 — leave NULL, never crash
+                logger.warning(f"parallel chunk-metadata batch failed: {exc}")
+
+    return metadata
+
+
 def enrich_law_chunks(
     act_record: dict[str, Any], chunks: list[LawChunk]
 ) -> list[dict[str, Any]]:
@@ -150,12 +186,12 @@ def enrich_law_chunks(
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm act summary not parseable, left NULL: {exc}")
 
-    prompt = _chunk_metadata_prompt(
-        chunks,
-        f"You are indexing the Nepali act «{act_name}» for legal search.",
+    metadata = _parallel_chunk_metadata(
+        chunks, f"You are indexing the Nepali act «{act_name}» for legal search."
     )
-    raw = _call_llm(prompt)
-    return _apply_chunk_metadata(chunks, raw, extra=doc_extra)
+    for entry in metadata:
+        entry.update(doc_extra)
+    return metadata
 
 
 def enrich_nkp_chunks(
@@ -189,15 +225,9 @@ def enrich_nkp_chunks(
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm case-level metadata not parseable, left NULL: {exc}")
 
-    metadata = _empty_chunk_metadata(chunks)
-    if chunks:
-        raw = _call_llm(
-            _chunk_metadata_prompt(
-                chunks,
-                "You are indexing a Nepali Supreme Court decision for legal search.",
-            )
-        )
-        metadata = _apply_chunk_metadata(chunks, raw)
+    metadata = _parallel_chunk_metadata(
+        chunks, "You are indexing a Nepali Supreme Court decision for legal search."
+    )
     for entry in metadata:
         entry.update(doc_extra)
     return metadata

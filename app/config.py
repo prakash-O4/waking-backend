@@ -1,4 +1,6 @@
 # config.py
+from __future__ import annotations
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 import secrets
@@ -25,12 +27,33 @@ class Settings(BaseSettings):
     API_SECRET: str = ""
     LOG_LEVEL: str = "INFO"
     LLM_MODEL: str = "openai:gpt-4o-mini"
-    
+    # Embedding (text-embedding-3-large)
+    AZURE_OPENAI_KEY: str = ""
+    AZURE_OPENAI_ENDPOINT: str = ""  # full deployment URL or base URL
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-large"
+    AZURE_OPENAI_EMBEDDING_DIMENSIONS: int = 1024
+    AZURE_OPENAI_API_VERSION: str = "2023-05-15"
+    # LLM (gpt-4.1-mini)
+    AZURE_OPENAI_LLM_KEY: str = ""
+    AZURE_OPENAI_LLM_ENDPOINT: str = ""  # full deployment URL or base URL
+    AZURE_OPENAI_LLM_DEPLOYMENT: str = "gpt-4.1-mini"
+
     class Config:
         env_file = ".env"
         # Tolerate unrelated keys in .env (e.g. legacy pinecone/supabase entries);
         # without this, Settings() raises on any extra key and nothing boots.
         extra = "ignore"
+
+
+def azure_base_url(endpoint: str | None = None) -> str:
+    """Strip deployment path from an Azure OpenAI endpoint URL, returning the base URL.
+
+    If no endpoint is provided, falls back to AZURE_OPENAI_ENDPOINT from settings.
+    """
+    url = endpoint if endpoint is not None else get_settings().AZURE_OPENAI_ENDPOINT
+    if "/openai/deployments/" in url:
+        return url.split("/openai/deployments/")[0].rstrip("/")
+    return url.rstrip("/")
 
 def initialize_keys():
     """

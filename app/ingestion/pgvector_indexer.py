@@ -12,20 +12,18 @@ from __future__ import annotations
 import hashlib
 import unicodedata
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from openai import AzureOpenAI
 from psycopg2.extensions import connection as PgConnection
 
 from app.ingestion.laws_chunker import LawChunk
 from app.ingestion.nkp_chunker import NKPChunk
 from app.utils.loggers import logger
 
-if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
-
-EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_MODEL = "text-embedding-3-large"
 EMBEDDING_DIM = 1024 
-DEFAULT_BATCH_SIZE = 32
+DEFAULT_BATCH_SIZE = 512  # Azure API has no GPU memory limit — large batches reduce round-trips
 
 _CHUNK_INSERT_SQL = """
 INSERT INTO chunks (
@@ -53,7 +51,7 @@ INSERT INTO chunks (
 class PgvectorIndexer:
     def __init__(self, conn: PgConnection):
         self._conn = conn
-        self._model: SentenceTransformer | None = None
+        self._embed_client: AzureOpenAI | None = None
         try:
             from pgvector.psycopg2 import register_vector
 
@@ -63,23 +61,38 @@ class PgvectorIndexer:
             # mocked connections and without the package installed.
             logger.warning("pgvector vector adapter not registered (mocked connection or package missing)")
 
+    def _get_embed_client(self) -> AzureOpenAI:
+        if self._embed_client is None:
+            from app.config import azure_base_url, get_settings
+
+            s = get_settings()
+            self._embed_client = AzureOpenAI(
+                api_key=s.AZURE_OPENAI_KEY,
+                api_version=s.AZURE_OPENAI_API_VERSION,
+                azure_endpoint=azure_base_url(),
+            )
+        return self._embed_client
+
     def embed_chunks(
         self, texts: list[str], batch_size: int = DEFAULT_BATCH_SIZE
     ) -> list[list[float]]:
-        """Load BAAI/bge-m3 once (cached on self), encode in batches, normalized."""
+        """Embed in batches via Azure OpenAI text-embedding-3-large (dimensions=1024)."""
         if not texts:
             return []
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
+        from app.config import get_settings
 
-            self._model = SentenceTransformer(EMBEDDING_MODEL)
+        client = self._get_embed_client()
+        deployment = get_settings().AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+        dims = get_settings().AZURE_OPENAI_EMBEDDING_DIMENSIONS
         embeddings: list[list[float]] = []
         for start in range(0, len(texts), batch_size):
             batch = texts[start : start + batch_size]
-            vectors = self._model.encode(batch, normalize_embeddings=True)
-            embeddings.extend(
-                vectors.tolist() if hasattr(vectors, "tolist") else list(vectors)
+            response = client.embeddings.create(
+                model=deployment,
+                input=batch,
+                dimensions=dims,
             )
+            embeddings.extend([d.embedding for d in response.data])
         return embeddings
 
     def upsert_document(
