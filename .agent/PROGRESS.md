@@ -1,10 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. Awaiting Prakash's direction.
+**PH-OBS-B** — Full stage-level ingestion tracing
 
 ## Status
-**IDLE**
+**IN PROGRESS** — branch `obs/langfuse-ingestion-stages` created from dev (7236d61). Assigned to Pi.
+
+- Design refs: system-design.md §11, PS-14
+- File in scope: `app/ingestion/pipeline.py` only
+- Next action: Prakash runs Pi on branch `obs/langfuse-ingestion-stages`
 
 ---
 
