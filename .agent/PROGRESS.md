@@ -1,18 +1,22 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**OBS-RET** — Retrieval observability + eval slice
+None.
 
 ## Status
-**IN PROGRESS** — branch `feat/obs-retrieval` from dev. Assigned to Pi.
-
-- PS-14 in scope (query_hash only, no raw text in spans)
-- Fixes broken romanized_slice URI matching
-- Next action: Prakash runs Pi on branch `feat/obs-retrieval`
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
 ## Completed tasks
+
+### OBS-RET — Retrieval observability + eval slice (MERGED to dev, 2026-08-23)
+- `postgres_retriever.py`: 6 Langfuse stage spans (eligibility → vector → lexical → RRF → relevance gate → rerank); each with latency_ms, counts, scores
+- `gated_orchestrator.py`: answer trace expanded — retrieval/generation/validation latency, claims_passed/abstained, top_chunk_scores
+- `romanized_slice.py`: fixed URI matching (source_id based, not URI prefix)
+- `retrieval_slice.py`: new — Recall@1/3/5 + MRR; baseline 0.4 / MRR 0.33 on 200 laws
+- `eligibility_gate.py`: dropped `valid_time` transaction-time check (was blocking all retrospective queries)
+- PS-14 compliant; 42 tests passing
 
 ### RET-A — Retrieval layer rewrite (MERGED to dev, 2026-08-23)
 - `postgres_retriever.py`: full rewrite — preprocessing, Azure query embedding,
