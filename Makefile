@@ -1,27 +1,16 @@
 .PHONY: setup test lint eval eval-gates stress
 
-setup: ## Install deps, run migration, start OpenSearch, create index
+setup: ## Install deps and run migration
 	python3 -m pip install -r requirements.txt
 	python3 scripts/migrate.py
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose up -d opensearch; \
-		for i in $$(seq 1 60); do \
-			curl -fsS "$${OPENSEARCH_URL:-http://localhost:9200}" >/dev/null 2>&1 && break; \
-			sleep 2; \
-		done; \
-		curl -fsS "$${OPENSEARCH_URL:-http://localhost:9200}" >/dev/null; \
-		python3 -m app.search.client; \
-	else \
-		echo "Docker unavailable; skipping local OpenSearch startup"; \
-	fi
 
 test: ## pytest tests/
 	python3 -m pytest tests/
 
 lint: ## ruff check . && ruff format --check .
-	python3 -m ruff check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
-	python3 -m ruff format --check app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
-	python3 -m mypy --strict --follow-imports=skip --disable-error-code=misc --disable-error-code=import-untyped app/main.py app/authority app/search app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/dumb_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
+	python3 -m ruff check app/main.py app/authority app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
+	python3 -m ruff format --check app/main.py app/authority app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
+	python3 -m mypy --strict --follow-imports=skip --disable-error-code=misc --disable-error-code=import-untyped app/main.py app/authority app/retrieval/__init__.py app/retrieval/eligibility_gate.py app/retrieval/precedent_retriever.py app/retrieval/postgres_retriever.py app/retrieval/gated_orchestrator.py app/retrieval/validation_gate.py app/eval/__init__.py app/eval/gates.py app/eval/romanized_slice.py app/eval/ragas_eval.py app/eval/phase_a_slice.py app/eval/phase_c_slice.py app/eval/phase_d_slice.py app/eval/phase_ef_slice.py app/eval/metrics/temporal_faithfulness.py tests scripts/migrate.py scripts/ingest_laws.py scripts/query.py scripts/seed_bs_ad_calendar.py
 
 eval: ## per-phase RAGAS quality report + romanized Recall@5
 	python3 -m app.eval.romanized_slice

@@ -11,7 +11,7 @@ from ragas.metrics import ContextRecall, NonLLMContextPrecisionWithReference
 
 from app.authority.writer import connect
 from app.eval.ragas_eval import run_ragas
-from app.retrieval.dumb_retriever import retrieve
+from app.retrieval.postgres_retriever import retrieve_postgres
 
 _GOLDEN = Path(__file__).parent / "golden" / "phase_c_romanized.json"
 
@@ -31,7 +31,7 @@ def run_slice() -> dict[str, Any]:
             query = entry["query"]
             as_of = date.fromisoformat(entry["as_of"])
             try:
-                hits = retrieve(query, as_of)
+                hits = retrieve_postgres(conn, query, as_of)
             except Exception:
                 continue
             if not hits:

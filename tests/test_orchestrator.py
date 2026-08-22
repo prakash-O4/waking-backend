@@ -35,7 +35,7 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
         "_classify_and_decompose",
         lambda question, as_of: [{"subquery": question, "as_of": as_of}],
     )
-    monkeypatch.setattr(orchestrator, "_try_retrieve", retrieve)
+    monkeypatch.setattr(orchestrator, "retrieve_postgres", retrieve)
     monkeypatch.setattr(
         orchestrator,
         "_model_claims",
@@ -63,7 +63,7 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         orchestrator,
-        "_try_retrieve",
+        "retrieve_postgres",
         lambda conn, query, as_of, k=5: [
             {"component_uri": f"/{query}", "text_ne": query}
         ],
@@ -107,7 +107,7 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         orchestrator,
-        "_try_retrieve",
+        "retrieve_postgres",
         lambda conn, query, as_of, k=5: [
             {"component_uri": f"/{query}", "text_ne": query}
         ],
