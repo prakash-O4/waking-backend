@@ -1,10 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**OBS-RET** — Retrieval observability + eval slice
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — branch `feat/obs-retrieval` from dev. Assigned to Pi.
+
+- PS-14 in scope (query_hash only, no raw text in spans)
+- Fixes broken romanized_slice URI matching
+- Next action: Prakash runs Pi on branch `feat/obs-retrieval`
 
 ---
 
