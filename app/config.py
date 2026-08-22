@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-large"
     AZURE_OPENAI_EMBEDDING_DIMENSIONS: int = 1024
     AZURE_OPENAI_API_VERSION: str = "2023-05-15"
+    COHERE_API_KEY: str = ""
     # LLM (gpt-4.1-mini)
     AZURE_OPENAI_LLM_KEY: str = ""
     AZURE_OPENAI_LLM_ENDPOINT: str = ""  # full deployment URL or base URL

@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Any, cast
+
+import app.retrieval.postgres_retriever as r
+from app.retrieval.reranker import rerank
+
+
+ROW1 = ("c1", "text one", "h1", "Act", None, "section", "1", 0.9)
+ROW2 = ("c2", "text two", "h2", "Act", None, "section", "2", 0.8)
+
+
+class Cursor:
+    def __init__(
+        self, vector: list[tuple[Any, ...]], lexical: list[tuple[Any, ...]]
+    ) -> None:
+        self.vector = vector
+        self.lexical = lexical
+        self.calls = 0
+
+    def __enter__(self) -> "Cursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def execute(self, sql: str, params: dict[str, Any]) -> None:
+        self.calls += 1
+        self.sql = sql
+        self.params = params
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        if self.calls == 1:
+            return self.vector
+        if self.calls == 2:
+            return self.lexical
+        return [row[:7] for row in [*self.vector, *self.lexical]]
+
+
+class Conn:
+    def __init__(
+        self, vector: list[tuple[Any, ...]], lexical: list[tuple[Any, ...]]
+    ) -> None:
+        self.cursor_obj = Cursor(vector, lexical)
+
+    def cursor(self) -> Cursor:
+        return self.cursor_obj
+
+
+def patch_common(monkeypatch: Any, eligible: set[str]) -> None:
+    monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: eligible)
+    monkeypatch.setattr(r, "_embed_query", lambda query: [0.1, 0.2])
+    monkeypatch.setattr(r, "rerank", lambda query, hits, k: hits[:k])
+
+
+def test_empty_eligible_set_returns_empty(monkeypatch: Any) -> None:
+    called = False
+
+    def embed(query: str) -> list[float]:
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: set())
+    monkeypatch.setattr(r, "_embed_query", embed)
+    assert r.retrieve_postgres(cast(Any, object()), "x", date(2024, 1, 1)) == []
+    assert called is False
+
+
+def test_vector_arm_results_only(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c1"})
+    out = r.retrieve_postgres(cast(Any, Conn([ROW1], [])), "law", date(2024, 1, 1), k=5)
+    assert [h["component_uri"] for h in out] == ["c1"]
+    assert out[0]["work_title_ne"] == "Act"
+
+
+def test_both_arms_rrf_merges(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c1", "c2"})
+    out = r.retrieve_postgres(
+        cast(Any, Conn([ROW1, ROW2], [ROW2])), "law", date(2024, 1, 1), k=5
+    )
+    assert [h["component_uri"] for h in out] == ["c2", "c1"]
+    assert len(out) == 2
+
+
+def test_relevance_gate_returns_empty(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c1"})
+    monkeypatch.setattr(r, "_RELEVANCE_THRESHOLD", 1.0)
+    assert (
+        r.retrieve_postgres(cast(Any, Conn([ROW1], [])), "law", date(2024, 1, 1)) == []
+    )
+
+
+def test_reranker_skipped_when_cohere_key_unset(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = ""
+
+    monkeypatch.setattr("app.config.get_settings", lambda: Settings())
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "a"}]

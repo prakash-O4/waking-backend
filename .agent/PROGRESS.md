@@ -1,10 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**RET-A** — Retrieval layer rewrite
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — branch `feat/retrieval-rewrite` from dev. Assigned to Pi.
+
+- PS-6, PS-7, PS-12 in scope
+- Replaces empty-table ILIKE with vector + lexical + RRF + reranker
+- Next action: Prakash runs Pi on branch `feat/retrieval-rewrite`
 
 ---
 
