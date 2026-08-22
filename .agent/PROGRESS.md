@@ -1,19 +1,25 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**PH-OBS-A** — Langfuse RAG tracing integration
+None. Awaiting Prakash's direction.
 
 ## Status
-**IN PROGRESS** — branch `obs/langfuse-tracing` created from dev (292059b). Assigned to Pi.
-
-- Design refs: system-design.md §11 (observability + privacy), PS-14
-- PS in scope: PS-14 (traces store hashes, never raw content)
-- Zero-tolerance gates: unchanged
-- Next action: Prakash runs Pi on branch `obs/langfuse-tracing`
+**IDLE**
 
 ---
 
 ## Completed tasks
+
+### PH-OBS-A — Langfuse RAG tracing integration (MERGED to dev, 2026-08-22)
+- `langfuse>=2.0` added to `requirements.txt`
+- `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` in `config.py`
+- `LangfuseCallbackHandler` wired into LangChain LLM calls in `gated_orchestrator.py`
+- `answer()` emits trace: `query_hash` (SHA-256 only), `as_of`, `query_type`,
+  `latency_ms` (full elapsed), `retrieved_uris` (component_uri only), `gate_decision`, `result_count`
+- `IngestionPipeline` emits per-stage spans: `source_id`, `source_type`, `stage`, `outcome` — no raw content
+- PS-14 compliant: no raw query text or statutory text in any span
+- Opt-in: no-op when `LANGFUSE_PUBLIC_KEY` unset
+- 35 tests passing, lint clean
 
 ### PG-B — Azure OpenAI + laws ingestion (2026-08-07, on dev)
 - Switched embeddings: `BAAI/bge-m3` (local SentenceTransformer) → Azure OpenAI `text-embedding-3-large`
