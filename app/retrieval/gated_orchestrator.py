@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from psycopg2.extensions import connection
 
-from app.config import Settings
+from app.config import get_settings
 from app.retrieval.dumb_retriever import retrieve as os_retrieve
 from app.retrieval.postgres_retriever import retrieve_postgres
 from app.retrieval.validation_gate import validate_and_render
@@ -20,7 +20,7 @@ EXTRACTIVE_CHARS = 300
 
 
 def _langfuse_callback() -> list[Any]:
-    settings = Settings()
+    settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return []
     from langfuse.callback import (  # type: ignore[import-not-found]
@@ -37,7 +37,7 @@ def _langfuse_callback() -> list[Any]:
 
 
 def _emit_answer_trace(metadata: dict[str, Any]) -> None:
-    settings = Settings()
+    settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return
     from langfuse import Langfuse  # type: ignore[import-not-found]
@@ -162,15 +162,13 @@ def _classify_and_decompose(question: str, session_as_of: date) -> list[dict[str
 
 def answer(question: str, session_as_of: date, conn: connection) -> dict[str, Any]:
     start = time.monotonic()
-    last_now = start
     subqueries = _classify_and_decompose(question, session_as_of)
     query_type = "simple" if len(subqueries) == 1 else "complex"
     all_results: list[dict[str, Any]] = []
     retrieved_uris: list[str] = []
 
     for subquery in subqueries:
-        last_now = time.monotonic()
-        if last_now - start > WALL_CLOCK_CAP:
+        if time.monotonic() - start > WALL_CLOCK_CAP:
             break
 
         subquery_text = cast(str, subquery["subquery"])
@@ -200,15 +198,16 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
         "abstained": not all_results,
         "results": all_results,
     }
-    _emit_answer_trace(
-        {
-            "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
-            "as_of": session_as_of.isoformat(),
-            "query_type": query_type,
-            "latency_ms": int((last_now - start) * 1000),
-            "retrieved_uris": retrieved_uris,
-            "gate_decision": "abstained" if not all_results else "answered",
-            "result_count": len(all_results),
-        }
-    )
+    if get_settings().LANGFUSE_PUBLIC_KEY:
+        _emit_answer_trace(
+            {
+                "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
+                "as_of": session_as_of.isoformat(),
+                "query_type": query_type,
+                "latency_ms": int((time.monotonic() - start) * 1000),
+                "retrieved_uris": retrieved_uris,
+                "gate_decision": "abstained" if not all_results else "answered",
+                "result_count": len(all_results),
+            }
+        )
     return response

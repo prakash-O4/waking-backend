@@ -37,9 +37,9 @@ _LANDMARK_BENCHES = {"पूर्ण इजलास", "संवैधान�
 def _emit_ingestion_span(
     source_id: str, source_type: str, stage: str, outcome: str
 ) -> None:
-    from app.config import Settings
+    from app.config import get_settings
 
-    settings = Settings()
+    settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return
     from langfuse import Langfuse  # type: ignore[import-not-found]
