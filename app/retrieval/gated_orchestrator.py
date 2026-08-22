@@ -23,9 +23,12 @@ def _langfuse_callback() -> list[Any]:
     settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return []
-    from langfuse.callback import (  # type: ignore[import-not-found]
-        CallbackHandler as LangfuseCallbackHandler,
-    )
+    try:
+        from langfuse.callback import (  # type: ignore[import-not-found]
+            CallbackHandler as LangfuseCallbackHandler,
+        )
+    except ImportError:
+        return []
 
     return [
         LangfuseCallbackHandler(
@@ -40,7 +43,10 @@ def _emit_answer_trace(metadata: dict[str, Any]) -> None:
     settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return
-    from langfuse import Langfuse  # type: ignore[import-not-found]
+    try:
+        from langfuse import Langfuse  # type: ignore[import-not-found]
+    except ImportError:
+        return
 
     client = Langfuse(
         public_key=settings.LANGFUSE_PUBLIC_KEY,
@@ -199,15 +205,20 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
         "results": all_results,
     }
     if get_settings().LANGFUSE_PUBLIC_KEY:
-        _emit_answer_trace(
-            {
-                "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
-                "as_of": session_as_of.isoformat(),
-                "query_type": query_type,
-                "latency_ms": int((time.monotonic() - start) * 1000),
-                "retrieved_uris": retrieved_uris,
-                "gate_decision": "abstained" if not all_results else "answered",
-                "result_count": len(all_results),
-            }
-        )
+        try:
+            __import__("langfuse")
+        except ImportError:
+            pass
+        else:
+            _emit_answer_trace(
+                {
+                    "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
+                    "as_of": session_as_of.isoformat(),
+                    "query_type": query_type,
+                    "latency_ms": int((time.monotonic() - start) * 1000),
+                    "retrieved_uris": retrieved_uris,
+                    "gate_decision": "abstained" if not all_results else "answered",
+                    "result_count": len(all_results),
+                }
+            )
     return response

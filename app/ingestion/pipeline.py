@@ -45,7 +45,13 @@ def _get_lf_client() -> Any | None:
         return None
     global _lf_client
     if _lf_client is None:
-        from langfuse import Langfuse  # type: ignore[import-not-found]
+        try:
+            from langfuse import Langfuse  # type: ignore[import-not-found]
+        except ImportError:
+            logger.warning(
+                "LANGFUSE_PUBLIC_KEY set but langfuse not installed — tracing disabled"
+            )
+            return None
 
         settings = get_settings()
         _lf_client = Langfuse(
