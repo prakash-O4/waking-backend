@@ -22,7 +22,6 @@ def eligible_chunk_ids(conn: connection, as_of: date) -> set[str]:
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE d.ingestion_status IN ('approved', 'pending')
-              AND lower(d.valid_time) <= %(as_of)s::timestamptz
               AND (
                   c.effective_date_ad IS NULL
                   OR c.effective_date_ad <= %(as_of)s
