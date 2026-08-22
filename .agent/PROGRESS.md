@@ -1,10 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. Awaiting Prakash's direction.
+**CLEANUP-A** — Remove OpenSearch
 
 ## Status
-**IDLE**
+**IN PROGRESS** — branch `cleanup/remove-opensearch` from dev (bd3870b). Assigned to Pi.
+
+- No PS requirements in scope — pure deletion, no gate logic touched
+- Next action: Prakash runs Pi on branch `cleanup/remove-opensearch`
 
 ---
 

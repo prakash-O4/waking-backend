@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -29,15 +30,19 @@ def test_run_slice_hit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(romanized_slice, "_GOLDEN", _golden(tmp_path))
     monkeypatch.setattr(
         romanized_slice,
-        "retrieve",
+        "retrieve_postgres",
         lambda *_args, **_kwargs: [{"component_uri": "/np/act/2059/foo"}],
     )
+    monkeypatch.setattr(romanized_slice, "connect", lambda: nullcontext(object()))
     assert romanized_slice.run_slice()["recall_at_k"] == 1.0
 
 
 def test_run_slice_miss(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(romanized_slice, "_GOLDEN", _golden(tmp_path))
-    monkeypatch.setattr(romanized_slice, "retrieve", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        romanized_slice, "retrieve_postgres", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(romanized_slice, "connect", lambda: nullcontext(object()))
     assert romanized_slice.run_slice()["recall_at_k"] == 0.0
 
 
@@ -47,9 +52,10 @@ def test_run_slice_prefix_match(
     monkeypatch.setattr(romanized_slice, "_GOLDEN", _golden(tmp_path))
     monkeypatch.setattr(
         romanized_slice,
-        "retrieve",
+        "retrieve_postgres",
         lambda *_args, **_kwargs: [{"component_uri": "/np/act/2059/foo/dafa/1"}],
     )
+    monkeypatch.setattr(romanized_slice, "connect", lambda: nullcontext(object()))
     result = romanized_slice.run_slice()
     assert result["hits"] == 1
 
@@ -61,6 +67,7 @@ def test_run_slice_runtime_error_propagates(
         raise RuntimeError("db unavailable")
 
     monkeypatch.setattr(romanized_slice, "_GOLDEN", _golden(tmp_path))
-    monkeypatch.setattr(romanized_slice, "retrieve", fail)
+    monkeypatch.setattr(romanized_slice, "retrieve_postgres", fail)
+    monkeypatch.setattr(romanized_slice, "connect", lambda: nullcontext(object()))
     with pytest.raises(RuntimeError, match="db unavailable"):
         romanized_slice.run_slice()

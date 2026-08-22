@@ -1,138 +1,120 @@
-# Task PH-OBS-B: Full stage-level ingestion tracing
+# Task CLEANUP-A: Remove OpenSearch
 
 **Engineer:** Pi  
-**Branch:** `obs/langfuse-ingestion-stages`  
-**Base:** `dev` (commit 7236d61)
+**Branch:** `cleanup/remove-opensearch`  
+**Base:** `dev` (commit bd3870b)
 
 ---
 
 ## Objective
 
-Replace the current terminal-only `_emit_ingestion_span` with a proper
-per-document trace that wraps all ingestion stages as timed child spans.
-Every document — whether it succeeds or fails — must appear in Langfuse with
-one span per pipeline stage, each showing stage name, outcome, and latency_ms.
+OpenSearch is unused dead infrastructure — all ingested data lives in
+pgvector, the query plane already falls back to `retrieve_postgres` on every
+call, and the Docker container consumes 512 MB of heap for nothing.
 
-**File in scope: `app/ingestion/pipeline.py` only.**
-
----
-
-## What exists now (replace this)
-
-`_emit_ingestion_span(source_id, source_type, stage, outcome)` is called only
-at exit points (failure or final success). A successfully ingested law produces
-exactly one span (`DUAL_APPROVAL_PAUSE / ingested`). Intermediate stages are
-invisible. The function also creates a new `Langfuse` client on every call —
-replace with a module-level singleton.
+Remove it entirely. Postgres is the primary retriever going forward.
 
 ---
 
-## Required design
+## Exact changes required
 
-### 1. Module-level Langfuse client singleton
+### 1. Delete these files completely
 
-```python
-_lf_client: "Langfuse | None" = None
+- `app/search/client.py`
+- `app/search/__init__.py`
+- `app/retrieval/dumb_retriever.py`
 
-def _get_lf_client() -> "Langfuse | None":
-    from app.config import get_settings
-    if not get_settings().LANGFUSE_PUBLIC_KEY:
-        return None
-    global _lf_client
-    if _lf_client is None:
-        from langfuse import Langfuse
-        s = get_settings()
-        _lf_client = Langfuse(
-            public_key=s.LANGFUSE_PUBLIC_KEY,
-            secret_key=s.LANGFUSE_SECRET_KEY,
-            host=s.LANGFUSE_HOST,
-        )
-    return _lf_client
+### 2. `app/retrieval/gated_orchestrator.py`
+
+- Remove: `from app.retrieval.dumb_retriever import retrieve as os_retrieve`
+- Delete the entire `_try_retrieve()` function (lines that import opensearchpy,
+  catch ConnectionError/TransportError, and fall back to retrieve_postgres)
+- In `answer()`, replace:
+  ```python
+  hits = _try_retrieve(conn, subquery_text, subquery_as_of)
+  ```
+  with:
+  ```python
+  hits = retrieve_postgres(conn, subquery_text, subquery_as_of)
+  ```
+
+### 3. `requirements.txt`
+
+Remove this line:
+```
+opensearch-py==2.7.1
 ```
 
-### 2. One trace per document
+### 4. `docker-compose.yml`
 
-At the START of `ingest_law()` and `ingest_nkp_case()`, open a trace:
+Remove the entire `opensearch:` service block. If the file is empty after,
+delete it.
 
+### 5. `Makefile` — `setup` target
+
+Remove the opensearch Docker startup block:
+```
+docker compose up -d opensearch
+for i in ... curl ... sleep ... done
+curl -fsS ... >/dev/null
+python3 -m app.search.client
+```
+Keep the rest of `make setup` intact.
+
+### 6. `tests/test_degraded_modes.py`
+
+- Remove `import opensearchpy` (line 7)
+- Delete `test_opensearch_down_uses_postgres_fallback` entirely
+- Delete `test_opensearch_down_and_postgres_empty_abstains` entirely
+- In `test_model_down_uses_extractive_claim_still_validated`, change:
+  ```python
+  monkeypatch.setattr(orchestrator, "os_retrieve", lambda query, as_of, k: [hit])
+  ```
+  to:
+  ```python
+  monkeypatch.setattr(orchestrator, "retrieve_postgres", lambda conn, q, a, k: [hit])
+  ```
+- Keep `test_postgres_down_returns_503` and
+  `test_model_down_uses_extractive_claim_still_validated` (fixed as above)
+
+### 7. `app/eval/romanized_slice.py`
+
+Replace:
 ```python
-lf = _get_lf_client()
-trace = lf.trace(
-    name="ingestion.law",          # or "ingestion.nkp_case"
-    metadata={"source_id": source_id, "source_type": source_type},
-) if lf else None
+from app.retrieval.dumb_retriever import retrieve
+# ...
+results = retrieve(entry["query"], as_of, k=k)
+```
+With:
+```python
+from app.authority.writer import connect
+from app.retrieval.postgres_retriever import retrieve_postgres
+# ...
+with connect() as conn:
+    results = retrieve_postgres(conn, entry["query"], as_of, k=k)
 ```
 
-### 3. One span per stage, with timing
+### 8. `app/eval/phase_c_slice.py`
 
-Helper to emit a completed stage span:
-
+Same pattern — replace `dumb_retriever.retrieve(query, as_of)` with:
 ```python
-def _span(trace: Any, stage: str, *, outcome: str, latency_ms: int) -> None:
-    if trace is None:
-        return
-    trace.span(
-        name=f"stage.{stage}",
-        metadata={"outcome": outcome, "latency_ms": latency_ms},
-    )
+from app.authority.writer import connect
+from app.retrieval.postgres_retriever import retrieve_postgres
+# ...
+with connect() as conn:
+    hits = retrieve_postgres(conn, query, as_of)
 ```
-
-Pattern inside each stage:
-
-```python
-t0 = time.monotonic()
-# ... stage work ...
-_span(trace, "STAGE_NAME", outcome="passed", latency_ms=int((time.monotonic()-t0)*1000))
-```
-
-At every return path (early exit or success), flush before returning:
-
-```python
-if lf:
-    lf.flush()
-```
-
-### 4. Stages to trace
-
-**Laws (`ingest_law`):**
-
-| Stage | outcome values |
-|---|---|
-| `LOAD` | `skipped` (unchanged hash) or `passed` |
-| `VALIDATE` | `rejected` or `passed` |
-| `CHUNK` | `rejected` or `passed` |
-| `EXTRACT_METADATA` | `failed` (LLM error, caught) or `passed` |
-| `EMBED_AND_UPSERT` | `passed` |
-| `DUAL_APPROVAL_PAUSE` | `ingested` |
-
-**NKP cases (`ingest_nkp_case`):**
-
-| Stage | outcome values |
-|---|---|
-| `LOAD` | `skipped` or `passed` |
-| `VALIDATE` | `rejected` or `passed` |
-| `REDACT_PII` | `quarantined` or `passed` |
-| `CHUNK` | `rejected` or `passed` |
-| `EXTRACT_METADATA` | `failed` or `passed` |
-| `EMBED_AND_UPSERT` | `passed` |
-| `DUAL_APPROVAL_PAUSE` | `ingested` |
-
-On early exit, emit only the terminal stage span then flush. Do not emit spans
-for stages that were never reached.
-
----
-
-## PS-14 constraints — unchanged
-
-- `source_id`, stage name, outcome, `latency_ms` in spans: allowed
-- `raw_content`, `full_text`, `redacted_text`, any chunk text: never in any span
 
 ---
 
 ## What does NOT change
 
-- `_langfuse_callback()` and `_emit_answer_trace()` in `gated_orchestrator.py`
-- All gate logic, chunkers, parsers, writer, eval harness
-- Opt-in: if `LANGFUSE_PUBLIC_KEY` unset, pipeline runs identically
+- `app/retrieval/postgres_retriever.py` — untouched
+- `app/retrieval/eligibility_gate.py` — untouched
+- `app/retrieval/validation_gate.py` — untouched
+- All ingestion pipeline files — untouched
+- All eval metrics and golden sets — untouched
+- `tests/test_postgres_down_returns_503` — kept, still valid
 
 ---
 
@@ -142,6 +124,9 @@ for stages that were never reached.
 make test
 make lint
 ```
+
+`make test` must show **35 passed** (same count as before — the 2 deleted
+OpenSearch tests were already failing and are not in the passing count).
 
 Return commit hash, checks run/results.
 

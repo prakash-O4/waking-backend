@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI  # noqa: E402
 
 from app.authority.parser import parse_law  # noqa: E402
 from app.authority.writer import connect  # noqa: E402
-from app.retrieval.dumb_retriever import retrieve  # noqa: E402
+from app.retrieval.postgres_retriever import retrieve_postgres  # noqa: E402
 from app.retrieval.validation_gate import validate_and_render  # noqa: E402
 
 SYSTEM = """You are Wakil-G. Answer using ONLY the provided context.
@@ -96,15 +96,15 @@ def main() -> None:
     if not os.getenv("SUPABASE_DB_URL"):
         _local_fallback(args.question, as_of)
         return
-    hits = retrieve(args.question, as_of, k=5)
-    if not hits:
-        print("Abstaining — no eligible sources.")
-        return
-    claims = _model_claims(args.question, hits)
-    if not claims:
-        print("Abstaining — no eligible sources.")
-        return
     with connect() as conn:
+        hits = retrieve_postgres(conn, args.question, as_of, k=5)
+        if not hits:
+            print("Abstaining — no eligible sources.")
+            return
+        claims = _model_claims(args.question, hits)
+        if not claims:
+            print("Abstaining — no eligible sources.")
+            return
         rendered = validate_and_render(claims, as_of, conn)
     for item in rendered:
         if item["abstained"]:

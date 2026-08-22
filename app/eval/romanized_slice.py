@@ -5,7 +5,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app.retrieval.dumb_retriever import retrieve
+from app.authority.writer import connect
+from app.retrieval.postgres_retriever import retrieve_postgres
 
 _GOLDEN = Path(__file__).parent / "golden" / "romanized.json"
 
@@ -16,7 +17,8 @@ def run_slice(k: int = 5) -> dict[str, Any]:
     hits = 0
     for entry in golden:
         as_of = date.fromisoformat(entry["as_of"])
-        results = retrieve(entry["query"], as_of, k=k)
+        with connect() as conn:
+            results = retrieve_postgres(conn, entry["query"], as_of, k=k)
         result_uris = [r["component_uri"] for r in results]
         if any(
             uri.startswith(prefix)

@@ -10,7 +10,6 @@ from typing import Any, cast
 from psycopg2.extensions import connection
 
 from app.config import get_settings
-from app.retrieval.dumb_retriever import retrieve as os_retrieve
 from app.retrieval.postgres_retriever import retrieve_postgres
 from app.retrieval.validation_gate import validate_and_render
 
@@ -55,22 +54,6 @@ def _emit_answer_trace(metadata: dict[str, Any]) -> None:
     )
     client.trace(name="rag.answer", metadata=metadata)
     client.flush()
-
-
-def _try_retrieve(
-    conn: connection, query: str, as_of: date, k: int = 5
-) -> list[dict[str, Any]]:
-    """OpenSearch first; Postgres ILIKE fallback on OpenSearch connection errors."""
-    try:
-        return os_retrieve(query, as_of, k)
-    except Exception as os_exc:
-        import opensearchpy
-
-        if isinstance(
-            os_exc, (opensearchpy.ConnectionError, opensearchpy.TransportError)
-        ):
-            return retrieve_postgres(conn, query, as_of, k)
-        raise
 
 
 def _model_claims(question: str, hits: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -179,7 +162,7 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
 
         subquery_text = cast(str, subquery["subquery"])
         subquery_as_of = cast(date, subquery["as_of"])
-        hits = _try_retrieve(conn, subquery_text, subquery_as_of)
+        hits = retrieve_postgres(conn, subquery_text, subquery_as_of, k=5)
         retrieved_uris.extend(str(hit["component_uri"]) for hit in hits)
         if not hits:
             continue
