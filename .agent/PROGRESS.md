@@ -1,16 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-1 — LangGraph skeleton (Stage 1 of ADR-001)**
+None.
 
 ## Status
-**IN PROGRESS** — task brief written, branch created, awaiting Pi.
-
-- Branch: `agent/stage-1-skeleton` (from `dev`)
-- Engineer: Pi
-- Scope: `requirements.txt`, `app/retrieval/query_state.py` (new), `app/retrieval/query_graph.py` (new), `app/retrieval/gated_orchestrator.py`, `tests/test_orchestrator.py`
-- Constraint: no behaviour change; all 4 existing orchestrator tests must pass unmodified
-- Next action: Prakash runs Pi on `agent/stage-1-skeleton` with task brief in `task.md`
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
@@ -33,6 +27,14 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-1 — LangGraph skeleton (MERGED to dev, 2026-08-24)
+- `query_state.py`: `QueryState` TypedDict — full schema incl. Stage 2+ placeholders
+- `query_graph.py`: 4-node linear graph (classify → retrieve_generate → validate → assemble); `conn` via `config["configurable"]`; all calls via `_orch.*` for monkeypatch compatibility
+- `gated_orchestrator.py`: `answer()` delegates to `run_query()`; all helpers remain at module level; `retrieve_postgres` + `validate_and_render` re-exported; `_emit_answer_trace_from_state` extracted
+- `requirements.txt`: `langgraph>=1.2`
+- 55 tests passing, no behaviour change
+- Cleanup note: `_graph_clock` in `query_graph.py` uses `sys._getframe` (CPython-specific, solves non-existent problem in LangGraph 1.2 sync path) — remove in next cleanup cycle
 
 ### RET-C — FlashRank fallback reranker (MERGED to dev, 2026-08-24)
 - `reranker.py`: full rewrite — Cohere → FlashRank (`ms-marco-MultiBERT-L-12`, multilingual) → passthrough ladder; module-level `_ranker` cache; `except Exception: pass` on Cohere falls through silently
