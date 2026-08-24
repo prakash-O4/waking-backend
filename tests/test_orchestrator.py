@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 from app.retrieval import gated_orchestrator as orchestrator
@@ -32,8 +32,14 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(
         orchestrator,
-        "_classify_and_decompose",
-        lambda question, as_of: [{"subquery": question, "as_of": as_of}],
+        "_fact_extract",
+        lambda question, as_of: {
+            "facts": None,
+            "missing_facts": [],
+            "issue_queries": [
+                {"query": question, "as_of": as_of, "work_type_hint": None}
+            ],
+        },
     )
     monkeypatch.setattr(orchestrator, "retrieve_postgres", retrieve)
     monkeypatch.setattr(
@@ -55,11 +61,15 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
     validate_as_ofs: list[date] = []
     monkeypatch.setattr(
         orchestrator,
-        "_classify_and_decompose",
-        lambda question, as_of: [
-            {"subquery": "old", "as_of": date(2020, 1, 1)},
-            {"subquery": "new", "as_of": date(2024, 1, 1)},
-        ],
+        "_fact_extract",
+        lambda question, as_of: {
+            "facts": {"parties": [], "events": [], "dates": [], "location": None},
+            "missing_facts": [],
+            "issue_queries": [
+                {"query": "old", "as_of": date(2020, 1, 1), "work_type_hint": None},
+                {"query": "new", "as_of": date(2024, 1, 1), "work_type_hint": None},
+            ],
+        },
     )
     monkeypatch.setattr(
         orchestrator,
@@ -95,11 +105,15 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
 def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
-        "_classify_and_decompose",
-        lambda question, as_of: [
-            {"subquery": "first", "as_of": as_of},
-            {"subquery": "second", "as_of": as_of},
-        ],
+        "_fact_extract",
+        lambda question, as_of: {
+            "facts": None,
+            "missing_facts": [],
+            "issue_queries": [
+                {"query": "first", "as_of": as_of, "work_type_hint": None},
+                {"query": "second", "as_of": as_of, "work_type_hint": None},
+            ],
+        },
     )
     times = iter([0.0, 0.0, orchestrator.WALL_CLOCK_CAP + 0.1])
     monkeypatch.setattr(
@@ -148,8 +162,14 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
     """Graph wires correctly and answer() returns the right response shape."""
     monkeypatch.setattr(
         orchestrator,
-        "_classify_and_decompose",
-        lambda question, as_of: [{"subquery": question, "as_of": as_of}],
+        "_fact_extract",
+        lambda question, as_of: {
+            "facts": None,
+            "missing_facts": [],
+            "issue_queries": [
+                {"query": question, "as_of": as_of, "work_type_hint": None}
+            ],
+        },
     )
     monkeypatch.setattr(
         orchestrator,
@@ -176,7 +196,7 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
 
 
 def test_query_state_schema_complete() -> None:
-    """QueryState TypedDict has all required Stage 1 fields."""
+    """QueryState TypedDict has all required Stage 1+ fields."""
     import typing
 
     from app.retrieval.query_state import QueryState
@@ -198,3 +218,81 @@ def test_query_state_schema_complete() -> None:
         "_pending_results",
     }
     assert required.issubset(keys)
+
+
+def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
+    """_fact_extract parses Gemini response and returns normalised issue_queries."""
+    import json
+
+    class FakeResp:
+        content = json.dumps(
+            {
+                "facts": {
+                    "parties": ["landlord"],
+                    "events": ["eviction"],
+                    "dates": [],
+                    "location": None,
+                },
+                "missing_facts": [{"fact": "written agreement?", "type": "clarifying"}],
+                "issue_queries": [
+                    {
+                        "query": "भाडा सम्झौता सम्बन्धी कानून",
+                        "as_of": "2024-01-01",
+                        "work_type_hint": "Act",
+                    },
+                    {
+                        "query": "घर खाली गराउने प्रक्रिया",
+                        "as_of": None,
+                        "work_type_hint": None,
+                    },
+                ],
+            }
+        )
+
+    class FakeLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: Any) -> FakeResp:
+            return FakeResp()
+
+    langchain_google_genai = ModuleType("langchain_google_genai")
+    setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeLLM)
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_google_genai", langchain_google_genai
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(
+            GEMINI_API_KEY="key",
+            LANGFUSE_PUBLIC_KEY="",
+        ),
+    )
+
+    result = orchestrator._fact_extract("eviction question", date(2024, 1, 1))
+
+    assert result["facts"]["parties"] == ["landlord"]
+    assert result["missing_facts"][0]["type"] == "clarifying"
+    assert len(result["issue_queries"]) == 2
+    assert result["issue_queries"][0]["as_of"] == date(2024, 1, 1)
+    assert result["issue_queries"][1]["as_of"] == date(
+        2024, 1, 1
+    )  # null → session_as_of
+
+
+def test_fact_extract_failure_returns_single_query_fallback(monkeypatch: Any) -> None:
+    """_fact_extract falls back to single raw query when Gemini is unavailable."""
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(GEMINI_API_KEY="", LANGFUSE_PUBLIC_KEY=""),
+    )
+
+    result = orchestrator._fact_extract("what is the notice period?", date(2024, 6, 1))
+
+    assert result["facts"] is None
+    assert result["missing_facts"] == []
+    assert len(result["issue_queries"]) == 1
+    assert result["issue_queries"][0]["query"] == "what is the notice period?"
+    assert result["issue_queries"][0]["as_of"] == date(2024, 6, 1)

@@ -175,6 +175,81 @@ def _classify_and_decompose(question: str, session_as_of: date) -> list[dict[str
         return [{"subquery": question, "as_of": session_as_of}]
 
 
+def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
+    """Extract structured facts and per-issue retrieval queries using Gemini 2.5 Flash.
+
+    Failure mode: any exception or missing key → single raw query passthrough.
+    """
+    fallback: dict[str, Any] = {
+        "facts": None,
+        "missing_facts": [],
+        "issue_queries": [
+            {"query": question, "as_of": session_as_of, "work_type_hint": None}
+        ],
+    }
+    s = get_settings()
+    if not s.GEMINI_API_KEY:
+        return fallback
+    system = (
+        "You are a Nepali legal assistant. Analyse the user's legal query and output JSON only:\n"
+        "{\n"
+        '  "facts": {"parties": [], "events": [], "dates": [], "location": null},\n'
+        '  "missing_facts": [\n'
+        '    {"fact": "<what is missing>", "type": "required|clarifying|informational"}\n'
+        "  ],\n"
+        '  "issue_queries": [\n'
+        '    {"query": "<Nepali retrieval query>", "as_of": "<YYYY-MM-DD or null>",\n'
+        '     "work_type_hint": "<Act|Rule|Regulation|null>"}\n'
+        "  ]\n"
+        "}\n"
+        f"Default as_of when not specified: {session_as_of.isoformat()}. "
+        f"Max {MAX_SUBQUERIES} issue_queries. "
+        "Write issue_queries in formal Devanagari Nepali for best embedding match."
+    )
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=s.GEMINI_API_KEY,
+            temperature=0.0,
+            max_output_tokens=1000,
+        )
+        resp = llm.invoke(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": question},
+            ]
+        )
+        parsed = cast(dict[str, Any], json.loads(str(resp.content).strip()))
+
+        issue_queries: list[dict[str, Any]] = []
+        for iq in parsed.get("issue_queries", [])[:MAX_SUBQUERIES]:
+            try:
+                as_of = (
+                    date.fromisoformat(iq["as_of"])
+                    if iq.get("as_of")
+                    else session_as_of
+                )
+            except (ValueError, TypeError):
+                as_of = session_as_of
+            issue_queries.append(
+                {
+                    "query": iq.get("query", question),
+                    "as_of": as_of,
+                    "work_type_hint": iq.get("work_type_hint"),
+                }
+            )
+
+        return {
+            "facts": parsed.get("facts"),
+            "missing_facts": parsed.get("missing_facts", []),
+            "issue_queries": issue_queries or fallback["issue_queries"],
+        }
+    except Exception:
+        return fallback
+
+
 def _emit_answer_trace_from_state(
     raw_query: str,
     session_as_of: date,

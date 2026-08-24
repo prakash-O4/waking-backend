@@ -1,10 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-2 — Fact Extractor + issue-driven retrieval (Stage 2)
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written to `task.md` on `agent/stage-2-fact-extractor`. Assigned to Pi.
 
 ---
 
@@ -23,6 +23,18 @@ Fact extractor classifies each missing fact as: required | clarifying | informat
 - clarifying  → ask user if within wall-clock budget, else proceed and document
 - informational → document in answer output, never blocks
 Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
+
+---
+
+---
+
+## AGENT-2 — Fact Extractor + issue-driven retrieval (Stage 2)
+**Branch:** `agent/stage-2-fact-extractor` | **Base:** `dev` | **Engineer:** Pi
+**Status:** Task brief written — awaiting Pi
+**PS in scope:** PS-6 (eligibility gate on every issue branch), PS-8 (issue_queries written in Devanagari Nepali)
+**Zero-tolerance gates in scope:** repealed-as-current = 0, not-yet-effective-as-current = 0
+**Files in scope:** `query_graph.py`, `gated_orchestrator.py`, `tests/test_orchestrator.py`
+**Expected:** 57 tests (55 + 2 new), `_graph_clock` removed, `_fact_extract` added
 
 ---
 
