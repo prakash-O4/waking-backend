@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from datetime import date
 from typing import Any, cast
@@ -12,11 +13,28 @@ from psycopg2.extensions import connection
 from app.config import get_settings
 from app.retrieval.postgres_retriever import retrieve_postgres as retrieve_postgres
 from app.retrieval.validation_gate import validate_and_render as validate_and_render
+from app.retrieval.eligibility_gate import eligible_chunk_ids as eligible_chunk_ids
 
 WALL_CLOCK_CAP = 20.0
 MAX_SUBQUERIES = 3
 EXTRACTIVE_CHARS = 300
-_REAL_MONOTONIC = time.monotonic
+
+_WORK_TYPE_TIER: dict[str, int] = {
+    "constitution": 1,
+    "act": 2,
+    "rule": 3,
+    "regulation": 3,
+    "directive": 4,
+    "byelaw": 4,
+    "notification": 5,
+    "order": 5,
+}
+
+_DEVA_DIGIT_MAP = str.maketrans("०१२३४५६७८९", "0123456789")
+
+_CROSS_REF_RE = re.compile(
+    r"(?:दफा|उपदफा)\s+([०-९\d]+(?:\([०-९\d]+\))?)" r"|अनुसूची\s+([०-९\d]+)"
+)
 
 
 def _langfuse_callback() -> list[Any]:
@@ -248,6 +266,128 @@ def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
         }
     except Exception:
         return fallback
+
+
+def _authority_rank_hits(hits: list[dict[str, Any]], conn: Any) -> list[dict[str, Any]]:
+    """Sort by authority tier then score. On DB failure, return hits unchanged."""
+    if not hits:
+        return hits
+    try:
+        ids = [h["component_uri"] for h in hits]
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id::text, w.work_type, c.source_type
+                FROM chunks c
+                LEFT JOIN work w ON w.id = c.work_id
+                WHERE c.id::text = ANY(%(ids)s)
+                """,
+                {"ids": ids},
+            )
+            meta: dict[str, tuple[str, str]] = {
+                str(row[0]): (str(row[1] or "").lower(), str(row[2] or "").lower())
+                for row in cur.fetchall()
+            }
+
+        enriched: list[dict[str, Any]] = []
+        for h in hits:
+            wt, st = meta.get(h["component_uri"], ("", ""))
+            tier = _WORK_TYPE_TIER.get(wt) or (6 if st == "nkp_case" else 99)
+            enriched.append({**h, "work_type": wt or st, "tier": tier})
+
+        enriched.sort(key=lambda x: (x["tier"], -x.get("score", 0.0)))
+
+        seen_sections: dict[str, int] = {}
+        for h in enriched:
+            sec = h.get("section_number", "")
+            if not sec:
+                continue
+            existing_tier = seen_sections.get(sec)
+            if existing_tier is not None and existing_tier < h["tier"]:
+                h["conflict_flag"] = True
+            else:
+                seen_sections[sec] = h["tier"]
+
+        return enriched
+    except Exception:
+        return hits
+
+
+def _resolve_cross_refs(
+    hits: list[dict[str, Any]],
+    as_of: date,
+    conn: Any,
+    max_additional: int = 5,
+) -> list[dict[str, Any]]:
+    """Find Nepali cross-references in top hits. On failure, return []."""
+    if not hits:
+        return []
+    try:
+        existing_ids = {h["component_uri"] for h in hits}
+        eligible = list(eligible_chunk_ids(conn, as_of))
+        if not eligible:
+            return []
+
+        additional: list[dict[str, Any]] = []
+
+        for hit in hits[:10]:
+            if len(additional) >= max_additional:
+                break
+            text = hit.get("text_ne", "")
+            source_id = hit.get("document_source_id", "")
+            if not source_id or not text:
+                continue
+
+            for match in _CROSS_REF_RE.finditer(text):
+                if len(additional) >= max_additional:
+                    break
+                raw_num = (
+                    (match.group(1) or match.group(2) or "")
+                    .translate(_DEVA_DIGIT_MAP)
+                    .strip()
+                )
+                if not raw_num:
+                    continue
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT c.id::text, c.chunk_text, c.span_sha256,
+                               c.act_name, c.case_id, c.chunk_type,
+                               c.section_number, d.source_id
+                        FROM chunks c
+                        JOIN documents d ON d.id = c.document_id
+                        WHERE d.source_id = %(source_id)s
+                          AND c.section_number = %(section_num)s
+                          AND c.id::text = ANY(%(eligible)s)
+                        LIMIT 1
+                        """,
+                        {
+                            "source_id": source_id,
+                            "section_num": raw_num,
+                            "eligible": eligible,
+                        },
+                    )
+                    row = cur.fetchone()
+                if row and str(row[0]) not in existing_ids:
+                    chunk_id = str(row[0])
+                    existing_ids.add(chunk_id)
+                    additional.append(
+                        {
+                            "component_uri": chunk_id,
+                            "text_ne": row[1],
+                            "text_hash": row[2],
+                            "score": 0.0,
+                            "work_title_ne": row[3] or row[4] or "",
+                            "chunk_type": row[5],
+                            "section_number": row[6] or "",
+                            "document_source_id": str(row[7]) if row[7] else "",
+                            "co_retrieved": True,
+                        }
+                    )
+
+        return additional
+    except Exception:
+        return []
 
 
 def _emit_answer_trace_from_state(

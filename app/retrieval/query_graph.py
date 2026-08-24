@@ -68,6 +68,22 @@ def retrieve_generate_node(state: QueryState, config: RunnableConfig) -> dict[st
     }
 
 
+def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    conn = config["configurable"]["conn"]
+    ranked = _orch._authority_rank_hits(state["all_hits"], conn)
+    return {"all_hits": ranked}
+
+
+def cross_ref_resolver_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    conn = config["configurable"]["conn"]
+    additional = _orch._resolve_cross_refs(
+        state["all_hits"], state["session_as_of"], conn
+    )
+    if not additional:
+        return {}
+    return {"all_hits": state["all_hits"] + additional}
+
+
 def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     all_results: list[dict[str, Any]] = []
@@ -114,12 +130,16 @@ def build_graph() -> Any:
     builder: StateGraph = StateGraph(QueryState)
     builder.add_node("fact_extractor", fact_extractor_node)
     builder.add_node("retrieve_generate", retrieve_generate_node)
+    builder.add_node("authority_ranker", authority_ranker_node)
+    builder.add_node("cross_ref_resolver", cross_ref_resolver_node)
     builder.add_node("validate", validate_node)
     builder.add_node("assemble", assemble_node)
 
     builder.add_edge(START, "fact_extractor")
     builder.add_edge("fact_extractor", "retrieve_generate")
-    builder.add_edge("retrieve_generate", "validate")
+    builder.add_edge("retrieve_generate", "authority_ranker")
+    builder.add_edge("authority_ranker", "cross_ref_resolver")
+    builder.add_edge("cross_ref_resolver", "validate")
     builder.add_edge("validate", "assemble")
     builder.add_edge("assemble", END)
 

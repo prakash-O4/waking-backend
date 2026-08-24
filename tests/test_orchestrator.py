@@ -296,3 +296,180 @@ def test_fact_extract_failure_returns_single_query_fallback(monkeypatch: Any) ->
     assert len(result["issue_queries"]) == 1
     assert result["issue_queries"][0]["query"] == "what is the notice period?"
     assert result["issue_queries"][0]["as_of"] == date(2024, 6, 1)
+
+
+def test_authority_rank_hits_sorts_by_tier() -> None:
+    """Hits reordered by tier ASC, score DESC; tier attached to each hit."""
+
+    class _Cur:
+        def __enter__(self) -> "_Cur":
+            return self
+
+        def __exit__(self, *a: Any) -> None:
+            pass
+
+        def execute(self, sql: str, params: Any) -> None:
+            pass
+
+        def fetchall(self) -> list[tuple[str, str, str]]:
+            return [
+                ("chunk-act", "Act", "act"),
+                ("chunk-const", "Constitution", "act"),
+                ("chunk-reg", "Rule", "regulation"),
+            ]
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+    hits = [
+        {
+            "component_uri": "chunk-act",
+            "score": 0.8,
+            "section_number": "45",
+            "text_ne": "",
+        },
+        {
+            "component_uri": "chunk-const",
+            "score": 0.6,
+            "section_number": "3",
+            "text_ne": "",
+        },
+        {
+            "component_uri": "chunk-reg",
+            "score": 0.9,
+            "section_number": "12",
+            "text_ne": "",
+        },
+    ]
+
+    result = orchestrator._authority_rank_hits(hits, _Conn())
+
+    assert result[0]["component_uri"] == "chunk-const"
+    assert result[0]["tier"] == 1
+    assert result[1]["component_uri"] == "chunk-act"
+    assert result[1]["tier"] == 2
+    assert result[2]["component_uri"] == "chunk-reg"
+    assert result[2]["tier"] == 3
+
+
+def test_authority_rank_hits_conflict_flag() -> None:
+    """Same section_number covered by lower-tier chunk gets conflict_flag=True."""
+
+    class _Cur:
+        def __enter__(self) -> "_Cur":
+            return self
+
+        def __exit__(self, *a: Any) -> None:
+            pass
+
+        def execute(self, sql: str, params: Any) -> None:
+            pass
+
+        def fetchall(self) -> list[tuple[str, str, str]]:
+            return [
+                ("chunk-act", "Act", "act"),
+                ("chunk-rule", "Rule", "regulation"),
+            ]
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+    hits = [
+        {
+            "component_uri": "chunk-act",
+            "score": 0.8,
+            "section_number": "10",
+            "text_ne": "",
+        },
+        {
+            "component_uri": "chunk-rule",
+            "score": 0.9,
+            "section_number": "10",
+            "text_ne": "",
+        },
+    ]
+
+    result = orchestrator._authority_rank_hits(hits, _Conn())
+
+    act_hit = next(h for h in result if h["component_uri"] == "chunk-act")
+    rule_hit = next(h for h in result if h["component_uri"] == "chunk-rule")
+    assert "conflict_flag" not in act_hit
+    assert rule_hit.get("conflict_flag") is True
+
+
+def test_authority_rank_hits_failure_returns_unchanged() -> None:
+    """Exception from conn → original hits returned unchanged."""
+    hits = [{"component_uri": "x", "score": 0.5, "section_number": "", "text_ne": ""}]
+    result = orchestrator._authority_rank_hits(hits, object())
+    assert result is hits
+
+
+def test_resolve_cross_refs_finds_section_reference(monkeypatch: Any) -> None:
+    """दफा reference in text → co-retrieved chunk added with co_retrieved=True."""
+    monkeypatch.setattr(
+        orchestrator,
+        "eligible_chunk_ids",
+        lambda conn, as_of: {"chunk-100", "chunk-456"},
+    )
+
+    class _Cur:
+        def __enter__(self) -> "_Cur":
+            return self
+
+        def __exit__(self, *a: Any) -> None:
+            pass
+
+        def execute(self, sql: str, params: Any) -> None:
+            self._p = params
+
+        def fetchone(self) -> tuple[Any, ...] | None:
+            if self._p.get("section_num") == "456":
+                return (
+                    "chunk-456",
+                    "दफा ४५६ को पाठ",
+                    "hash456",
+                    "Act Name",
+                    None,
+                    "dafa",
+                    "456",
+                    "src-001",
+                )
+            return None
+
+    class _Conn:
+        def cursor(self) -> _Cur:
+            return _Cur()
+
+    hits = [
+        {
+            "component_uri": "chunk-100",
+            "text_ne": "यो दफा ४५६ मा उल्लेख भएको छ",
+            "score": 0.8,
+            "section_number": "100",
+            "document_source_id": "src-001",
+        }
+    ]
+
+    result = orchestrator._resolve_cross_refs(hits, date(2024, 1, 1), _Conn())
+
+    assert len(result) == 1
+    assert result[0]["component_uri"] == "chunk-456"
+    assert result[0]["co_retrieved"] is True
+    assert result[0]["section_number"] == "456"
+
+
+def test_resolve_cross_refs_failure_returns_empty() -> None:
+    """Exception from conn → empty list returned."""
+    hits = [
+        {
+            "component_uri": "chunk-1",
+            "text_ne": "दफा ४५ को प्रावधान",
+            "score": 0.5,
+            "section_number": "1",
+            "document_source_id": "src-1",
+        }
+    ]
+    result = orchestrator._resolve_cross_refs(hits, date(2024, 1, 1), object())
+    assert result == []
