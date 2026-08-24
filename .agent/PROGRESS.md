@@ -8,6 +8,24 @@ None.
 
 ---
 
+## Architecture decisions (standing)
+
+### Authority weighting — Option A: Tier-first, RRF-second (decided 2026-08-24)
+Sort retrieved chunks by work_type tier, break ties by RRF score. No blended weights.
+Tier order: Constitution(1) > Act(2) > Rule/Regulation(3) > Directive/Byelaw(4) > Notification/Order(5) > Precedent(6).
+Rationale: legally deterministic, auditable, no eval data needed to calibrate.
+Upgrade path: move to weighted blend (Option B) once eval slice data justifies a specific α/β split.
+Ref: `docs/adr-001-multi-agent-query-architecture.md` §Authority Weighting.
+
+### Missing facts handling — Hybrid (decided 2026-08-24)
+Fact extractor classifies each missing fact as: required | clarifying | informational.
+- required    → interrupt graph, ask user before retrieving
+- clarifying  → ask user if within wall-clock budget, else proceed and document
+- informational → document in answer output, never blocks
+Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
+
+---
+
 ## Completed tasks
 
 ### RET-C — FlashRank fallback reranker (MERGED to dev, 2026-08-24)
