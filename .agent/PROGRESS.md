@@ -1,10 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-3 — Authority Ranker + Cross-Reference Resolver (Stage 3)
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written to `task.md` on `agent/stage-3-authority-ranker`. Assigned to Pi.
 
 ---
 
@@ -25,6 +25,17 @@ Fact extractor classifies each missing fact as: required | clarifying | informat
 Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 
 ---
+
+---
+
+## AGENT-3 — Authority Ranker + Cross-Reference Resolver (Stage 3)
+**Branch:** `agent/stage-3-authority-ranker` | **Base:** `dev` | **Engineer:** Pi
+**Status:** Task brief written — awaiting Pi
+**PS in scope:** PS-6 (eligibility gate on co-retrieved chunks), PS-16 (cross-ref retrieval)
+**Zero-tolerance gates in scope:** repealed-as-current = 0, not-yet-effective-as-current = 0
+**Files in scope:** `query_graph.py`, `gated_orchestrator.py`, `tests/test_orchestrator.py`
+**Expected:** 62 tests (57 + 5 new), `_REAL_MONOTONIC` removed, 2 new nodes added
+**Schema note:** ADR says `documents.work_type` but that column doesn't exist. Actual path: `chunks.work_id → work.work_type` (NULL for nkp_case); `chunks.source_type` as fallback for tier 6.
 
 ---
 
