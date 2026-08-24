@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from datetime import date
 from typing import Any, cast
 
@@ -18,6 +20,8 @@ class Cursor:
         self.vector = vector
         self.lexical = lexical
         self.calls = 0
+        self.sql = ""
+        self.params: dict[str, Any] = {}
 
     def __enter__(self) -> "Cursor":
         return self
@@ -31,9 +35,9 @@ class Cursor:
         self.params = params
 
     def fetchall(self) -> list[tuple[Any, ...]]:
-        if self.calls == 1:
+        if "embedding <=>" in self.sql:
             return self.vector
-        if self.calls == 2:
+        if "ts_rank_cd" in self.sql:
             return self.lexical
         return [row[:7] for row in [*self.vector, *self.lexical]]
 
@@ -50,8 +54,69 @@ class Conn:
 
 def patch_common(monkeypatch: Any, eligible: set[str]) -> None:
     monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: eligible)
+    monkeypatch.setattr(r, "translate_query", lambda query: None)
     monkeypatch.setattr(r, "_embed_query", lambda query: [0.1, 0.2])
     monkeypatch.setattr(r, "rerank", lambda query, hits, k: hits[:k])
+
+
+def test_is_devanagari_pure_nepali() -> None:
+    assert r._is_devanagari("दफा १ अनुसार") is True
+
+
+def test_is_devanagari_pure_english() -> None:
+    assert r._is_devanagari("what is section 1") is False
+
+
+def test_is_devanagari_mixed_romanized() -> None:
+    assert r._is_devanagari("muluki ain ko dafa") is False
+
+
+def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
+    class Settings:
+        GEMINI_API_KEY = "key"
+
+    module = types.ModuleType("langchain_google_genai")
+
+    class BadLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("LLM should not be called")
+
+    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    monkeypatch.setattr(r, "get_settings", lambda: Settings())
+    assert r.translate_query("दफा १") is None
+
+
+def test_translate_query_returns_none_on_api_failure(monkeypatch: Any) -> None:
+    class Settings:
+        GEMINI_API_KEY = "key"
+
+    module = types.ModuleType("langchain_google_genai")
+
+    class BadLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            raise RuntimeError("boom")
+
+    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    monkeypatch.setattr(r, "get_settings", lambda: Settings())
+    assert r.translate_query("what is section 1") is None
+
+
+def test_translate_query_skips_when_key_unset(monkeypatch: Any) -> None:
+    class Settings:
+        GEMINI_API_KEY = ""
+
+    module = types.ModuleType("langchain_google_genai")
+
+    class BadLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("LLM should not be called")
+
+    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    monkeypatch.setattr(r, "get_settings", lambda: Settings())
+    assert r.translate_query("section 1") is None
 
 
 def test_empty_eligible_set_returns_empty(monkeypatch: Any) -> None:
@@ -63,6 +128,7 @@ def test_empty_eligible_set_returns_empty(monkeypatch: Any) -> None:
         return []
 
     monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: set())
+    monkeypatch.setattr(r, "translate_query", lambda query: None)
     monkeypatch.setattr(r, "_embed_query", embed)
     assert r.retrieve_postgres(cast(Any, object()), "x", date(2024, 1, 1)) == []
     assert called is False
@@ -90,6 +156,35 @@ def test_relevance_gate_returns_empty(monkeypatch: Any) -> None:
     assert (
         r.retrieve_postgres(cast(Any, Conn([ROW1], [])), "law", date(2024, 1, 1)) == []
     )
+
+
+def test_dual_path_uses_four_lists_when_translated(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c1", "c2"})
+    monkeypatch.setattr(r, "translate_query", lambda query: "दफा १")
+    captured = []
+
+    def rrf(lists: list[list[str]]) -> list[tuple[str, float]]:
+        nonlocal captured
+        captured = lists
+        return [("c1", 1.0), ("c2", 1.0)]
+
+    monkeypatch.setattr(r, "_rrf", rrf)
+    r.retrieve_postgres(cast(Any, Conn([ROW1], [ROW2])), "section 1", date(2024, 1, 1))
+    assert len(captured) == 4
+
+
+def test_dual_path_falls_back_to_single_when_translation_none(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c1", "c2"})
+    captured = []
+
+    def rrf(lists: list[list[str]]) -> list[tuple[str, float]]:
+        nonlocal captured
+        captured = lists
+        return [("c1", 1.0), ("c2", 1.0)]
+
+    monkeypatch.setattr(r, "_rrf", rrf)
+    r.retrieve_postgres(cast(Any, Conn([ROW1], [ROW2])), "section 1", date(2024, 1, 1))
+    assert len(captured) == 2
 
 
 def test_reranker_skipped_when_cohere_key_unset(monkeypatch: Any) -> None:

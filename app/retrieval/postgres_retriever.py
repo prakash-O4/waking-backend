@@ -45,6 +45,44 @@ def _preprocess(text: str) -> str:
     return unicodedata.normalize("NFC", text).translate(_DIGIT_MAP)
 
 
+def _is_devanagari(text: str) -> bool:
+    count = sum(1 for c in text if "ऀ" <= c <= "ॿ")
+    return count / max(len(text), 1) > 0.5
+
+
+def translate_query(query: str) -> str | None:
+    if _is_devanagari(query):
+        return None
+    s = get_settings()
+    if not s.GEMINI_API_KEY:
+        return None
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import-not-found]
+
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=s.GEMINI_API_KEY,
+            temperature=0.0,
+            max_output_tokens=300,
+        )
+        resp = llm.invoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate the following legal query to formal Nepali in Devanagari script. "
+                        "Output only the translated text. Do not add explanations."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ]
+        )
+        translated = str(resp.content).strip()
+        return translated if translated else None
+    except Exception:
+        return None
+
+
 def _embed_query(text: str) -> list[float]:
     s = get_settings()
     client = AzureOpenAI(
@@ -87,6 +125,9 @@ def retrieve_postgres(
     conn: connection, query: str, as_of: date, k: int = 5
 ) -> list[dict[str, Any]]:
     query = _preprocess(query)
+    query_ne = translate_query(query)
+    if query_ne is not None:
+        query_ne = _preprocess(query_ne)
     lf = _get_lf_client()
     trace = (
         lf.trace(
@@ -107,6 +148,7 @@ def retrieve_postgres(
         trace,
         "eligibility_gate",
         eligible_count=len(eligible),
+        translation_ran=query_ne is not None,
         latency_ms=int((time.monotonic() - t0) * 1000),
     )
     if not eligible:
@@ -115,37 +157,27 @@ def retrieve_postgres(
         return []
 
     qvec = _embed_query(query)
+    qvec_ne = _embed_query(query_ne) if query_ne else None
     limit = k * 3
     with conn.cursor() as cur:
-        t0 = time.monotonic()
-        cur.execute(
-            """
-            SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, c.case_id,
-                   c.chunk_type, c.section_number, d.source_id,
-                   1 - (c.embedding <=> %(qvec)s::vector) AS vec_score
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            WHERE c.id::text = ANY(%(eligible)s)
-            ORDER BY c.embedding <=> %(qvec)s::vector
-            LIMIT %(limit)s
-            """,
-            {"qvec": qvec, "eligible": eligible, "limit": limit},
-        )
-        vector_rows = cur.fetchall()
-        _span(
-            trace,
-            "vector_search",
-            candidate_count=len(vector_rows),
-            top_score=float(vector_rows[0][8 if len(vector_rows[0]) > 8 else 7])
-            if vector_rows
-            else 0.0,
-            latency_ms=int((time.monotonic() - t0) * 1000),
-        )
 
-        lexical_rows: list[tuple[Any, ...]] = []
-        lexical_ran = any(ch.isalpha() for ch in query)
-        t0 = time.monotonic()
-        if lexical_ran:
+        def vector_search(vec: list[float]) -> list[tuple[Any, ...]]:
+            cur.execute(
+                """
+                SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, c.case_id,
+                       c.chunk_type, c.section_number, d.source_id,
+                       1 - (c.embedding <=> %(qvec)s::vector) AS vec_score
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.id::text = ANY(%(eligible)s)
+                ORDER BY c.embedding <=> %(qvec)s::vector
+                LIMIT %(limit)s
+                """,
+                {"qvec": vec, "eligible": eligible, "limit": limit},
+            )
+            return cur.fetchall()
+
+        def lexical_search(text: str) -> list[tuple[Any, ...]]:
             cur.execute(
                 """
                 SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, c.case_id,
@@ -158,22 +190,50 @@ def retrieve_postgres(
                   AND to_tsvector('simple', c.chunk_text) @@ plainto_tsquery('simple', %(query)s)
                 LIMIT %(limit)s
                 """,
-                {"query": query, "eligible": eligible, "limit": limit},
+                {"query": text, "eligible": eligible, "limit": limit},
             )
-            lexical_rows = cur.fetchall()
+            return cur.fetchall()
+
+        t0 = time.monotonic()
+        vector_rows = vector_search(qvec)
+        vector_rows_ne = vector_search(qvec_ne) if qvec_ne is not None else []
         _span(
             trace,
-            "lexical_search",
-            ran=lexical_ran,
-            candidate_count=len(lexical_rows),
+            "vector_search",
+            candidate_count=len(vector_rows) + len(vector_rows_ne),
+            top_score=float(vector_rows[0][8 if len(vector_rows[0]) > 8 else 7])
+            if vector_rows
+            else 0.0,
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
-    rows = {str(row[0]): row for row in [*vector_rows, *lexical_rows]}
+        lexical_rows: list[tuple[Any, ...]] = []
+        lexical_rows_ne: list[tuple[Any, ...]] = []
+        lexical_ran = any(ch.isalpha() for ch in query)
+        t0 = time.monotonic()
+        if lexical_ran:
+            lexical_rows = lexical_search(query)
+        if query_ne is not None:
+            lexical_rows_ne = lexical_search(query_ne)
+        _span(
+            trace,
+            "lexical_search",
+            ran=lexical_ran or query_ne is not None,
+            candidate_count=len(lexical_rows) + len(lexical_rows_ne),
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    rows = {
+        str(row[0]): row
+        for row in [*vector_rows, *lexical_rows, *vector_rows_ne, *lexical_rows_ne]
+    }
+    ranked_lists = [[str(r[0]) for r in vector_rows], [str(r[0]) for r in lexical_rows]]
+    if qvec_ne is not None:
+        ranked_lists.append([str(r[0]) for r in vector_rows_ne])
+    if query_ne is not None:
+        ranked_lists.append([str(r[0]) for r in lexical_rows_ne])
     t0 = time.monotonic()
-    rrf_scores = _rrf(
-        [[str(r[0]) for r in vector_rows], [str(r[0]) for r in lexical_rows]]
-    )
+    rrf_scores = _rrf(ranked_lists)
     _span(
         trace,
         "rrf_fusion",
