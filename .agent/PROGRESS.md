@@ -1,10 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-1 — LangGraph skeleton (Stage 1 of ADR-001)**
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written, branch created, awaiting Pi.
+
+- Branch: `agent/stage-1-skeleton` (from `dev`)
+- Engineer: Pi
+- Scope: `requirements.txt`, `app/retrieval/query_state.py` (new), `app/retrieval/query_graph.py` (new), `app/retrieval/gated_orchestrator.py`, `tests/test_orchestrator.py`
+- Constraint: no behaviour change; all 4 existing orchestrator tests must pass unmodified
+- Next action: Prakash runs Pi on `agent/stage-1-skeleton` with task brief in `task.md`
 
 ---
 
