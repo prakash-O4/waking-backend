@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import sys
 from datetime import date
-from types import FrameType
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -12,13 +10,17 @@ import app.retrieval.gated_orchestrator as _orch
 from app.retrieval.query_state import QueryState
 
 
-def classify_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
-    subqueries = _orch._classify_and_decompose(
-        state["raw_query"], state["session_as_of"]
-    )
+# ── nodes ──────────────────────────────────────────────────────────────────────
+
+
+def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    result = _orch._fact_extract(state["raw_query"], state["session_as_of"])
+    issue_queries = result["issue_queries"]
     return {
-        "subqueries": subqueries,
-        "query_type": "simple" if len(subqueries) == 1 else "complex",
+        "facts": result["facts"],
+        "missing_facts": result["missing_facts"],
+        "issue_queries": issue_queries,
+        "query_type": "simple" if len(issue_queries) == 1 else "complex",
     }
 
 
@@ -28,19 +30,27 @@ def retrieve_generate_node(state: QueryState, config: RunnableConfig) -> dict[st
     partial_results: list[dict[str, Any]] = []
     query_type = state["query_type"]
 
-    for subquery in state["subqueries"]:
+    issue_queries = state["issue_queries"] or [
+        {
+            "query": state["raw_query"],
+            "as_of": state["session_as_of"],
+            "work_type_hint": None,
+        }
+    ]
+
+    for iq in issue_queries:
         if _orch._wall_clock_expired(state["wall_clock_start"]):
             break
 
-        subquery_text: str = subquery["subquery"]
-        subquery_as_of: date = subquery["as_of"]
+        query_text: str = iq["query"]
+        as_of: date = iq["as_of"]
 
-        hits = _orch.retrieve_postgres(conn, subquery_text, subquery_as_of, k=5)
+        hits = _orch.retrieve_postgres(conn, query_text, as_of, k=5)
         all_hits.extend(hits)
         if not hits:
             continue
 
-        parsed = _orch._model_claims(subquery_text, hits)
+        parsed = _orch._model_claims(query_text, hits)
         if parsed is None:
             claims = _orch._extractive_claim(hits)
             query_type = "extractive"
@@ -49,7 +59,7 @@ def retrieve_generate_node(state: QueryState, config: RunnableConfig) -> dict[st
         else:
             claims = parsed["claims"]
 
-        partial_results.append({"claims": claims, "as_of": subquery_as_of})
+        partial_results.append({"claims": claims, "as_of": as_of})
 
     return {
         "all_hits": all_hits,
@@ -97,15 +107,18 @@ def assemble_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     }
 
 
+# ── graph ──────────────────────────────────────────────────────────────────────
+
+
 def build_graph() -> Any:
     builder: StateGraph = StateGraph(QueryState)
-    builder.add_node("classify", classify_node)
+    builder.add_node("fact_extractor", fact_extractor_node)
     builder.add_node("retrieve_generate", retrieve_generate_node)
     builder.add_node("validate", validate_node)
     builder.add_node("assemble", assemble_node)
 
-    builder.add_edge(START, "classify")
-    builder.add_edge("classify", "retrieve_generate")
+    builder.add_edge(START, "fact_extractor")
+    builder.add_edge("fact_extractor", "retrieve_generate")
     builder.add_edge("retrieve_generate", "validate")
     builder.add_edge("validate", "assemble")
     builder.add_edge("assemble", END)
@@ -116,20 +129,7 @@ def build_graph() -> Any:
 _graph = build_graph()
 
 
-def _graph_clock(monotonic: Callable[[], float]) -> Callable[[], float]:
-    def wrapped() -> float:
-        frame: FrameType | None = sys._getframe(1)
-        while frame:
-            if frame.f_globals.get("__name__") == _orch.__name__:
-                return monotonic()
-            frame = frame.f_back
-        return cast(float, _orch._REAL_MONOTONIC())
-
-    return wrapped
-
-
 def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
-    monotonic = _orch.time.monotonic
     initial: QueryState = {
         "raw_query": question,
         "session_as_of": session_as_of,
@@ -137,7 +137,7 @@ def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
         "all_hits": [],
         "all_results": [],
         "query_type": "simple",
-        "wall_clock_start": monotonic(),
+        "wall_clock_start": _orch.time.monotonic(),
         "facts": None,
         "missing_facts": [],
         "issue_queries": [],
@@ -146,14 +146,8 @@ def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
         "_pending_results": [],
         "_response": {},
     }
-    old_monotonic = _orch.time.monotonic
-    if old_monotonic is not _orch._REAL_MONOTONIC:
-        _orch.time.monotonic = _graph_clock(monotonic)
-    try:
-        result = _graph.invoke(
-            initial,
-            config={"configurable": {"conn": conn}, "recursion_limit": 10},
-        )
-    finally:
-        _orch.time.monotonic = _orch._REAL_MONOTONIC
+    result = _graph.invoke(
+        initial,
+        config={"configurable": {"conn": conn}, "recursion_limit": 10},
+    )
     return cast(dict[str, Any], result["_response"])
