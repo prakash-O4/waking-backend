@@ -1,10 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**RET-B — Dual-path cross-lingual query translation**
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written, branch created, awaiting Pi.
+
+- Branch: `ret/query-translation` (from `dev`)
+- Engineer: Pi
+- Scope: `app/retrieval/postgres_retriever.py` + `tests/test_retrieval.py` only
+- PS in scope: PS-8 (Romanized Nepali eval slice)
+- Next action: Prakash runs Pi on `ret/query-translation` with task brief in `task.md`
 
 ---
 
