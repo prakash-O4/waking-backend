@@ -142,3 +142,59 @@ def test_classifier_failure_falls_back_to_simple(monkeypatch: Any) -> None:
     subqueries = orchestrator._classify_and_decompose("q", date(2024, 1, 1))
 
     assert subqueries == [{"subquery": "q", "as_of": date(2024, 1, 1)}]
+
+
+def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
+    """Graph wires correctly and answer() returns the right response shape."""
+    monkeypatch.setattr(
+        orchestrator,
+        "_classify_and_decompose",
+        lambda question, as_of: [{"subquery": question, "as_of": as_of}],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "retrieve_postgres",
+        lambda conn, query, as_of, k=5: [
+            {"component_uri": "/law/1", "text_ne": "text"}
+        ],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_model_claims",
+        lambda question, hits: {"claims": [{"claim": "ok", "evidence_id": "/law/1"}]},
+    )
+    monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
+
+    conn: Any = object()
+    body = orchestrator.answer("q", date(2024, 1, 1), conn)
+
+    assert "as_of" in body
+    assert "query_type" in body
+    assert "abstained" in body
+    assert "results" in body
+    assert body["results"][0]["claim"] == "ok"
+
+
+def test_query_state_schema_complete() -> None:
+    """QueryState TypedDict has all required Stage 1 fields."""
+    import typing
+
+    from app.retrieval.query_state import QueryState
+
+    keys = set(typing.get_type_hints(QueryState).keys())
+    required = {
+        "raw_query",
+        "session_as_of",
+        "subqueries",
+        "all_hits",
+        "all_results",
+        "query_type",
+        "wall_clock_start",
+        "facts",
+        "missing_facts",
+        "issue_queries",
+        "interrupted",
+        "interrupt_prompt",
+        "_pending_results",
+    }
+    assert required.issubset(keys)
