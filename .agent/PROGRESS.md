@@ -1,16 +1,22 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**RET-B — Dual-path cross-lingual query translation**
+None.
 
 ## Status
-**IN PROGRESS** — task brief written, branch created, awaiting Pi.
+**IDLE** — awaiting Prakash's direction.
 
-- Branch: `ret/query-translation` (from `dev`)
-- Engineer: Pi
-- Scope: `app/retrieval/postgres_retriever.py` + `tests/test_retrieval.py` only
-- PS in scope: PS-8 (Romanized Nepali eval slice)
-- Next action: Prakash runs Pi on `ret/query-translation` with task brief in `task.md`
+---
+
+## Completed tasks
+
+### RET-B — Dual-path cross-lingual query translation (MERGED to dev, 2026-08-24)
+- `postgres_retriever.py`: `_is_devanagari()` (U+0900–U+097F, 0.5 threshold); `translate_query()` via Gemini 2.5 Flash (`langchain-google-genai`); dual-path vector + lexical search when translation succeeds; 4-list RRF fusion; `translation_ran` in eligibility_gate span
+- `config.py`: `GEMINI_API_KEY: str = ""`
+- `requirements.txt`: `langchain-google-genai>=2.0`
+- `tests/test_retrieval.py`: 8 new tests (50 total passing); Cursor mock upgraded to SQL-content detection for dual-path correctness
+- Graceful degradation: translation failure → single-path fallback, no exception
+- PS-8 served (Romanized Nepali eval slice); no invariants weakened; lint clean
 
 ---
 
