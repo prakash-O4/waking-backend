@@ -187,10 +187,77 @@ def test_dual_path_falls_back_to_single_when_translation_none(monkeypatch: Any) 
     assert len(captured) == 2
 
 
-def test_reranker_skipped_when_cohere_key_unset(monkeypatch: Any) -> None:
+def test_cohere_reranks_when_key_set(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = "key"
+
+    class FakeResult:
+        index = 1
+
+    class FakeResponse:
+        results = [FakeResult()]
+
+    class FakeClient:
+        def __init__(self, key: str) -> None:
+            pass
+
+        def rerank(self, **kwargs: Any) -> FakeResponse:
+            return FakeResponse()
+
+    cohere_mod = types.ModuleType("cohere")
+    setattr(cohere_mod, "Client", FakeClient)
+    monkeypatch.setitem(sys.modules, "cohere", cohere_mod)
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+
+
+def test_flashrank_fallback_when_cohere_raises(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = "key"
+
+    class BadClient:
+        def __init__(self, key: str) -> None:
+            pass
+
+        def rerank(self, **kwargs: Any) -> None:
+            raise RuntimeError("rate limited")
+
+    cohere_mod = types.ModuleType("cohere")
+    setattr(cohere_mod, "Client", BadClient)
+    monkeypatch.setitem(sys.modules, "cohere", cohere_mod)
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.retrieval.reranker._flashrank_rerank", lambda q, h, k: [h[1]]
+    )
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+
+
+def test_flashrank_used_when_no_cohere_key(monkeypatch: Any) -> None:
     class Settings:
         COHERE_API_KEY = ""
 
-    monkeypatch.setattr("app.config.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.retrieval.reranker._flashrank_rerank", lambda q, h, k: [h[1]]
+    )
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+
+
+def test_passthrough_when_both_fail(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = ""
+
+    def bad_flashrank(q: str, h: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
+        raise RuntimeError("model error")
+
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.retrieval.reranker._flashrank_rerank", bad_flashrank)
+
     hits = [{"text_ne": "a"}, {"text_ne": "b"}]
     assert rerank("q", hits, 1) == [{"text_ne": "a"}]

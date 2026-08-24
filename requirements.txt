@@ -6,6 +6,7 @@ cohere>=5.5.0
 cryptography==43.0.3
 email-validator==2.2.0
 fastapi-cli==0.0.5
+flashrank
 h2==4.1.0
 httptools==0.6.1
 jaraco.collections==5.1.0

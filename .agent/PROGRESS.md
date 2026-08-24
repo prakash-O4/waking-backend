@@ -1,10 +1,16 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**RET-C — FlashRank fallback reranker**
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written, branch created, awaiting Pi.
+
+- Branch: `ret/flashrank-fallback` (from `dev`)
+- Engineer: Pi
+- Scope: `requirements.txt`, `app/retrieval/reranker.py`, `tests/test_retrieval.py` only
+- PS in scope: none (post-retrieval path, no gates affected)
+- Next action: Prakash runs Pi on `ret/flashrank-fallback` with task brief in `task.md`
 
 ---
 

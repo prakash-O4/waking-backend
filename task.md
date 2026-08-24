@@ -1,6 +1,6 @@
-# Task: RET-B — Dual-path cross-lingual query translation
+# Task: RET-C — FlashRank fallback reranker
 
-**Branch:** `ret/query-translation`  
+**Branch:** `ret/flashrank-fallback`  
 **Base:** `dev`  
 **Engineer:** Pi  
 
@@ -8,23 +8,22 @@
 
 ## Objective
 
-Users query in English, Romanized Nepali, or mixed language, but the corpus chunks are embedded in Devanagari Nepali. `text-embedding-3-large` has a measurable cross-lingual gap for low-resource Indic languages, so raw cross-lingual embedding similarity is weaker than it should be.
+The current `reranker.py` has no exception handling around the Cohere API call. Any rate-limit error, 503, or transient failure propagates uncaught to `retrieve_postgres`. The system design's degraded-mode ladder (§9) requires the reranker path to degrade gracefully.
 
-**Fix:** before embedding, translate non-Nepali queries to Devanagari Nepali using **Gemini 2.5 Flash** (lightweight, fast, published Nepali quality data, GEMINI_API_KEY already in `.env`). Then run retrieval on **both** the original query and the translated query and fuse the four result lists with RRF. This is the dual-path pattern — it hedges against translation errors on legal terminology while capturing the cross-lingual semantic boost.
+**Fix:** wrap the Cohere call in `try/except`. On any exception, fall through to **FlashRank** (`ms-marco-MultiBERT-L-12` — multilingual, supports Devanagari), which runs locally with no API key. If FlashRank is also unavailable (import error or model failure), fall through to the existing passthrough (`hits[:k]`).
 
-**New dependency:** `langchain-google-genai` — extends the existing LangChain framework already in `requirements.txt`. One new pip package, one new config field (`GEMINI_API_KEY`).
+Priority ladder: **Cohere → FlashRank → passthrough.**
 
 ---
 
 ## Acceptance criteria
 
-1. Pure Devanagari queries bypass translation entirely (no extra LLM call).
-2. English / Romanized / mixed queries are translated to Devanagari Nepali before the embed step.
-3. If translation fails (API error, empty response, key unset) the function returns `None` and retrieval falls back to the single-path original query — no exception propagated.
-4. `retrieve_postgres` runs vector and lexical search for **both** original and translated query (when translation is available), then fuses all ranked lists via the existing `_rrf()` function.
-5. Existing Langfuse span metadata is extended to record `translation_ran: bool`.
+1. Cohere is tried first when `COHERE_API_KEY` is set.
+2. Any Cohere exception (rate limit, API error, network error) falls through to FlashRank — no exception propagates to the caller.
+3. When `COHERE_API_KEY` is unset, FlashRank is used directly (no Cohere attempt).
+4. Any FlashRank failure (import error, model error) falls through to `hits[:k]` passthrough.
+5. The `Ranker` object is cached at module level — not recreated on every call.
 6. `make test` green, `make lint` clean.
-7. Romanized eval slice (`python -m app.eval.romanized_slice`) runs without error.
 
 ---
 
@@ -32,12 +31,11 @@ Users query in English, Romanized Nepali, or mixed language, but the corpus chun
 
 **Only these files may change:**
 
-- `requirements.txt` — add `langchain-google-genai>=2.0`
-- `app/config.py` — add `GEMINI_API_KEY: str = ""`
-- `app/retrieval/postgres_retriever.py` — add `_is_devanagari()`, `translate_query()`, extend `retrieve_postgres()` for dual-path
-- `tests/test_retrieval.py` — add tests for new functions and dual-path
+- `requirements.txt` — add `flashrank`
+- `app/retrieval/reranker.py` — add fallback logic and Ranker cache
+- `tests/test_retrieval.py` — update existing reranker test, add new tests
 
-Do NOT modify `gated_orchestrator.py`, `eligibility_gate.py`, `validation_gate.py`, or any eval slice file. No new files.
+Do NOT modify `postgres_retriever.py`, `config.py`, `gated_orchestrator.py`, or any other file. No new files.
 
 ---
 
@@ -45,136 +43,175 @@ Do NOT modify `gated_orchestrator.py`, `eligibility_gate.py`, `validation_gate.p
 
 ### 1. `requirements.txt`
 
-Add one line (group it near the other langchain-* packages):
+Add one line (near other retrieval-related packages):
 
 ```
-langchain-google-genai>=2.0
+flashrank
 ```
 
-### 2. `app/config.py` — Settings class
+No version pin — FlashRank does not conflict with existing deps.
 
-Add one field inside the `Settings` class, grouped with the other API keys:
+### 2. `app/retrieval/reranker.py` — full rewrite
 
 ```python
-GEMINI_API_KEY: str = ""
-```
+from __future__ import annotations
 
-### 3. `_is_devanagari(text: str) -> bool`
+from typing import Any
 
-Add to `postgres_retriever.py`:
+_ranker: Any = None
 
-```python
-def _is_devanagari(text: str) -> bool:
-    count = sum(1 for c in text if "ऀ" <= c <= "ॿ")
-    return count / max(len(text), 1) > 0.5
-```
 
-Threshold 0.5: majority Devanagari → treat as pure Nepali → skip translation.
+def _get_ranker() -> Any:
+    global _ranker
+    if _ranker is None:
+        from flashrank import Ranker  # type: ignore[import-not-found]
+        _ranker = Ranker(model_name="ms-marco-MultiBERT-L-12")
+    return _ranker
 
-### 4. `translate_query(query: str) -> str | None`
 
-Add to `postgres_retriever.py`:
+def _flashrank_rerank(
+    query: str, hits: list[dict[str, Any]], k: int
+) -> list[dict[str, Any]]:
+    from flashrank import RerankRequest  # type: ignore[import-not-found]
 
-```python
-def translate_query(query: str) -> str | None:
-    if _is_devanagari(query):
-        return None
-    s = get_settings()
-    if not s.GEMINI_API_KEY:
-        return None
+    ranker = _get_ranker()
+    passages = [{"id": i, "text": h["text_ne"]} for i, h in enumerate(hits)]
+    req = RerankRequest(query=query, passages=passages)
+    results = ranker.rerank(req)
+    return [hits[r["id"]] for r in results[:k]]
+
+
+def rerank(query: str, hits: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
+    from app.config import get_settings
+
+    if get_settings().COHERE_API_KEY:
+        try:
+            import cohere
+
+            co = cohere.Client(get_settings().COHERE_API_KEY)
+            docs = [h["text_ne"] for h in hits]
+            response = co.rerank(
+                model="rerank-multilingual-v3.0",
+                query=query,
+                documents=docs,
+                top_n=k,
+            )
+            return [hits[r.index] for r in response.results]
+        except Exception:
+            pass  # fall through to FlashRank
+
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import-not-found]
-
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=s.GEMINI_API_KEY,
-            temperature=0.0,
-            max_output_tokens=300,
-        )
-        resp = llm.invoke([
-            {
-                "role": "system",
-                "content": (
-                    "Translate the following legal query to formal Nepali in Devanagari script. "
-                    "Output only the translated text. Do not add explanations."
-                ),
-            },
-            {"role": "user", "content": query},
-        ])
-        translated = str(resp.content).strip()
-        return translated if translated else None
+        return _flashrank_rerank(query, hits, k)
     except Exception:
-        return None
+        return hits[:k]
 ```
 
-### 5. Extend `retrieve_postgres` — dual-path
-
-After the existing `_preprocess` call and before `eligible_chunk_ids`:
-
-```python
-query_ne = translate_query(query)
-```
-
-After computing `qvec = _embed_query(query)`, add:
-
-```python
-qvec_ne = _embed_query(query_ne) if query_ne else None
-```
-
-Vector search: run the existing query once for `qvec`. If `qvec_ne` is not None, run a **second identical SQL query** substituting `qvec_ne` for `qvec` — call the results `vector_rows_ne`.
-
-Lexical search: run the existing tsvector query once for `query`. If `query_ne` is not None, run a **second identical SQL query** substituting `query_ne` for `query` — call the results `lexical_rows_ne`.
-
-Merge all into `rows` dict (dedup by chunk_id as before). Build RRF input:
-
-```python
-ranked_lists = [
-    [str(r[0]) for r in vector_rows],
-    [str(r[0]) for r in lexical_rows],
-]
-if qvec_ne is not None:
-    ranked_lists.append([str(r[0]) for r in vector_rows_ne])
-if query_ne is not None:
-    ranked_lists.append([str(r[0]) for r in lexical_rows_ne])
-rrf_scores = _rrf(ranked_lists)
-```
-
-The rest of the function (relevance gate, rerank, final fetch) is **unchanged**.
-
-Add `translation_ran=query_ne is not None` to the existing `_span(trace, "eligibility_gate", ...)` metadata dict.
-
----
-
-## System Design refs
-
-- §8 Query plane — this change is in the "understanding" phase, before the eligibility gate
-- §2 Core Invariant #2 — eligibility gate is untouched; dual-path retrieval still goes through the same gate
-- PS-8 — Romanized Nepali is the primary eval slice this change serves
-
-**No invariant is weakened.** The eligibility gate, validation gate, and model output contract are all unchanged.
-
----
-
-## Zero-tolerance gates guarded
-
-None of the zero-tolerance gates (`repealed-as-current`, `not-yet-effective-as-current`, `overruled-as-good-law`) are in scope. They must remain at 0 — this change cannot affect them (retrieval preprocessing doesn't touch temporal eligibility or citation rendering).
+Key points:
+- `_ranker` is module-level — `_get_ranker()` loads `ms-marco-MultiBERT-L-12` once and caches it.
+- Cohere is only attempted when `COHERE_API_KEY` is set.
+- `except Exception: pass` on Cohere silently falls through.
+- `except Exception: return hits[:k]` on FlashRank is the final passthrough fallback.
 
 ---
 
 ## Tests required (`tests/test_retrieval.py`)
 
-Add to the existing file — do not create a new file.
+**Delete** the existing `test_reranker_skipped_when_cohere_key_unset` test — it is semantically wrong after this change (FlashRank now runs when key is unset). Replace it with these four tests:
 
-1. `test_is_devanagari_pure_nepali` — Devanagari string → True
-2. `test_is_devanagari_pure_english` — ASCII string → False
-3. `test_is_devanagari_mixed_romanized` — romanized Nepali (ASCII) → False
-4. `test_translate_query_skips_devanagari` — `translate_query("दफा १")` returns None without calling the LLM
-5. `test_translate_query_returns_none_on_api_failure` — monkeypatch `ChatGoogleGenerativeAI` to raise, assert returns None
-6. `test_translate_query_skips_when_key_unset` — monkeypatch settings with empty `GEMINI_API_KEY`, assert returns None without calling LLM
-7. `test_dual_path_uses_four_lists_when_translated` — monkeypatch `r.translate_query` to return a Nepali string, `_embed_query` to return a fixed vector, capture the lists passed to `_rrf`, assert 4 lists
-8. `test_dual_path_falls_back_to_single_when_translation_none` — monkeypatch `r.translate_query` to return None, assert `_rrf` receives 2 lists
+```python
+def test_cohere_reranks_when_key_set(monkeypatch: Any) -> None:
+    import types, sys
 
-Use the existing `patch_common` + `Conn`/`Cursor` pattern for tests 7 and 8.
+    class Settings:
+        COHERE_API_KEY = "key"
+
+    class FakeResult:
+        index = 1
+
+    class FakeResponse:
+        results = [FakeResult()]
+
+    class FakeClient:
+        def __init__(self, key: str) -> None:
+            pass
+        def rerank(self, **kwargs: Any) -> FakeResponse:
+            return FakeResponse()
+
+    cohere_mod = types.ModuleType("cohere")
+    cohere_mod.Client = FakeClient  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "cohere", cohere_mod)
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]  # index=1
+
+
+def test_flashrank_fallback_when_cohere_raises(monkeypatch: Any) -> None:
+    import types, sys
+
+    class Settings:
+        COHERE_API_KEY = "key"
+
+    class BadClient:
+        def __init__(self, key: str) -> None:
+            pass
+        def rerank(self, **kwargs: Any) -> None:
+            raise RuntimeError("rate limited")
+
+    cohere_mod = types.ModuleType("cohere")
+    cohere_mod.Client = BadClient  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "cohere", cohere_mod)
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.retrieval.reranker._flashrank_rerank", lambda q, h, k: [h[1]]
+    )
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+
+
+def test_flashrank_used_when_no_cohere_key(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = ""
+
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr(
+        "app.retrieval.reranker._flashrank_rerank", lambda q, h, k: [h[1]]
+    )
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+
+
+def test_passthrough_when_both_fail(monkeypatch: Any) -> None:
+    class Settings:
+        COHERE_API_KEY = ""
+
+    def _bad_flashrank(q: str, h: list, k: int) -> list:
+        raise RuntimeError("model error")
+
+    monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.retrieval.reranker._flashrank_rerank", _bad_flashrank)
+
+    hits = [{"text_ne": "a"}, {"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "a"}]
+```
+
+Note: `rerank` is already imported at the top of the test file — no new import needed.
+
+---
+
+## System Design refs
+
+- §9 Degraded-mode ladder: "Reranker down → BM25-only path, flagged." FlashRank is a local reranker that sits between Cohere and BM25-only — it improves on the bare degraded mode without requiring network access.
+- §2 Core Invariant #2 — eligibility gate untouched; this change is entirely post-retrieval.
+- No PS requirements are in scope for this change.
+
+---
+
+## Zero-tolerance gates guarded
+
+None in scope. This change cannot affect `repealed-as-current`, `not-yet-effective-as-current`, or `overruled-as-good-law` (reranking is post-retrieval, post-eligibility-gate).
 
 ---
 
@@ -183,7 +220,6 @@ Use the existing `patch_common` + `Conn`/`Cursor` pattern for tests 7 and 8.
 ```bash
 make test
 make lint
-python -m app.eval.romanized_slice   # must run without error
 ```
 
 ---
