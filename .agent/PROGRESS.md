@@ -1,16 +1,20 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**RET-C — FlashRank fallback reranker**
+None.
 
 ## Status
-**IN PROGRESS** — task brief written, branch created, awaiting Pi.
+**IDLE** — awaiting Prakash's direction.
 
-- Branch: `ret/flashrank-fallback` (from `dev`)
-- Engineer: Pi
-- Scope: `requirements.txt`, `app/retrieval/reranker.py`, `tests/test_retrieval.py` only
-- PS in scope: none (post-retrieval path, no gates affected)
-- Next action: Prakash runs Pi on `ret/flashrank-fallback` with task brief in `task.md`
+---
+
+## Completed tasks
+
+### RET-C — FlashRank fallback reranker (MERGED to dev, 2026-08-24)
+- `reranker.py`: full rewrite — Cohere → FlashRank (`ms-marco-MultiBERT-L-12`, multilingual) → passthrough ladder; module-level `_ranker` cache; `except Exception: pass` on Cohere falls through silently
+- `requirements.txt`: `flashrank` added
+- `tests/test_retrieval.py`: old `test_reranker_skipped_when_cohere_key_unset` replaced with 4 tests covering full ladder; 53 total passing
+- No PS requirements in scope; no gates affected (post-retrieval path)
 
 ---
 
