@@ -1,10 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-2 — Fact Extractor + issue-driven retrieval (Stage 2)
+None.
 
 ## Status
-**IN PROGRESS** — task brief written to `task.md` on `agent/stage-2-fact-extractor`. Assigned to Pi.
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
@@ -28,17 +28,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 
 ---
 
-## AGENT-2 — Fact Extractor + issue-driven retrieval (Stage 2)
-**Branch:** `agent/stage-2-fact-extractor` | **Base:** `dev` | **Engineer:** Pi
-**Status:** Task brief written — awaiting Pi
-**PS in scope:** PS-6 (eligibility gate on every issue branch), PS-8 (issue_queries written in Devanagari Nepali)
-**Zero-tolerance gates in scope:** repealed-as-current = 0, not-yet-effective-as-current = 0
-**Files in scope:** `query_graph.py`, `gated_orchestrator.py`, `tests/test_orchestrator.py`
-**Expected:** 57 tests (55 + 2 new), `_graph_clock` removed, `_fact_extract` added
-
----
-
 ## Completed tasks
+
+### AGENT-2 — Fact Extractor + issue-driven retrieval (MERGED to dev, 2026-08-25)
+- `gated_orchestrator.py`: `_fact_extract()` added — Gemini 2.5 Flash extracts `facts`, `missing_facts`, and `issue_queries` (Devanagari Nepali queries, max 3); fallback to single raw query on any failure or missing `GEMINI_API_KEY`
+- `query_graph.py`: `classify_node` replaced by `fact_extractor_node`; `retrieve_generate_node` iterates `issue_queries` instead of `subqueries`; `_graph_clock` removed (was CPython-specific frame-walking); `run_query` now uses `_orch.time.monotonic()` for mock-compatible wall_clock_start
+- `tests/test_orchestrator.py`: tests 1–3 and 5 updated to mock `_fact_extract`; test 4 unchanged; 2 new tests for `_fact_extract` success path and fallback; 57 total passing
+- Cleanup note: `_REAL_MONOTONIC` in `gated_orchestrator.py` (line 19) is now unused — remove in Stage 3 sweep
 
 ### AGENT-1 — LangGraph skeleton (MERGED to dev, 2026-08-24)
 - `query_state.py`: `QueryState` TypedDict — full schema incl. Stage 2+ placeholders
