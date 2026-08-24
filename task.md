@@ -10,9 +10,9 @@
 
 Users query in English, Romanized Nepali, or mixed language, but the corpus chunks are embedded in Devanagari Nepali. `text-embedding-3-large` has a measurable cross-lingual gap for low-resource Indic languages, so raw cross-lingual embedding similarity is weaker than it should be.
 
-**Fix:** before embedding, translate non-Nepali queries to Devanagari Nepali using the existing Azure OpenAI LLM. Then run retrieval on **both** the original query and the translated query and fuse the four result lists with RRF. This is the dual-path pattern — it hedges against translation errors on legal terminology while capturing the cross-lingual semantic boost.
+**Fix:** before embedding, translate non-Nepali queries to Devanagari Nepali using **Gemini 2.5 Flash** (lightweight, fast, published Nepali quality data, GEMINI_API_KEY already in `.env`). Then run retrieval on **both** the original query and the translated query and fuse the four result lists with RRF. This is the dual-path pattern — it hedges against translation errors on legal terminology while capturing the cross-lingual semantic boost.
 
-No new dependency. Uses existing `AZURE_OPENAI_LLM_KEY` / `AZURE_OPENAI_LLM_ENDPOINT` / `AZURE_OPENAI_LLM_DEPLOYMENT`.
+**New dependency:** `langchain-google-genai` — extends the existing LangChain framework already in `requirements.txt`. One new pip package, one new config field (`GEMINI_API_KEY`).
 
 ---
 
@@ -24,7 +24,7 @@ No new dependency. Uses existing `AZURE_OPENAI_LLM_KEY` / `AZURE_OPENAI_LLM_ENDP
 4. `retrieve_postgres` runs vector and lexical search for **both** original and translated query (when translation is available), then fuses all ranked lists via the existing `_rrf()` function.
 5. Existing Langfuse span metadata is extended to record `translation_ran: bool`.
 6. `make test` green, `make lint` clean.
-7. Romanized eval slice (`python -m app.eval.romanized_slice`) runs without error (baseline is Recall@5 ≈ current value; this is a quality check, not a regression gate on this number).
+7. Romanized eval slice (`python -m app.eval.romanized_slice`) runs without error.
 
 ---
 
@@ -32,16 +32,36 @@ No new dependency. Uses existing `AZURE_OPENAI_LLM_KEY` / `AZURE_OPENAI_LLM_ENDP
 
 **Only these files may change:**
 
+- `requirements.txt` — add `langchain-google-genai>=2.0`
+- `app/config.py` — add `GEMINI_API_KEY: str = ""`
 - `app/retrieval/postgres_retriever.py` — add `_is_devanagari()`, `translate_query()`, extend `retrieve_postgres()` for dual-path
-- `tests/test_retrieval.py` — add tests for new functions and dual-path path
+- `tests/test_retrieval.py` — add tests for new functions and dual-path
 
-Do NOT modify `gated_orchestrator.py`, `eligibility_gate.py`, `validation_gate.py`, `config.py`, `requirements.txt`, or any eval slice file. No new files.
+Do NOT modify `gated_orchestrator.py`, `eligibility_gate.py`, `validation_gate.py`, or any eval slice file. No new files.
 
 ---
 
 ## Implementation guide
 
-### 1. `_is_devanagari(text: str) -> bool`
+### 1. `requirements.txt`
+
+Add one line (group it near the other langchain-* packages):
+
+```
+langchain-google-genai>=2.0
+```
+
+### 2. `app/config.py` — Settings class
+
+Add one field inside the `Settings` class, grouped with the other API keys:
+
+```python
+GEMINI_API_KEY: str = ""
+```
+
+### 3. `_is_devanagari(text: str) -> bool`
+
+Add to `postgres_retriever.py`:
 
 ```python
 def _is_devanagari(text: str) -> bool:
@@ -49,27 +69,27 @@ def _is_devanagari(text: str) -> bool:
     return count / max(len(text), 1) > 0.5
 ```
 
-Threshold 0.5 means: majority of characters are Devanagari → treat as pure Nepali → skip translation.
+Threshold 0.5: majority Devanagari → treat as pure Nepali → skip translation.
 
-### 2. `translate_query(query: str) -> str | None`
+### 4. `translate_query(query: str) -> str | None`
+
+Add to `postgres_retriever.py`:
 
 ```python
 def translate_query(query: str) -> str | None:
     if _is_devanagari(query):
         return None
     s = get_settings()
-    if not s.AZURE_OPENAI_LLM_KEY:
+    if not s.GEMINI_API_KEY:
         return None
     try:
-        from langchain_openai import AzureChatOpenAI  # already in requirements
-        llm = AzureChatOpenAI(
-            azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
-            azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
-            api_key=s.AZURE_OPENAI_LLM_KEY,
-            api_version=s.AZURE_OPENAI_API_VERSION,
+        from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import-not-found]
+
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
-            max_tokens=300,
-            timeout=10,
+            max_output_tokens=300,
         )
         resp = llm.invoke([
             {
@@ -87,7 +107,7 @@ def translate_query(query: str) -> str | None:
         return None
 ```
 
-### 3. Extend `retrieve_postgres` — dual-path
+### 5. Extend `retrieve_postgres` — dual-path
 
 After the existing `_preprocess` call and before `eligible_chunk_ids`:
 
@@ -121,7 +141,7 @@ rrf_scores = _rrf(ranked_lists)
 
 The rest of the function (relevance gate, rerank, final fetch) is **unchanged**.
 
-Extend the `eligibility_gate` Langfuse span to include `translation_ran=query_ne is not None`. (Add it to the existing `_span(trace, "eligibility_gate", ...)` call metadata dict, or to a new span named `"query_translation"` if you prefer — either is fine.)
+Add `translation_ran=query_ne is not None` to the existing `_span(trace, "eligibility_gate", ...)` metadata dict.
 
 ---
 
@@ -137,24 +157,24 @@ Extend the `eligibility_gate` Langfuse span to include `translation_ran=query_ne
 
 ## Zero-tolerance gates guarded
 
-None of the zero-tolerance gates (`repealed-as-current`, `not-yet-effective-as-current`, `overruled-as-good-law`) are in scope for this change. They must remain at 0 and this change cannot affect them (retrieval preprocessing doesn't touch temporal eligibility or citation rendering).
+None of the zero-tolerance gates (`repealed-as-current`, `not-yet-effective-as-current`, `overruled-as-good-law`) are in scope. They must remain at 0 — this change cannot affect them (retrieval preprocessing doesn't touch temporal eligibility or citation rendering).
 
 ---
 
-## Tests required (tests/test_retrieval.py)
+## Tests required (`tests/test_retrieval.py`)
 
-Add to the existing test file — do not create a new file.
+Add to the existing file — do not create a new file.
 
-1. `test_is_devanagari_pure_nepali` — string of Devanagari chars → True
+1. `test_is_devanagari_pure_nepali` — Devanagari string → True
 2. `test_is_devanagari_pure_english` — ASCII string → False
 3. `test_is_devanagari_mixed_romanized` — romanized Nepali (ASCII) → False
-4. `test_translate_query_skips_devanagari` — assert `translate_query("दफा १")` returns None without calling the LLM
-5. `test_translate_query_returns_none_on_api_failure` — monkeypatch `AzureChatOpenAI` to raise, assert returns None
-6. `test_translate_query_skips_when_key_unset` — monkeypatch settings with empty `AZURE_OPENAI_LLM_KEY`, assert returns None without calling LLM
-7. `test_dual_path_uses_four_lists_when_translated` — monkeypatch `translate_query` to return a Nepali string, `_embed_query` to return a fixed vector, verify `_rrf` is called with 4 lists (use a spy/capture)
-8. `test_dual_path_falls_back_to_single_when_translation_none` — monkeypatch `translate_query` to return None, verify `_rrf` is called with 2 lists
+4. `test_translate_query_skips_devanagari` — `translate_query("दफा १")` returns None without calling the LLM
+5. `test_translate_query_returns_none_on_api_failure` — monkeypatch `ChatGoogleGenerativeAI` to raise, assert returns None
+6. `test_translate_query_skips_when_key_unset` — monkeypatch settings with empty `GEMINI_API_KEY`, assert returns None without calling LLM
+7. `test_dual_path_uses_four_lists_when_translated` — monkeypatch `r.translate_query` to return a Nepali string, `_embed_query` to return a fixed vector, capture the lists passed to `_rrf`, assert 4 lists
+8. `test_dual_path_falls_back_to_single_when_translation_none` — monkeypatch `r.translate_query` to return None, assert `_rrf` receives 2 lists
 
-Use the existing `patch_common` + `Conn`/`Cursor` pattern from the file. Monkeypatch `translate_query` at module level (`r.translate_query`) in tests 7 and 8.
+Use the existing `patch_common` + `Conn`/`Cursor` pattern for tests 7 and 8.
 
 ---
 
