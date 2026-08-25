@@ -24,11 +24,10 @@ def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, 
     }
 
 
-def retrieve_generate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    """Pure retrieval — no LLM calls. Tags each hit with _issue_idx."""
     conn = config["configurable"]["conn"]
     all_hits: list[dict[str, Any]] = []
-    partial_results: list[dict[str, Any]] = []
-    query_type = state["query_type"]
 
     issue_queries = state["issue_queries"] or [
         {
@@ -38,34 +37,55 @@ def retrieve_generate_node(state: QueryState, config: RunnableConfig) -> dict[st
         }
     ]
 
-    for iq in issue_queries:
+    for idx, iq in enumerate(issue_queries):
         if _orch._wall_clock_expired(state["wall_clock_start"]):
             break
+        hits = _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5)
+        for h in hits:
+            all_hits.append({**h, "_issue_idx": idx})
 
-        query_text: str = iq["query"]
-        as_of: date = iq["as_of"]
+    return {"all_hits": all_hits, "_pending_results": []}
 
-        hits = _orch.retrieve_postgres(conn, query_text, as_of, k=5)
-        all_hits.extend(hits)
-        if not hits:
+
+def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    """Structured reasoning over authority-ranked context, one LLM call per issue."""
+    all_hits = state["all_hits"]
+    if not all_hits:
+        return {}
+
+    issue_queries: list[dict[str, Any]] = state["issue_queries"] or [
+        {
+            "query": state["raw_query"],
+            "as_of": state["session_as_of"],
+            "work_type_hint": None,
+        }
+    ]
+    facts = state["facts"]
+    query_type = state["query_type"]
+    pending_results: list[dict[str, Any]] = []
+
+    hits_by_issue: dict[int, list[dict[str, Any]]] = {}
+    for h in all_hits:
+        idx = h.get("_issue_idx", 0)
+        hits_by_issue.setdefault(idx, []).append(h)
+
+    for idx, iq in enumerate(issue_queries):
+        issue_hits = hits_by_issue.get(idx, [])
+        if not issue_hits:
             continue
 
-        parsed = _orch._model_claims(query_text, hits)
+        parsed = _orch._structured_claims(facts, [iq], issue_hits)
         if parsed is None:
-            claims = _orch._extractive_claim(hits)
+            claims = _orch._extractive_claim(issue_hits)
             query_type = "extractive"
         elif parsed.get("abstain") or not parsed.get("claims"):
             continue
         else:
             claims = parsed["claims"]
 
-        partial_results.append({"claims": claims, "as_of": as_of})
+        pending_results.append({"claims": claims, "as_of": iq["as_of"]})
 
-    return {
-        "all_hits": all_hits,
-        "query_type": query_type,
-        "_pending_results": partial_results,
-    }
+    return {"query_type": query_type, "_pending_results": pending_results}
 
 
 def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
@@ -74,7 +94,9 @@ def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str
     return {"all_hits": ranked}
 
 
-def cross_ref_resolver_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+def cross_ref_resolver_node(
+    state: QueryState, config: RunnableConfig
+) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     additional = _orch._resolve_cross_refs(
         state["all_hits"], state["session_as_of"], conn
@@ -89,9 +111,14 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     all_results: list[dict[str, Any]] = []
 
     for pending in state.get("_pending_results", []):
-        validated = _orch.validate_and_render(pending["claims"], pending["as_of"], conn)
-        for result in validated:
+        orig_claims = pending["claims"]
+        validated = _orch.validate_and_render(orig_claims, pending["as_of"], conn)
+        for i, result in enumerate(validated):
             result["as_of"] = pending["as_of"].isoformat()
+            if i < len(orig_claims):
+                for field in ("issue", "applicability", "condition"):
+                    if field in orig_claims[i]:
+                        result[field] = orig_claims[i][field]
         all_results.extend(validated)
 
     return {"all_results": all_results}
@@ -129,17 +156,19 @@ def assemble_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
 def build_graph() -> Any:
     builder: StateGraph = StateGraph(QueryState)
     builder.add_node("fact_extractor", fact_extractor_node)
-    builder.add_node("retrieve_generate", retrieve_generate_node)
+    builder.add_node("retrieve", retrieve_node)
     builder.add_node("authority_ranker", authority_ranker_node)
     builder.add_node("cross_ref_resolver", cross_ref_resolver_node)
+    builder.add_node("reasoner", reasoner_node)
     builder.add_node("validate", validate_node)
     builder.add_node("assemble", assemble_node)
 
     builder.add_edge(START, "fact_extractor")
-    builder.add_edge("fact_extractor", "retrieve_generate")
-    builder.add_edge("retrieve_generate", "authority_ranker")
+    builder.add_edge("fact_extractor", "retrieve")
+    builder.add_edge("retrieve", "authority_ranker")
     builder.add_edge("authority_ranker", "cross_ref_resolver")
-    builder.add_edge("cross_ref_resolver", "validate")
+    builder.add_edge("cross_ref_resolver", "reasoner")
+    builder.add_edge("reasoner", "validate")
     builder.add_edge("validate", "assemble")
     builder.add_edge("assemble", END)
 

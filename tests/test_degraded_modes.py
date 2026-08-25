@@ -46,7 +46,9 @@ def test_model_down_uses_extractive_claim_still_validated(monkeypatch: Any) -> N
     hit = {"component_uri": "/law/1", "text_ne": "abcdef" * 100}
     seen: dict[str, Any] = {}
     monkeypatch.setattr(orchestrator, "retrieve_postgres", lambda conn, q, a, k: [hit])
-    monkeypatch.setattr(orchestrator, "_model_claims", lambda question, hits: None)
+    monkeypatch.setattr(
+        orchestrator, "_structured_claims", lambda facts, issue_queries, hits: None
+    )
 
     def validate(
         claims: list[dict[str, str]], as_of: date, conn: object
