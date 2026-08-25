@@ -1,10 +1,32 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-6 — Observability Fix: meaningful Langfuse traces + compose JSON parse**
 
 ## Status
-**IDLE** — ADR-001 multi-agent pipeline complete. Awaiting Prakash's direction.
+**IN PROGRESS** — Branch `agent/stage-6-observability-fix` created. Task brief written to `task.md`. Assigned to Pi.
+
+- Base: `dev`
+- Branch: `agent/stage-6-observability-fix`
+- Engineer: Pi
+- PS in scope: PS-14
+- Zero-tolerance gates: none touched
+
+### What this fixes
+1. All spans have `endTime: null` → call `span.end()` on all retrieval spans
+2. `top_chunk_scores` are RRF scores (0.016…) not cosine scores → use `vector_score` field
+3. LangChain callback handler never flushed → explicit flush after each LLM call; add callbacks to Gemini calls
+4. `_compose_answer` always returns None → strip markdown fences before `json.loads`
+5. PS-14-compliant `LANGFUSE_LOG_CONTENT` flag for raw query + answer logging in dev
+
+### Files in scope
+- `app/config.py` — add `LANGFUSE_LOG_CONTENT: bool = False`
+- `app/retrieval/postgres_retriever.py` — `span.end()` + `vector_score` in hits
+- `app/retrieval/gated_orchestrator.py` — flush callbacks, add callbacks to Gemini, fix JSON parse, use vector scores in trace
+- `tests/test_orchestrator.py` — update compose test for markdown fences, add vector_score trace test
+
+### Next action
+Prakash runs Pi on branch `agent/stage-6-observability-fix` with `task.md`.
 
 ---
 
