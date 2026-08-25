@@ -4,6 +4,8 @@ from datetime import date
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
+import pytest
+
 from app.retrieval import gated_orchestrator as orchestrator
 
 
@@ -272,7 +274,7 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
         def __init__(self, **kwargs: Any) -> None:
             pass
 
-        def invoke(self, messages: Any) -> FakeResp:
+        def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
     langchain_google_genai = ModuleType("langchain_google_genai")
@@ -573,31 +575,35 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
     import json as _json
 
     class FakeResp:
-        content = _json.dumps(
-            {
-                "relevant_sections": [
-                    {
-                        "section": "Muluki Dewani Samhita, दफा 456",
-                        "why_applicable": "governs residential tenancy notice period",
-                        "applicability": "high",
-                        "condition": "written tenancy agreement exists",
-                        "citation": {},
-                    }
-                ],
-                "missing_facts": ["Is there a written tenancy agreement?"],
-                "conflicts": [],
-                "plain_language": "घर बहालमा लिनेलाई ३५ दिनको सूचना दिनुपर्छ।",
-                "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",
-                "as_of": "2024-01-01",
-                "abstained": False,
-            }
+        content = (
+            "```json\n"
+            + _json.dumps(
+                {
+                    "relevant_sections": [
+                        {
+                            "section": "Muluki Dewani Samhita, दफा 456",
+                            "why_applicable": "governs residential tenancy notice period",
+                            "applicability": "high",
+                            "condition": "written tenancy agreement exists",
+                            "citation": {},
+                        }
+                    ],
+                    "missing_facts": ["Is there a written tenancy agreement?"],
+                    "conflicts": [],
+                    "plain_language": "घर बहालमा लिनेलाई ३५ दिनको सूचना दिनुपर्छ।",
+                    "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",
+                    "as_of": "2024-01-01",
+                    "abstained": False,
+                }
+            )
+            + "\n```"
         )
 
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
             pass
 
-        def invoke(self, messages: Any) -> FakeResp:
+        def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
     langchain_google_genai = ModuleType("langchain_google_genai")
@@ -694,3 +700,28 @@ def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) ->
     )
     assert body["results"] == []
     assert retrieve_called == []
+
+
+def test_emit_trace_uses_vector_score(monkeypatch: Any) -> None:
+    """top_chunk_scores uses vector_score when present, not RRF score."""
+    captured: list[dict[str, Any]] = []
+    monkeypatch.setattr(orchestrator, "_emit_answer_trace", captured.append)
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk", LANGFUSE_LOG_CONTENT=False),
+    )
+    __import__("sys").modules.setdefault("langfuse", object())
+
+    hits = [
+        {"score": 0.016, "vector_score": 0.71},
+        {"score": 0.015, "vector_score": 0.65},
+    ]
+    orchestrator._emit_answer_trace_from_state(
+        "q", date(2024, 1, 1), "simple", [], hits, 0.0
+    )
+
+    assert captured
+    scores = captured[0]["top_chunk_scores"]
+    assert scores[0] == pytest.approx(0.71)
+    assert scores[1] == pytest.approx(0.65)

@@ -178,13 +178,19 @@ def _structured_claims(
             api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
+        callbacks = _langfuse_callback()
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            config={"callbacks": _langfuse_callback()},
+            config={"callbacks": callbacks},
         )
+        if callbacks:
+            try:
+                callbacks[0].langfuse.flush()
+            except Exception:
+                pass
         return cast(dict[str, Any], json.loads(str(resp.content).strip()))
     except Exception:
         return None
@@ -257,13 +263,26 @@ def _compose_answer(
             google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
         )
+        callbacks = _langfuse_callback()
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
-            ]
+            ],
+            config={"callbacks": callbacks},
         )
-        return cast(dict[str, Any], json.loads(str(resp.content).strip()))
+        if callbacks:
+            try:
+                callbacks[0].langfuse.flush()
+            except Exception:
+                pass
+        raw = str(resp.content).strip()
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rsplit("```", 1)[0].strip()
+        return cast(dict[str, Any], json.loads(raw))
     except Exception:
         return None
 
@@ -308,12 +327,19 @@ def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
             temperature=0.0,
             max_output_tokens=1000,
         )
+        callbacks = _langfuse_callback()
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": question},
-            ]
+            ],
+            config={"callbacks": callbacks},
         )
+        if callbacks:
+            try:
+                callbacks[0].langfuse.flush()
+            except Exception:
+                pass
         parsed = cast(dict[str, Any], json.loads(str(resp.content).strip()))
 
         issue_queries: list[dict[str, Any]] = []
@@ -481,24 +507,33 @@ def _emit_answer_trace_from_state(
         __import__("langfuse")
     except ImportError:
         return
+    s = get_settings()
     claims_passed = sum(1 for r in all_results if not r.get("abstained"))
     claims_abstained = sum(1 for r in all_results if r.get("abstained"))
     top_chunk_scores = sorted(
-        [hit.get("score", 0.0) for hit in all_hits], reverse=True
+        [hit.get("vector_score") or hit.get("score", 0.0) for hit in all_hits],
+        reverse=True,
     )[:5]
-    _emit_answer_trace(
-        {
-            "query_hash": hashlib.sha256(raw_query.encode("utf-8")).hexdigest(),
-            "as_of": session_as_of.isoformat(),
-            "query_type": query_type,
-            "latency_ms": _elapsed_ms(wall_clock_start),
-            "gate_decision": "abstained" if not all_results else "answered",
-            "result_count": len(all_results),
-            "top_chunk_scores": top_chunk_scores,
-            "validation_claims_passed": claims_passed,
-            "validation_claims_abstained": claims_abstained,
-        }
-    )
+    metadata: dict[str, Any] = {
+        "query_hash": hashlib.sha256(raw_query.encode("utf-8")).hexdigest(),
+        "as_of": session_as_of.isoformat(),
+        "query_type": query_type,
+        "latency_ms": _elapsed_ms(wall_clock_start),
+        "gate_decision": "abstained" if not all_results else "answered",
+        "result_count": len(all_results),
+        "top_chunk_scores": top_chunk_scores,
+        "validation_claims_passed": claims_passed,
+        "validation_claims_abstained": claims_abstained,
+    }
+    if s.LANGFUSE_LOG_CONTENT:
+        metadata["query"] = raw_query
+        for r in all_results:
+            if not r.get("abstained"):
+                metadata["answer_summary"] = (
+                    r.get("plain_language") or r.get("claim", "")[:200]
+                )
+                break
+    _emit_answer_trace(metadata)
 
 
 def answer(question: str, session_as_of: date, conn: connection) -> dict[str, Any]:
