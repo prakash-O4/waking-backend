@@ -1,10 +1,17 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-5 — Answer Composer + Missing-Facts Interrupt (Stage 5)**
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written, branch created, assigned to Pi.
+
+- Branch: `agent/stage-5-answer-composer` (from `dev`)
+- Engineer: Pi
+- Brief: `task.md`
+- PS in scope: PS-6, PS-7, PS-12
+- Checks required: `make test` (66 passed), `make lint`
+- Next action: Prakash runs Pi on `agent/stage-5-answer-composer`
 
 ---
 

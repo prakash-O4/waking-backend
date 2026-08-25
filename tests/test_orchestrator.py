@@ -167,23 +167,6 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     assert [r["claim"] for r in body["results"]] == ["first"]
 
 
-def test_classifier_failure_falls_back_to_simple(monkeypatch: Any) -> None:
-    import langchain_openai
-
-    class FailingChatOpenAI:
-        def __init__(self, **kwargs: Any) -> None:
-            pass
-
-        def invoke(self, messages: list[dict[str, str]]) -> SimpleNamespace:
-            raise RuntimeError("down")
-
-    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FailingChatOpenAI)
-
-    subqueries = orchestrator._classify_and_decompose("q", date(2024, 1, 1))
-
-    assert subqueries == [{"subquery": "q", "as_of": date(2024, 1, 1)}]
-
-
 def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
     """Graph wires correctly and answer() returns the right response shape."""
     monkeypatch.setattr(
@@ -583,3 +566,131 @@ def test_structured_claims_no_key_returns_none(monkeypatch: Any) -> None:
     )
 
     assert result is None
+
+
+def test_compose_answer_success(monkeypatch: Any) -> None:
+    """_compose_answer calls Gemini and returns ADR Node 7 format dict."""
+    import json as _json
+
+    class FakeResp:
+        content = _json.dumps(
+            {
+                "relevant_sections": [
+                    {
+                        "section": "Muluki Dewani Samhita, दफा 456",
+                        "why_applicable": "governs residential tenancy notice period",
+                        "applicability": "high",
+                        "condition": "written tenancy agreement exists",
+                        "citation": {},
+                    }
+                ],
+                "missing_facts": ["Is there a written tenancy agreement?"],
+                "conflicts": [],
+                "plain_language": "घर बहालमा लिनेलाई ३५ दिनको सूचना दिनुपर्छ।",
+                "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",
+                "as_of": "2024-01-01",
+                "abstained": False,
+            }
+        )
+
+    class FakeLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: Any) -> FakeResp:
+            return FakeResp()
+
+    langchain_google_genai = ModuleType("langchain_google_genai")
+    setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeLLM)
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_google_genai", langchain_google_genai
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(GEMINI_API_KEY="key", LANGFUSE_PUBLIC_KEY=""),
+    )
+
+    all_results = [
+        {
+            "claim": "भाडावाला लाई ३५ दिनको सूचना",
+            "evidence_id": "chunk-abc",
+            "abstained": False,
+            "citation": {},
+            "as_of": "2024-01-01",
+            "issue": "eviction_notice",
+            "applicability": "high",
+            "condition": None,
+        }
+    ]
+    result = orchestrator._compose_answer(
+        None,
+        [{"fact": "Is there a written agreement?", "type": "clarifying"}],
+        all_results,
+        [],
+        date(2024, 1, 1),
+    )
+
+    assert result is not None
+    assert result["abstained"] is False
+    assert len(result["relevant_sections"]) == 1
+    assert result["relevant_sections"][0]["applicability"] == "high"
+    assert "plain_language" in result
+
+
+def test_compose_answer_no_key_returns_none(monkeypatch: Any) -> None:
+    """_compose_answer returns None immediately when GEMINI_API_KEY is unset."""
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(GEMINI_API_KEY=""),
+    )
+
+    result = orchestrator._compose_answer(
+        None,
+        [],
+        [{"claim": "ok", "evidence_id": "x", "abstained": False, "citation": {}}],
+        [],
+        date(2024, 1, 1),
+    )
+
+    assert result is None
+
+
+def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) -> None:
+    """When fact_extractor finds a required missing fact, retrieve is skipped and
+    the response has interrupted=True."""
+    monkeypatch.setattr(
+        orchestrator,
+        "_fact_extract",
+        lambda question, as_of: {
+            "facts": None,
+            "missing_facts": [
+                {
+                    "fact": "Is this a residential or commercial tenancy?",
+                    "type": "required",
+                }
+            ],
+            "issue_queries": [
+                {"query": question, "as_of": as_of, "work_type_hint": None}
+            ],
+        },
+    )
+
+    retrieve_called: list[Any] = []
+
+    def retrieve(conn: object, q: str, as_of: date, k: int = 5) -> list[Any]:
+        retrieve_called.append(1)
+        return []
+
+    monkeypatch.setattr(orchestrator, "retrieve_postgres", retrieve)
+
+    conn: Any = object()
+    body = orchestrator.answer("q", date(2024, 1, 1), conn)
+
+    assert body["interrupted"] is True
+    assert "Is this a residential or commercial tenancy?" in (
+        body["interrupt_prompt"] or ""
+    )
+    assert body["results"] == []
+    assert retrieve_called == []

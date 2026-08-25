@@ -16,11 +16,23 @@ from app.retrieval.query_state import QueryState
 def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     result = _orch._fact_extract(state["raw_query"], state["session_as_of"])
     issue_queries = result["issue_queries"]
+    missing_facts = result["missing_facts"]
+
+    required = [mf for mf in missing_facts if mf.get("type") == "required"]
+    interrupted = bool(required)
+    interrupt_prompt: str | None = None
+    if required:
+        interrupt_prompt = "To answer your question I need to know: " + "; ".join(
+            mf.get("fact", "") for mf in required
+        )
+
     return {
         "facts": result["facts"],
-        "missing_facts": result["missing_facts"],
+        "missing_facts": missing_facts,
         "issue_queries": issue_queries,
         "query_type": "simple" if len(issue_queries) == 1 else "complex",
+        "interrupted": interrupted,
+        "interrupt_prompt": interrupt_prompt,
     }
 
 
@@ -124,12 +136,26 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     return {"all_results": all_results}
 
 
-def assemble_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    """Compose final answer. Returns interrupt response immediately if interrupted."""
+    session_as_of = state["session_as_of"]
+    query_type = state["query_type"]
+
+    if state.get("interrupted"):
+        return {
+            "_response": {
+                "as_of": session_as_of.isoformat(),
+                "query_type": query_type,
+                "abstained": False,
+                "results": [],
+                "interrupted": True,
+                "interrupt_prompt": state.get("interrupt_prompt"),
+            }
+        }
+
     all_results = state["all_results"]
     all_hits = state["all_hits"]
-    session_as_of = state["session_as_of"]
     raw_query = state["raw_query"]
-    query_type = state["query_type"]
 
     _orch._emit_answer_trace_from_state(
         raw_query,
@@ -140,14 +166,37 @@ def assemble_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         state["wall_clock_start"],
     )
 
-    return {
-        "_response": {
-            "as_of": session_as_of.isoformat(),
-            "query_type": query_type,
-            "abstained": not all_results,
-            "results": all_results,
+    conflict_hits = [
+        {
+            "component_uri": h.get("component_uri", ""),
+            "work_type": h.get("work_type", ""),
+            "tier": h.get("tier"),
+            "section_number": h.get("section_number", ""),
         }
-    }
+        for h in all_hits
+        if h.get("conflict_flag")
+    ]
+
+    composed = _orch._compose_answer(
+        state["facts"],
+        state["missing_facts"],
+        all_results,
+        conflict_hits,
+        session_as_of,
+    )
+
+    if composed is None:
+        return {
+            "_response": {
+                "as_of": session_as_of.isoformat(),
+                "query_type": query_type,
+                "abstained": not all_results,
+                "results": all_results,
+            }
+        }
+
+    composed["query_type"] = query_type
+    return {"_response": composed}
 
 
 # ── graph ──────────────────────────────────────────────────────────────────────
@@ -161,16 +210,20 @@ def build_graph() -> Any:
     builder.add_node("cross_ref_resolver", cross_ref_resolver_node)
     builder.add_node("reasoner", reasoner_node)
     builder.add_node("validate", validate_node)
-    builder.add_node("assemble", assemble_node)
+    builder.add_node("answer_composer", answer_composer_node)
 
     builder.add_edge(START, "fact_extractor")
-    builder.add_edge("fact_extractor", "retrieve")
+    builder.add_conditional_edges(
+        "fact_extractor",
+        lambda state: "answer_composer" if state.get("interrupted") else "retrieve",
+        {"answer_composer": "answer_composer", "retrieve": "retrieve"},
+    )
     builder.add_edge("retrieve", "authority_ranker")
     builder.add_edge("authority_ranker", "cross_ref_resolver")
     builder.add_edge("cross_ref_resolver", "reasoner")
     builder.add_edge("reasoner", "validate")
-    builder.add_edge("validate", "assemble")
-    builder.add_edge("assemble", END)
+    builder.add_edge("validate", "answer_composer")
+    builder.add_edge("answer_composer", END)
 
     return builder.compile()
 
