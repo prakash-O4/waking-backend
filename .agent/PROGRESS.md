@@ -1,10 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-3 — Authority Ranker + Cross-Reference Resolver (Stage 3)
+None.
 
 ## Status
-**IN PROGRESS** — task brief written to `task.md` on `agent/stage-3-authority-ranker`. Assigned to Pi.
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
@@ -28,18 +28,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 
 ---
 
-## AGENT-3 — Authority Ranker + Cross-Reference Resolver (Stage 3)
-**Branch:** `agent/stage-3-authority-ranker` | **Base:** `dev` | **Engineer:** Pi
-**Status:** Task brief written — awaiting Pi
-**PS in scope:** PS-6 (eligibility gate on co-retrieved chunks), PS-16 (cross-ref retrieval)
-**Zero-tolerance gates in scope:** repealed-as-current = 0, not-yet-effective-as-current = 0
-**Files in scope:** `query_graph.py`, `gated_orchestrator.py`, `tests/test_orchestrator.py`
-**Expected:** 62 tests (57 + 5 new), `_REAL_MONOTONIC` removed, 2 new nodes added
-**Schema note:** ADR says `documents.work_type` but that column doesn't exist. Actual path: `chunks.work_id → work.work_type` (NULL for nkp_case); `chunks.source_type` as fallback for tier 6.
-
----
-
 ## Completed tasks
+
+### AGENT-3 — Authority Ranker + Cross-Reference Resolver (MERGED to dev, 2026-08-25)
+- `gated_orchestrator.py`: `_authority_rank_hits(hits, conn)` — queries `chunks.work_id → work.work_type` (LEFT JOIN), sorts by `(tier ASC, score DESC)`, attaches `tier` + `conflict_flag` (same section_number, lower tier); `_resolve_cross_refs(hits, as_of, conn)` — regex scans top-10 hits for `दफा/उपदफा/अनुसूची X`, fetches eligible co-chunks via `eligible_chunk_ids`, appends with `co_retrieved=True`; both have `except Exception` top-level guard; `_REAL_MONOTONIC` removed; `_WORK_TYPE_TIER`, `_DEVA_DIGIT_MAP`, `_CROSS_REF_RE` constants added; `eligible_chunk_ids` re-exported for mock compatibility
+- `query_graph.py`: `authority_ranker_node` and `cross_ref_resolver_node` inserted between `retrieve_generate` and `validate`; graph now 6 nodes
+- `tests/test_orchestrator.py`: 5 new tests; 62 total passing
+- Schema note: ADR says `documents.work_type` but correct path is `chunks.work_id → work.work_type`; conflict detection is document-agnostic (same section_number across different works can trigger it — acceptable for Stage 3; Stage 4/5 can scope by work if needed)
 
 ### AGENT-2 — Fact Extractor + issue-driven retrieval (MERGED to dev, 2026-08-25)
 - `gated_orchestrator.py`: `_fact_extract()` added — Gemini 2.5 Flash extracts `facts`, `missing_facts`, and `issue_queries` (Devanagari Nepali queries, max 3); fallback to single raw query on any failure or missing `GEMINI_API_KEY`
