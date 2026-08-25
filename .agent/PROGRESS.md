@@ -1,10 +1,17 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-4 — Reasoner Rewrite (Azure gpt-4.1-mini + Structured Claims)**
 
 ## Status
-**IDLE** — awaiting Prakash's direction.
+**IN PROGRESS** — task brief written, branch created, assigned to Pi.
+
+- Branch: `agent/stage-4-reasoner` (from `dev`)
+- Engineer: Pi
+- Brief: `task.md`
+- PS in scope: PS-6, PS-7, PS-12
+- Checks required: `make test` (64 passed), `make lint`
+- Next action: Prakash runs Pi on `agent/stage-4-reasoner`
 
 ---
 
