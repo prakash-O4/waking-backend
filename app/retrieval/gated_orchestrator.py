@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import time
 from datetime import date
@@ -191,50 +190,82 @@ def _structured_claims(
         return None
 
 
-def _classify_and_decompose(question: str, session_as_of: date) -> list[dict[str, Any]]:
-    """LLM router. On any failure, use the original question as a simple query."""
-    from langchain_openai import ChatOpenAI
+def _compose_answer(
+    facts: Any,
+    missing_facts: list[dict[str, Any]],
+    all_results: list[dict[str, Any]],
+    conflict_hits: list[dict[str, Any]],
+    session_as_of: date,
+) -> dict[str, Any] | None:
+    """Compose structured final answer using Gemini 2.5 Flash.
+
+    Returns ADR Node 7 format dict on success, None on any failure.
+    Failure mode: caller falls back to returning raw validated claims.
+    """
+    s = get_settings()
+    if not s.GEMINI_API_KEY:
+        return None
+
+    claims_text = json.dumps(all_results, ensure_ascii=False, default=str)
+    facts_text = json.dumps(facts, ensure_ascii=False) if facts else "null"
+    missing_text = json.dumps(
+        [
+            mf
+            for mf in missing_facts
+            if mf.get("type") in ("clarifying", "informational")
+        ],
+        ensure_ascii=False,
+    )
+    conflicts_text = json.dumps(conflict_hits, ensure_ascii=False, default=str)
 
     system = (
-        "Classify the legal question as simple (single issue, single time point) or "
-        "complex (multiple issues or comparative across time). Output JSON only:\n"
-        '{"type": "simple"} OR\n'
-        '{"type": "complex", "subqueries": '
-        '[{"q": "<sub-question>", "as_of": "<YYYY-MM-DD or null>"}]}\n'
-        f"Default as_of if not detected: {session_as_of.isoformat()}. "
-        f"Max {MAX_SUBQUERIES} sub-queries."
+        "You are Wakil-G, a Nepali legal assistant. "
+        "Compose a structured legal answer from the provided validated claims. "
+        "Never invent law. Never modify citations. Use only what the claims provide. "
+        "Output JSON only:\n"
+        "{\n"
+        '  "relevant_sections": [\n'
+        '    {"section": "<law name + दफा number>", "why_applicable": "<reason>",\n'
+        '     "applicability": "high|medium|low", "condition": "<condition or null>",\n'
+        '     "citation": {}}\n'
+        "  ],\n"
+        '  "missing_facts": ["<user-facing question about clarifying fact>"],\n'
+        '  "conflicts": ["<description of conflict between sources>"],\n'
+        '  "plain_language": "<plain Nepali explanation, 2-4 sentences>",\n'
+        '  "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",\n'
+        f'  "as_of": "{session_as_of.isoformat()}",\n'
+        '  "abstained": false\n'
+        "}\n"
+        "If all claims are abstained or there are no claims: "
+        '{"abstained": true, "relevant_sections": [], "missing_facts": [], '
+        '"conflicts": [], "plain_language": "", '
+        '"disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।", '
+        f'"as_of": "{session_as_of.isoformat()}"' + "}"
     )
+    user = (
+        f"VALIDATED CLAIMS:\n{claims_text}\n\n"
+        f"EXTRACTED FACTS:\n{facts_text}\n\n"
+        f"MISSING FACTS (clarifying/informational only):\n{missing_text}\n\n"
+        f"CONFLICTS (same section, different authority tier):\n{conflicts_text}"
+    )
+
     try:
-        llm = ChatOpenAI(
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o-mini",
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
         )
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
-                {"role": "user", "content": question},
-            ],
-            config={"callbacks": _langfuse_callback()},
+                {"role": "user", "content": user},
+            ]
         )
-        parsed = json.loads(resp.content.strip())
-        if parsed.get("type") != "complex":
-            return [{"subquery": question, "as_of": session_as_of}]
-
-        result: list[dict[str, Any]] = []
-        for subquery in parsed.get("subqueries", [])[:MAX_SUBQUERIES]:
-            try:
-                sub_as_of = (
-                    date.fromisoformat(subquery["as_of"])
-                    if subquery.get("as_of")
-                    else session_as_of
-                )
-            except (KeyError, TypeError, ValueError):
-                sub_as_of = session_as_of
-            result.append({"subquery": subquery.get("q", question), "as_of": sub_as_of})
-        return result or [{"subquery": question, "as_of": session_as_of}]
+        return cast(dict[str, Any], json.loads(str(resp.content).strip()))
     except Exception:
-        return [{"subquery": question, "as_of": session_as_of}]
+        return None
 
 
 def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
