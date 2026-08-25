@@ -1,32 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-6 — Observability Fix: meaningful Langfuse traces + compose JSON parse**
+None.
 
 ## Status
-**IN PROGRESS** — Branch `agent/stage-6-observability-fix` created. Task brief written to `task.md`. Assigned to Pi.
-
-- Base: `dev`
-- Branch: `agent/stage-6-observability-fix`
-- Engineer: Pi
-- PS in scope: PS-14
-- Zero-tolerance gates: none touched
-
-### What this fixes
-1. All spans have `endTime: null` → call `span.end()` on all retrieval spans
-2. `top_chunk_scores` are RRF scores (0.016…) not cosine scores → use `vector_score` field
-3. LangChain callback handler never flushed → explicit flush after each LLM call; add callbacks to Gemini calls
-4. `_compose_answer` always returns None → strip markdown fences before `json.loads`
-5. PS-14-compliant `LANGFUSE_LOG_CONTENT` flag for raw query + answer logging in dev
-
-### Files in scope
-- `app/config.py` — add `LANGFUSE_LOG_CONTENT: bool = False`
-- `app/retrieval/postgres_retriever.py` — `span.end()` + `vector_score` in hits
-- `app/retrieval/gated_orchestrator.py` — flush callbacks, add callbacks to Gemini, fix JSON parse, use vector scores in trace
-- `tests/test_orchestrator.py` — update compose test for markdown fences, add vector_score trace test
-
-### Next action
-Prakash runs Pi on branch `agent/stage-6-observability-fix` with `task.md`.
+**IDLE** — AGENT-6 merged to dev. Awaiting Prakash's direction.
 
 ---
 
@@ -51,6 +29,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-6 — Observability Fix (MERGED to dev, 2026-08-25)
+- `postgres_retriever.py`: `_span` → `_end_span` — calls `span.end()` so all spans have `endTime`; `_hit()` gains `vector_score` param; `vector_scores` dict built from vector search rows; cosine similarity propagated through RRF and rerank to returned hits
+- `gated_orchestrator.py`: `_langfuse_callback()` now used on all 3 LLM calls (`_structured_claims`, `_fact_extract`, `_compose_answer`); explicit `callbacks[0].langfuse.flush()` after each invoke; `_emit_answer_trace_from_state` uses `vector_score` (not RRF score) for `top_chunk_scores`; `LANGFUSE_LOG_CONTENT` flag gates raw `query` + `answer_summary` fields in trace; `_compose_answer` strips markdown code fences before `json.loads`
+- `config.py`: `LANGFUSE_LOG_CONTENT: bool = False` added
+- `tests/test_orchestrator.py`: `FakeResp.content` in compose test now uses markdown-wrapped JSON to verify fence stripping; `test_emit_trace_uses_vector_score` added; 67 total passing
+- PS-14 maintained: raw content off by default; latent risk noted — `_fact_extract` JSON parse lacks fence stripping (can add in cleanup pass)
 
 ### AGENT-5 — Answer Composer + Missing-Facts Interrupt (MERGED to dev, 2026-08-25)
 - `gated_orchestrator.py`: `_classify_and_decompose` removed (dead since AGENT-2); `import os` removed; `_compose_answer(facts, missing_facts, all_results, conflict_hits, session_as_of)` added — Gemini 2.5 Flash composes ADR Node 7 format (`relevant_sections`, `plain_language`, `missing_facts`, `conflicts`, `disclaimer`); filters to clarifying/informational missing facts only; `except Exception: return None` fallback
