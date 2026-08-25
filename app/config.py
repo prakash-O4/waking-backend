@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_HOST: str = "http://localhost:3000"
+    LANGFUSE_LOG_CONTENT: bool = False
     # Embedding (text-embedding-3-large)
     AZURE_OPENAI_KEY: str = ""
     AZURE_OPENAI_ENDPOINT: str = ""  # full deployment URL or base URL

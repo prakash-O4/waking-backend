@@ -36,9 +36,11 @@ def _get_lf_client() -> Any | None:
     return _lf_client
 
 
-def _span(trace: Any, stage: str, **metadata: Any) -> None:
+def _end_span(trace: Any, stage: str, **metadata: Any) -> None:
+    """Create a span and immediately end it so Langfuse records endTime."""
     if trace is not None:
-        trace.span(name=f"stage.{stage}", metadata=metadata)
+        span = trace.span(name=f"stage.{stage}", metadata=metadata)
+        span.end()
 
 
 def _preprocess(text: str) -> str:
@@ -57,7 +59,7 @@ def translate_query(query: str) -> str | None:
     if not s.GEMINI_API_KEY:
         return None
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import-not-found]
+        from langchain_google_genai import ChatGoogleGenerativeAI
 
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
@@ -106,7 +108,9 @@ def _rrf(ranked_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
-def _hit(row: tuple[Any, ...], score: float) -> dict[str, Any]:
+def _hit(
+    row: tuple[Any, ...], score: float, vector_score: float = 0.0
+) -> dict[str, Any]:
     chunk_id, text, text_hash, act_name, case_id, chunk_type, section_number = row[:7]
     source_id = row[7] if len(row) == 8 else ""
     return {
@@ -114,6 +118,7 @@ def _hit(row: tuple[Any, ...], score: float) -> dict[str, Any]:
         "text_ne": text,
         "text_hash": text_hash,
         "score": float(score),
+        "vector_score": float(vector_score),
         "work_title_ne": act_name or case_id or "",
         "chunk_type": chunk_type,
         "section_number": section_number or "",
@@ -144,7 +149,7 @@ def retrieve_postgres(
 
     t0 = time.monotonic()
     eligible = list(eligible_chunk_ids(conn, as_of))
-    _span(
+    _end_span(
         trace,
         "eligibility_gate",
         eligible_count=len(eligible),
@@ -197,7 +202,7 @@ def retrieve_postgres(
         t0 = time.monotonic()
         vector_rows = vector_search(qvec)
         vector_rows_ne = vector_search(qvec_ne) if qvec_ne is not None else []
-        _span(
+        _end_span(
             trace,
             "vector_search",
             candidate_count=len(vector_rows) + len(vector_rows_ne),
@@ -215,7 +220,7 @@ def retrieve_postgres(
             lexical_rows = lexical_search(query)
         if query_ne is not None:
             lexical_rows_ne = lexical_search(query_ne)
-        _span(
+        _end_span(
             trace,
             "lexical_search",
             ran=lexical_ran or query_ne is not None,
@@ -227,6 +232,9 @@ def retrieve_postgres(
         str(row[0]): row
         for row in [*vector_rows, *lexical_rows, *vector_rows_ne, *lexical_rows_ne]
     }
+    vector_scores = {
+        str(row[0]): float(row[-1]) for row in [*vector_rows, *vector_rows_ne]
+    }
     ranked_lists = [[str(r[0]) for r in vector_rows], [str(r[0]) for r in lexical_rows]]
     if qvec_ne is not None:
         ranked_lists.append([str(r[0]) for r in vector_rows_ne])
@@ -234,7 +242,7 @@ def retrieve_postgres(
         ranked_lists.append([str(r[0]) for r in lexical_rows_ne])
     t0 = time.monotonic()
     rrf_scores = _rrf(ranked_lists)
-    _span(
+    _end_span(
         trace,
         "rrf_fusion",
         merged_count=len(rrf_scores),
@@ -244,11 +252,11 @@ def retrieve_postgres(
 
     t0 = time.monotonic()
     candidates = [
-        _hit(rows[chunk_id], score)
+        _hit(rows[chunk_id], score, vector_scores.get(chunk_id, 0.0))
         for chunk_id, score in rrf_scores
         if score >= _RELEVANCE_THRESHOLD
     ][: k * 2]
-    _span(
+    _end_span(
         trace,
         "relevance_gate",
         passed_count=len(candidates),
@@ -262,7 +270,7 @@ def retrieve_postgres(
 
     t0 = time.monotonic()
     ranked = rerank(query, candidates, k)
-    _span(
+    _end_span(
         trace,
         "rerank",
         ran=bool(get_settings().COHERE_API_KEY),
@@ -288,7 +296,7 @@ def retrieve_postgres(
     if lf:
         lf.flush()
     return [
-        _hit(full_rows[h["component_uri"]], h["score"])
+        _hit(full_rows[h["component_uri"]], h["score"], h.get("vector_score", 0.0))
         for h in ranked
         if h["component_uri"] in full_rows
     ]
