@@ -44,8 +44,18 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
     monkeypatch.setattr(orchestrator, "retrieve_postgres", retrieve)
     monkeypatch.setattr(
         orchestrator,
-        "_model_claims",
-        lambda question, hits: {"claims": [{"claim": "ok", "evidence_id": "/law/1"}]},
+        "_structured_claims",
+        lambda facts, issue_queries, hits: {
+            "claims": [
+                {
+                    "claim": "ok",
+                    "evidence_id": "/law/1",
+                    "issue": "test",
+                    "applicability": "high",
+                    "condition": None,
+                }
+            ]
+        },
     )
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
 
@@ -80,9 +90,17 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         orchestrator,
-        "_model_claims",
-        lambda question, hits: {
-            "claims": [{"claim": question, "evidence_id": hits[0]["component_uri"]}]
+        "_structured_claims",
+        lambda facts, issue_queries, hits: {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                    "issue": "test",
+                    "applicability": "high",
+                    "condition": None,
+                }
+            ]
         },
     )
 
@@ -128,9 +146,17 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         orchestrator,
-        "_model_claims",
-        lambda question, hits: {
-            "claims": [{"claim": question, "evidence_id": hits[0]["component_uri"]}]
+        "_structured_claims",
+        lambda facts, issue_queries, hits: {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                    "issue": "test",
+                    "applicability": "high",
+                    "condition": None,
+                }
+            ]
         },
     )
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
@@ -180,8 +206,18 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
     )
     monkeypatch.setattr(
         orchestrator,
-        "_model_claims",
-        lambda question, hits: {"claims": [{"claim": "ok", "evidence_id": "/law/1"}]},
+        "_structured_claims",
+        lambda facts, issue_queries, hits: {
+            "claims": [
+                {
+                    "claim": "ok",
+                    "evidence_id": "/law/1",
+                    "issue": "test",
+                    "applicability": "high",
+                    "condition": None,
+                }
+            ]
+        },
     )
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
 
@@ -473,3 +509,77 @@ def test_resolve_cross_refs_failure_returns_empty() -> None:
     ]
     result = orchestrator._resolve_cross_refs(hits, date(2024, 1, 1), object())
     assert result == []
+
+
+def test_structured_claims_success(monkeypatch: Any) -> None:
+    """_structured_claims calls AzureChatOpenAI and parses the JSON response."""
+    import json as _json
+
+    class FakeResp:
+        content = _json.dumps(
+            {
+                "claims": [
+                    {
+                        "claim": "भाडावाला लाई ३५ दिनको सूचना दिनुपर्छ",
+                        "evidence_id": "chunk-abc",
+                        "issue": "eviction_notice",
+                        "applicability": "high",
+                        "condition": "written agreement exists",
+                    }
+                ],
+                "abstain": False,
+            }
+        )
+
+    class FakeLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: Any, config: Any = None) -> FakeResp:
+            return FakeResp()
+
+    import langchain_openai
+
+    monkeypatch.setattr(langchain_openai, "AzureChatOpenAI", FakeLLM)
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AZURE_OPENAI_LLM_KEY="key",
+            AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com/",
+            AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
+            AZURE_OPENAI_API_VERSION="2023-05-15",
+            LANGFUSE_PUBLIC_KEY="",
+        ),
+    )
+
+    hits = [
+        {"component_uri": "chunk-abc", "text_ne": "दफा ३५", "tier": 2, "score": 0.9}
+    ]
+    issue_queries = [
+        {"query": "भाडा सम्बन्धी कानून", "as_of": date(2024, 1, 1), "work_type_hint": None}
+    ]
+
+    result = orchestrator._structured_claims(None, issue_queries, hits)
+
+    assert result is not None
+    assert result["abstain"] is False
+    assert result["claims"][0]["evidence_id"] == "chunk-abc"
+    assert result["claims"][0]["applicability"] == "high"
+
+
+def test_structured_claims_no_key_returns_none(monkeypatch: Any) -> None:
+    """_structured_claims returns None immediately when AZURE_OPENAI_LLM_KEY is unset."""
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(AZURE_OPENAI_LLM_KEY=""),
+    )
+
+    result = orchestrator._structured_claims(
+        None,
+        [{"query": "q", "as_of": date(2024, 1, 1), "work_type_hint": None}],
+        [{"component_uri": "c", "text_ne": "text", "tier": 2, "score": 0.5}],
+    )
+
+    assert result is None
