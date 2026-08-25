@@ -1,17 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-5 — Answer Composer + Missing-Facts Interrupt (Stage 5)**
+None.
 
 ## Status
-**IN PROGRESS** — task brief written, branch created, assigned to Pi.
-
-- Branch: `agent/stage-5-answer-composer` (from `dev`)
-- Engineer: Pi
-- Brief: `task.md`
-- PS in scope: PS-6, PS-7, PS-12
-- Checks required: `make test` (66 passed), `make lint`
-- Next action: Prakash runs Pi on `agent/stage-5-answer-composer`
+**IDLE** — ADR-001 multi-agent pipeline complete. Awaiting Prakash's direction.
 
 ---
 
@@ -36,6 +29,12 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-5 — Answer Composer + Missing-Facts Interrupt (MERGED to dev, 2026-08-25)
+- `gated_orchestrator.py`: `_classify_and_decompose` removed (dead since AGENT-2); `import os` removed; `_compose_answer(facts, missing_facts, all_results, conflict_hits, session_as_of)` added — Gemini 2.5 Flash composes ADR Node 7 format (`relevant_sections`, `plain_language`, `missing_facts`, `conflicts`, `disclaimer`); filters to clarifying/informational missing facts only; `except Exception: return None` fallback
+- `query_graph.py`: `fact_extractor_node` detects `required` missing facts → sets `interrupted=True` + `interrupt_prompt`; `assemble_node` replaced by `answer_composer_node` — interrupt short-circuit (returns directly, bypasses retrieval) or normal path (Gemini compose + fallback to raw claims); `build_graph()` uses `add_conditional_edges` from `fact_extractor` → `answer_composer` (interrupt) or `retrieve` (normal); graph still 7 nodes, one of which is now reached via two paths
+- `tests/test_orchestrator.py`: `test_classifier_failure_falls_back_to_simple` removed; 3 new tests added (compose success, no-key fallback, interrupt integration with retrieve_called == [] assertion); 66 total passing
+- Note: `_compose_answer` does not wire Langfuse callbacks into the Gemini call (minor observability gap, consistent with `_fact_extract` pattern — can add in OBS pass)
 
 ### AGENT-4 — Reasoner Rewrite (MERGED to dev, 2026-08-25)
 - `gated_orchestrator.py`: `_model_claims` removed; `_structured_claims(facts, issue_queries, ranked_hits)` added — Azure `gpt-4.1-mini` via `AzureChatOpenAI`, tier-labelled context (32k char cap), structured output with `issue`/`applicability`/`condition`; `_CONTEXT_CHAR_LIMIT` + `_TIER_LABELS` constants added; `azure_base_url` imported; co-retrieved chunks inherit `_issue_idx` from parent hit
