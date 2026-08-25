@@ -1,17 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-4 — Reasoner Rewrite (Azure gpt-4.1-mini + Structured Claims)**
+None.
 
 ## Status
-**IN PROGRESS** — task brief written, branch created, assigned to Pi.
-
-- Branch: `agent/stage-4-reasoner` (from `dev`)
-- Engineer: Pi
-- Brief: `task.md`
-- PS in scope: PS-6, PS-7, PS-12
-- Checks required: `make test` (64 passed), `make lint`
-- Next action: Prakash runs Pi on `agent/stage-4-reasoner`
+**IDLE** — awaiting Prakash's direction.
 
 ---
 
@@ -36,6 +29,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-4 — Reasoner Rewrite (MERGED to dev, 2026-08-25)
+- `gated_orchestrator.py`: `_model_claims` removed; `_structured_claims(facts, issue_queries, ranked_hits)` added — Azure `gpt-4.1-mini` via `AzureChatOpenAI`, tier-labelled context (32k char cap), structured output with `issue`/`applicability`/`condition`; `_CONTEXT_CHAR_LIMIT` + `_TIER_LABELS` constants added; `azure_base_url` imported; co-retrieved chunks inherit `_issue_idx` from parent hit
+- `query_graph.py`: `retrieve_generate_node` split → `retrieve_node` (pure retrieval, `_issue_idx` tagging) + `reasoner_node` (per-issue `_structured_claims` call over authority-ranked context, grouping by `_issue_idx`); `validate_node` updated to propagate `issue`/`applicability`/`condition` from original claims to rendered results; graph now 7 nodes
+- `tests/test_orchestrator.py`: tests 1–3 and 5 updated to mock `_structured_claims`; 2 new tests for `_structured_claims` success path and no-key fallback; 64 total passing
+- `tests/test_degraded_modes.py`: stale `_model_claims` mock updated to `_structured_claims` (Pi found this proactively)
+- PS-6, PS-7, PS-12 verified; zero-tolerance gates at 0
 
 ### AGENT-3 — Authority Ranker + Cross-Reference Resolver (MERGED to dev, 2026-08-25)
 - `gated_orchestrator.py`: `_authority_rank_hits(hits, conn)` — queries `chunks.work_id → work.work_type` (LEFT JOIN), sorts by `(tier ASC, score DESC)`, attaches `tier` + `conflict_flag` (same section_number, lower tier); `_resolve_cross_refs(hits, as_of, conn)` — regex scans top-10 hits for `दफा/उपदफा/अनुसूची X`, fetches eligible co-chunks via `eligible_chunk_ids`, appends with `co_retrieved=True`; both have `except Exception` top-level guard; `_REAL_MONOTONIC` removed; `_WORK_TYPE_TIER`, `_DEVA_DIGIT_MAP`, `_CROSS_REF_RE` constants added; `eligible_chunk_ids` re-exported for mock compatibility
