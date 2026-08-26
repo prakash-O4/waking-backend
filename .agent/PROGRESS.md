@@ -1,10 +1,19 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-8 — Production-grade ingestion observability
 
 ## Status
-**IDLE** — AGENT-7 merged to dev. Awaiting Prakash's direction.
+**IN PROGRESS** — Branch `agent/obs-ingestion-spans` created from `dev`. Task brief written. Assigned to Pi.
+
+**Problem:** Three observability failures in ingestion pipeline:
+1. `endTime: null` on all Langfuse spans — `_span()` never calls `.end()` on returned span object
+2. Spans carry no inputs/outputs — no chunk counts, LLM call counts, or extracted metadata
+3. Terminal silent inside each record — operator cannot see which stage is running or why it is slow
+
+**Scope:** `app/ingestion/pipeline.py`, `app/ingestion/metadata_enricher.py`, `tests/test_ingestion_pipeline.py`
+**PS in scope:** None — pure observability change
+**Next action:** Prakash runs Pi on `agent/obs-ingestion-spans`
 
 ---
 
