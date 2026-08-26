@@ -1,19 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-8 — Production-grade ingestion observability
+None.
 
 ## Status
-**IN PROGRESS** — Branch `agent/obs-ingestion-spans` created from `dev`. Task brief written. Assigned to Pi.
-
-**Problem:** Three observability failures in ingestion pipeline:
-1. `endTime: null` on all Langfuse spans — `_span()` never calls `.end()` on returned span object
-2. Spans carry no inputs/outputs — no chunk counts, LLM call counts, or extracted metadata
-3. Terminal silent inside each record — operator cannot see which stage is running or why it is slow
-
-**Scope:** `app/ingestion/pipeline.py`, `app/ingestion/metadata_enricher.py`, `tests/test_ingestion_pipeline.py`
-**PS in scope:** None — pure observability change
-**Next action:** Prakash runs Pi on `agent/obs-ingestion-spans`
+**IDLE** — AGENT-8 merged to dev. Awaiting Prakash's direction.
 
 ---
 
@@ -38,6 +29,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-8 — Production-grade ingestion observability (MERGED to dev, 2026-08-26)
+- `pipeline.py`: `_span()` replaced with `_begin_span()` / `_end_span()` / `_end_trace()` — every span now has non-null `endTime`; every stage has `input`/`output` fields; per-stage stdout with `flush=True`; root trace updated with totals and `.end()` called on all paths including skipped/rejected/quarantined
+- `metadata_enricher.py`: `_call_llm()` returns `(content, usage)` tuple; creates a Langfuse **generation** per LLM call with `model`, PS-14-gated `input`/`output`, and `usage_details` from `response.response_metadata["token_usage"]`; `_parallel_chunk_metadata` / `enrich_law_chunks` / `enrich_nkp_chunks` return 4-tuples `(metadata, llm_calls, in_tok, out_tok)`
+- `pgvector_indexer.py`: `embed_chunks()` returns `(embeddings, total_tokens)`; creates embedding **generation** with `usage_details` from `response.usage.total_tokens`
+- `tests/test_ingestion_pipeline.py`: 2 new tests (`test_langfuse_span_end_called`, `test_enrich_law_llm_call_count`); 69 total passing
+- Lint: ruff clean; mypy pre-existing failure in `postgres_retriever.py` (import-not-found: langfuse) unrelated to task scope
 
 ### AGENT-7 — Unified Langfuse trace (MERGED to dev, 2026-08-26)
 - `postgres_retriever.py`: `_get_lf_client` → `get_lf_client` (exported); `retrieve_postgres(lf_trace=None)` — creates `retrieval_span` as child of `lf_trace` instead of root trace; all `lf.trace()` and `lf.flush()` calls removed; `_end_span` now in try/except; `retrieval_span.end(metadata=...)` at normal return with `eligible_count`, `final_count`, `top_vector_score`
