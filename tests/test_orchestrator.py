@@ -703,25 +703,31 @@ def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) ->
 
 
 def test_emit_trace_uses_vector_score(monkeypatch: Any) -> None:
-    """top_chunk_scores uses vector_score when present, not RRF score."""
-    captured: list[dict[str, Any]] = []
-    monkeypatch.setattr(orchestrator, "_emit_answer_trace", captured.append)
+    """_emit_answer_trace_from_state uses vector_score (not RRF score) in output."""
+    captured: dict[str, Any] = {}
+
+    class FakeTrace:
+        def update(self, output: Any = None, **kwargs: Any) -> None:
+            if output:
+                captured.update(output)
+
+        def end(self) -> None:
+            pass
+
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
-        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk", LANGFUSE_LOG_CONTENT=False),
+        lambda: SimpleNamespace(LANGFUSE_LOG_CONTENT=False),
     )
-    __import__("sys").modules.setdefault("langfuse", object())
 
     hits = [
         {"score": 0.016, "vector_score": 0.71},
         {"score": 0.015, "vector_score": 0.65},
     ]
     orchestrator._emit_answer_trace_from_state(
-        "q", date(2024, 1, 1), "simple", [], hits, 0.0
+        FakeTrace(), "q", date(2024, 1, 1), "simple", [], hits, 0.0
     )
 
-    assert captured
-    scores = captured[0]["top_chunk_scores"]
-    assert scores[0] == pytest.approx(0.71)
-    assert scores[1] == pytest.approx(0.65)
+    assert captured["top_chunk_scores"][0] == pytest.approx(0.71)
+    assert captured["top_chunk_scores"][1] == pytest.approx(0.65)
+    assert captured["gate_decision"] == "abstained"

@@ -1,10 +1,30 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-7 — Unified Langfuse trace: one tree per query**
 
 ## Status
-**IDLE** — AGENT-6 merged to dev. Awaiting Prakash's direction.
+**IN PROGRESS** — Branch `agent/stage-7-unified-trace` created. Task brief in `task.md`. Assigned to Pi.
+
+- Base: `dev`
+- Branch: `agent/stage-7-unified-trace`
+- Engineer: Pi
+- PS in scope: PS-14 (LOG_CONTENT flag unchanged)
+- Zero-tolerance gates: none touched
+
+### What this fixes
+Root cause of "wtf logs": every query produces 3+ disconnected top-level traces with `endTime: null`.
+Fix: one `rag.query` root trace per query; retrieval, reasoning, validation, composition all as children;
+`lf_trace` threaded via `config["configurable"]` (not QueryState); single `_lf.flush()` in `run_query`.
+
+### Files in scope
+- `postgres_retriever.py` — export `get_lf_client`; `retrieve_postgres(lf_trace=None)`; child spans under `retrieval_span` not root trace
+- `gated_orchestrator.py` — `_langfuse_callback(trace_id=None)`; `lf_trace=None` on all 3 LLM fns; remove `_emit_answer_trace`; rewrite `_emit_answer_trace_from_state` to update+end existing trace
+- `query_graph.py` — create root trace in `run_query`; pass via config; node-level spans; flush at end
+- `tests/test_orchestrator.py` — update `test_emit_trace_uses_vector_score` for new signature
+
+### Next action
+Prakash runs Pi on branch `agent/stage-7-unified-trace` with `task.md`.
 
 ---
 
