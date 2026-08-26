@@ -12,11 +12,14 @@ import os
 import re
 import unicodedata
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.ingestion.laws_chunker import LawsChunker
+from app.ingestion import metadata_enricher
+from app.ingestion.laws_chunker import LawChunk, LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
 from app.ingestion.pii_redactor import PIIRedactor, RedactionVerificationError
 from app.ingestion.pipeline import IngestionPipeline
@@ -148,6 +151,99 @@ def test_pii_redactor_verification_raises_on_surviving_token() -> None:
         )
     assert exc_info.value.token == "सुरेशकुमार"
     assert exc_info.value.document_id == "case-10481"
+
+
+def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every stage span must call .end(), so endTime is not null."""
+    from app.ingestion import pipeline as pipeline_mod
+
+    ended_spans: list[str] = []
+
+    class FakeSpan:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def end(self, output: dict[str, Any] | None = None, **kwargs: Any) -> None:
+            ended_spans.append(self.name)
+
+    class FakeTrace:
+        def span(self, name: str, input: dict[str, Any] | None = None) -> FakeSpan:
+            return FakeSpan(name)
+
+        def update(self, **kwargs: Any) -> None:
+            pass
+
+        def end(self) -> None:
+            pass
+
+    def fake_trace(**kwargs: Any) -> FakeTrace:
+        return FakeTrace()
+
+    def fake_flush() -> None:
+        pass
+
+    def fake_parse_law(record: dict[str, Any]) -> SimpleNamespace:
+        return SimpleNamespace(uri="/work/test")
+
+    def fake_upsert_work(conn: Any, law: Any) -> str:
+        return "work-id"
+
+    fake_lf = SimpleNamespace(trace=fake_trace, flush=fake_flush)
+    monkeypatch.setattr(pipeline_mod, "_get_lf_client", lambda: fake_lf)
+    monkeypatch.setattr(pipeline_mod, "parse_law", fake_parse_law)
+    monkeypatch.setattr(pipeline_mod, "upsert_work", fake_upsert_work)
+
+    conn = MagicMock()
+    pipeline = IngestionPipeline(conn, enable_llm=False)
+    pipeline._find_existing = MagicMock(return_value=None)
+    pipeline._insert_document = MagicMock(return_value="doc-id")
+    pipeline._commence_date = MagicMock(return_value=None)
+    pipeline._embed = MagicMock(return_value=([[0.1]], 0))
+    pipeline._indexer.upsert_document = MagicMock(return_value="doc-id")
+
+    record = {
+        "_id": "law-obs",
+        "name": "परीक्षण ऐन",
+        "document_type": "act",
+        "content": "**१. परीक्षण:** यो परीक्षण पाठ हो ।",
+    }
+
+    assert pipeline.ingest_law(record) == "doc-id"
+    for stage in [
+        "stage.LOAD",
+        "stage.VALIDATE",
+        "stage.CHUNK",
+        "stage.EXTRACT_METADATA",
+        "stage.EMBED_AND_UPSERT",
+        "stage.DUAL_APPROVAL_PAUSE",
+    ]:
+        assert stage in ended_spans
+
+
+def test_enrich_law_llm_call_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    """llm_call_count == 1 + ceil(chunk_count / CHUNK_BATCH_SIZE)."""
+    import math
+
+    def fake_call_llm(*args: Any, **kwargs: Any) -> tuple[str, dict[str, int]]:
+        return (
+            '[{"chunk_index": 0, "keywords": [], "relevant_questions": []}]',
+            {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
+
+    monkeypatch.setattr(metadata_enricher, "_call_llm", fake_call_llm)
+    chunks = [
+        LawChunk(i, f"text {i}", f"text {i}", "section", "१", None, None, None, None)
+        for i in range(45)
+    ]
+
+    _, llm_calls, total_in, total_out = metadata_enricher.enrich_law_chunks(
+        {"name": "परीक्षण ऐन"}, chunks
+    )
+
+    expected = 1 + math.ceil(45 / metadata_enricher.CHUNK_BATCH_SIZE)
+    assert llm_calls == expected
+    assert total_in == 10 * expected
+    assert total_out == 5 * expected
 
 
 def test_pipeline_idempotency_skips_unchanged_document() -> None:
