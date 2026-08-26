@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib as _hashlib
 from datetime import date
 from typing import Any, cast
 
@@ -7,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 import app.retrieval.gated_orchestrator as _orch
+from app.retrieval.postgres_retriever import get_lf_client as _get_lf_client
 from app.retrieval.query_state import QueryState
 
 
@@ -14,7 +16,14 @@ from app.retrieval.query_state import QueryState
 
 
 def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
-    result = _orch._fact_extract(state["raw_query"], state["session_as_of"])
+    lf_trace = config["configurable"].get("lf_trace")
+    result = (
+        _orch._fact_extract(
+            state["raw_query"], state["session_as_of"], lf_trace=lf_trace
+        )
+        if lf_trace is not None
+        else _orch._fact_extract(state["raw_query"], state["session_as_of"])
+    )
     issue_queries = result["issue_queries"]
     missing_facts = result["missing_facts"]
 
@@ -39,6 +48,7 @@ def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, 
 def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     """Pure retrieval — no LLM calls. Tags each hit with _issue_idx."""
     conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
     all_hits: list[dict[str, Any]] = []
 
     issue_queries = state["issue_queries"] or [
@@ -48,11 +58,16 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
             "work_type_hint": None,
         }
     ]
-
     for idx, iq in enumerate(issue_queries):
         if _orch._wall_clock_expired(state["wall_clock_start"]):
             break
-        hits = _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5)
+        hits = (
+            _orch.retrieve_postgres(
+                conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace
+            )
+            if lf_trace is not None
+            else _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5)
+        )
         for h in hits:
             all_hits.append({**h, "_issue_idx": idx})
 
@@ -61,6 +76,7 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
 
 def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     """Structured reasoning over authority-ranked context, one LLM call per issue."""
+    lf_trace = config["configurable"].get("lf_trace")
     all_hits = state["all_hits"]
     if not all_hits:
         return {}
@@ -86,7 +102,11 @@ def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         if not issue_hits:
             continue
 
-        parsed = _orch._structured_claims(facts, [iq], issue_hits)
+        parsed = (
+            _orch._structured_claims(facts, [iq], issue_hits, lf_trace=lf_trace)
+            if lf_trace is not None
+            else _orch._structured_claims(facts, [iq], issue_hits)
+        )
         if parsed is None:
             claims = _orch._extractive_claim(issue_hits)
             query_type = "extractive"
@@ -102,7 +122,15 @@ def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
 
 def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
+    hits_in = len(state["all_hits"])
     ranked = _orch._authority_rank_hits(state["all_hits"], conn)
+    if lf_trace is not None:
+        try:
+            sp = lf_trace.span(name="authority_ranking")
+            sp.end(metadata={"hits_in": hits_in, "hits_out": len(ranked)})
+        except Exception:
+            pass
     return {"all_hits": ranked}
 
 
@@ -110,9 +138,16 @@ def cross_ref_resolver_node(
     state: QueryState, config: RunnableConfig
 ) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
     additional = _orch._resolve_cross_refs(
         state["all_hits"], state["session_as_of"], conn
     )
+    if lf_trace is not None:
+        try:
+            sp = lf_trace.span(name="cross_ref_resolution")
+            sp.end(metadata={"cross_refs_added": len(additional)})
+        except Exception:
+            pass
     if not additional:
         return {}
     return {"all_hits": state["all_hits"] + additional}
@@ -120,6 +155,7 @@ def cross_ref_resolver_node(
 
 def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
     all_results: list[dict[str, Any]] = []
 
     for pending in state.get("_pending_results", []):
@@ -133,15 +169,36 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
                         result[field] = orig_claims[i][field]
         all_results.extend(validated)
 
+    if lf_trace is not None:
+        try:
+            sp = lf_trace.span(name="validation")
+            sp.end(
+                metadata={
+                    "claims_passed": sum(
+                        1 for r in all_results if not r.get("abstained")
+                    ),
+                    "claims_abstained": sum(
+                        1 for r in all_results if r.get("abstained")
+                    ),
+                }
+            )
+        except Exception:
+            pass
     return {"all_results": all_results}
 
 
 def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
-    """Compose final answer. Returns interrupt response immediately if interrupted."""
+    lf_trace = config["configurable"].get("lf_trace")
     session_as_of = state["session_as_of"]
     query_type = state["query_type"]
 
     if state.get("interrupted"):
+        if lf_trace is not None:
+            try:
+                lf_trace.update(output={"interrupted": True, "result_count": 0})
+                lf_trace.end()
+            except Exception:
+                pass
         return {
             "_response": {
                 "as_of": session_as_of.isoformat(),
@@ -157,15 +214,6 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
     all_hits = state["all_hits"]
     raw_query = state["raw_query"]
 
-    _orch._emit_answer_trace_from_state(
-        raw_query,
-        session_as_of,
-        query_type,
-        all_results,
-        all_hits,
-        state["wall_clock_start"],
-    )
-
     conflict_hits = [
         {
             "component_uri": h.get("component_uri", ""),
@@ -177,12 +225,33 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
         if h.get("conflict_flag")
     ]
 
-    composed = _orch._compose_answer(
-        state["facts"],
-        state["missing_facts"],
-        all_results,
-        conflict_hits,
+    composed = (
+        _orch._compose_answer(
+            state["facts"],
+            state["missing_facts"],
+            all_results,
+            conflict_hits,
+            session_as_of,
+            lf_trace=lf_trace,
+        )
+        if lf_trace is not None
+        else _orch._compose_answer(
+            state["facts"],
+            state["missing_facts"],
+            all_results,
+            conflict_hits,
+            session_as_of,
+        )
+    )
+
+    _orch._emit_answer_trace_from_state(
+        lf_trace,
+        raw_query,
         session_as_of,
+        query_type,
+        all_results,
+        all_hits,
+        state["wall_clock_start"],
     )
 
     if composed is None:
@@ -232,6 +301,24 @@ _graph = build_graph()
 
 
 def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
+    _lf = _get_lf_client()
+    lf_trace = None
+    if _lf is not None:
+        try:
+            s = _orch.get_settings()
+            trace_input = (
+                question
+                if s.LANGFUSE_LOG_CONTENT
+                else _hashlib.sha256(question.encode()).hexdigest()[:16]
+            )
+            lf_trace = _lf.trace(
+                name="rag.query",
+                input=trace_input,
+                metadata={"as_of": session_as_of.isoformat()},
+            )
+        except Exception:
+            pass
+
     initial: QueryState = {
         "raw_query": question,
         "session_as_of": session_as_of,
@@ -250,6 +337,16 @@ def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
     }
     result = _graph.invoke(
         initial,
-        config={"configurable": {"conn": conn}, "recursion_limit": 10},
+        config={
+            "configurable": {"conn": conn, "lf_trace": lf_trace},
+            "recursion_limit": 10,
+        },
     )
+
+    if _lf is not None:
+        try:
+            _lf.flush()
+        except Exception:
+            pass
+
     return cast(dict[str, Any], result["_response"])

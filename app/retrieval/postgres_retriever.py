@@ -18,7 +18,7 @@ _RELEVANCE_THRESHOLD = 0.005
 _lf_client: Any = None
 
 
-def _get_lf_client() -> Any | None:
+def get_lf_client() -> Any | None:
     if not get_settings().LANGFUSE_PUBLIC_KEY:
         return None
     global _lf_client
@@ -38,9 +38,13 @@ def _get_lf_client() -> Any | None:
 
 def _end_span(trace: Any, stage: str, **metadata: Any) -> None:
     """Create a span and immediately end it so Langfuse records endTime."""
-    if trace is not None:
+    if trace is None:
+        return
+    try:
         span = trace.span(name=f"stage.{stage}", metadata=metadata)
         span.end()
+    except Exception:
+        pass
 
 
 def _preprocess(text: str) -> str:
@@ -127,38 +131,41 @@ def _hit(
 
 
 def retrieve_postgres(
-    conn: connection, query: str, as_of: date, k: int = 5
+    conn: connection, query: str, as_of: date, k: int = 5, lf_trace: Any = None
 ) -> list[dict[str, Any]]:
     query = _preprocess(query)
     query_ne = translate_query(query)
     if query_ne is not None:
         query_ne = _preprocess(query_ne)
-    lf = _get_lf_client()
-    trace = (
-        lf.trace(
-            name="rag.retrieval",
-            metadata={
-                "query_hash": hashlib.sha256(query.encode()).hexdigest(),
-                "as_of": str(as_of),
-                "k": k,
-            },
-        )
-        if lf
-        else None
-    )
+    retrieval_span = None
+    if lf_trace is not None:
+        try:
+            retrieval_span = lf_trace.span(
+                name="retrieval",
+                metadata={
+                    "query_hash": hashlib.sha256(query.encode()).hexdigest()[:16],
+                    "as_of": str(as_of),
+                    "k": k,
+                },
+            )
+        except Exception:
+            pass
 
     t0 = time.monotonic()
     eligible = list(eligible_chunk_ids(conn, as_of))
     _end_span(
-        trace,
+        retrieval_span,
         "eligibility_gate",
         eligible_count=len(eligible),
         translation_ran=query_ne is not None,
         latency_ms=int((time.monotonic() - t0) * 1000),
     )
     if not eligible:
-        if lf:
-            lf.flush()
+        if retrieval_span:
+            try:
+                retrieval_span.end()
+            except Exception:
+                pass
         return []
 
     qvec = _embed_query(query)
@@ -203,7 +210,7 @@ def retrieve_postgres(
         vector_rows = vector_search(qvec)
         vector_rows_ne = vector_search(qvec_ne) if qvec_ne is not None else []
         _end_span(
-            trace,
+            retrieval_span,
             "vector_search",
             candidate_count=len(vector_rows) + len(vector_rows_ne),
             top_score=float(vector_rows[0][8 if len(vector_rows[0]) > 8 else 7])
@@ -221,7 +228,7 @@ def retrieve_postgres(
         if query_ne is not None:
             lexical_rows_ne = lexical_search(query_ne)
         _end_span(
-            trace,
+            retrieval_span,
             "lexical_search",
             ran=lexical_ran or query_ne is not None,
             candidate_count=len(lexical_rows) + len(lexical_rows_ne),
@@ -243,7 +250,7 @@ def retrieve_postgres(
     t0 = time.monotonic()
     rrf_scores = _rrf(ranked_lists)
     _end_span(
-        trace,
+        retrieval_span,
         "rrf_fusion",
         merged_count=len(rrf_scores),
         top_rrf_score=rrf_scores[0][1] if rrf_scores else 0.0,
@@ -257,21 +264,24 @@ def retrieve_postgres(
         if score >= _RELEVANCE_THRESHOLD
     ][: k * 2]
     _end_span(
-        trace,
+        retrieval_span,
         "relevance_gate",
         passed_count=len(candidates),
         abstained=not candidates,
         latency_ms=int((time.monotonic() - t0) * 1000),
     )
     if not candidates:
-        if lf:
-            lf.flush()
+        if retrieval_span:
+            try:
+                retrieval_span.end()
+            except Exception:
+                pass
         return []
 
     t0 = time.monotonic()
     ranked = rerank(query, candidates, k)
     _end_span(
-        trace,
+        retrieval_span,
         "rerank",
         ran=bool(get_settings().COHERE_API_KEY),
         final_count=len(ranked),
@@ -293,10 +303,21 @@ def retrieve_postgres(
         )
         full_rows = {str(row[0]): row for row in cur.fetchall()}
 
-    if lf:
-        lf.flush()
-    return [
+    result_hits = [
         _hit(full_rows[h["component_uri"]], h["score"], h.get("vector_score", 0.0))
         for h in ranked
         if h["component_uri"] in full_rows
     ]
+    top_vec = max((h.get("vector_score", 0.0) for h in result_hits), default=0.0)
+    if retrieval_span is not None:
+        try:
+            retrieval_span.end(
+                metadata={
+                    "eligible_count": len(eligible),
+                    "final_count": len(result_hits),
+                    "top_vector_score": round(top_vec, 4),
+                }
+            )
+        except Exception:
+            pass
+    return result_hits

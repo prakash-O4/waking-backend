@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import time
@@ -46,7 +45,7 @@ _CROSS_REF_RE = re.compile(
 )
 
 
-def _langfuse_callback() -> list[Any]:
+def _langfuse_callback(trace_id: str | None = None) -> list[Any]:
     settings = get_settings()
     if not settings.LANGFUSE_PUBLIC_KEY:
         return []
@@ -56,32 +55,14 @@ def _langfuse_callback() -> list[Any]:
         )
     except ImportError:
         return []
-
-    return [
-        LangfuseCallbackHandler(
-            public_key=settings.LANGFUSE_PUBLIC_KEY,
-            secret_key=settings.LANGFUSE_SECRET_KEY,
-            host=settings.LANGFUSE_HOST,
-        )
-    ]
-
-
-def _emit_answer_trace(metadata: dict[str, Any]) -> None:
-    settings = get_settings()
-    if not settings.LANGFUSE_PUBLIC_KEY:
-        return
-    try:
-        from langfuse import Langfuse  # type: ignore[import-not-found]
-    except ImportError:
-        return
-
-    client = Langfuse(
-        public_key=settings.LANGFUSE_PUBLIC_KEY,
-        secret_key=settings.LANGFUSE_SECRET_KEY,
-        host=settings.LANGFUSE_HOST,
-    )
-    client.trace(name="rag.answer", metadata=metadata)
-    client.flush()
+    kwargs: dict[str, Any] = {
+        "public_key": settings.LANGFUSE_PUBLIC_KEY,
+        "secret_key": settings.LANGFUSE_SECRET_KEY,
+        "host": settings.LANGFUSE_HOST,
+    }
+    if trace_id:
+        kwargs["trace_id"] = trace_id
+    return [LangfuseCallbackHandler(**kwargs)]
 
 
 def _elapsed_ms(start: float | None) -> int:
@@ -125,6 +106,7 @@ def _structured_claims(
     facts: Any,
     issue_queries: list[dict[str, Any]],
     ranked_hits: list[dict[str, Any]],
+    lf_trace: Any = None,
 ) -> dict[str, Any] | None:
     """Structured Azure gpt-4.1-mini reasoning over authority-ranked context."""
     s = get_settings()
@@ -178,7 +160,8 @@ def _structured_claims(
             api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
-        callbacks = _langfuse_callback()
+        trace_id = lf_trace.id if lf_trace is not None else None
+        callbacks = _langfuse_callback(trace_id)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -202,6 +185,7 @@ def _compose_answer(
     all_results: list[dict[str, Any]],
     conflict_hits: list[dict[str, Any]],
     session_as_of: date,
+    lf_trace: Any = None,
 ) -> dict[str, Any] | None:
     """Compose structured final answer using Gemini 2.5 Flash.
 
@@ -263,7 +247,8 @@ def _compose_answer(
             google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
         )
-        callbacks = _langfuse_callback()
+        trace_id = lf_trace.id if lf_trace is not None else None
+        callbacks = _langfuse_callback(trace_id)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -287,7 +272,9 @@ def _compose_answer(
         return None
 
 
-def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
+def _fact_extract(
+    question: str, session_as_of: date, lf_trace: Any = None
+) -> dict[str, Any]:
     """Extract structured facts and per-issue retrieval queries using Gemini 2.5 Flash.
 
     Failure mode: any exception or missing key → single raw query passthrough.
@@ -327,7 +314,8 @@ def _fact_extract(question: str, session_as_of: date) -> dict[str, Any]:
             temperature=0.0,
             max_output_tokens=1000,
         )
-        callbacks = _langfuse_callback()
+        trace_id = lf_trace.id if lf_trace is not None else None
+        callbacks = _langfuse_callback(trace_id)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -493,6 +481,7 @@ def _resolve_cross_refs(
 
 
 def _emit_answer_trace_from_state(
+    lf_trace: Any,
     raw_query: str,
     session_as_of: date,
     query_type: str,
@@ -500,12 +489,8 @@ def _emit_answer_trace_from_state(
     all_hits: list[dict[str, Any]],
     wall_clock_start: float,
 ) -> None:
-    """Extracted from answer() for graph node use."""
-    if not get_settings().LANGFUSE_PUBLIC_KEY:
-        return
-    try:
-        __import__("langfuse")
-    except ImportError:
+    """Update and end the root Langfuse trace with final pipeline metadata."""
+    if lf_trace is None:
         return
     s = get_settings()
     claims_passed = sum(1 for r in all_results if not r.get("abstained"))
@@ -514,26 +499,27 @@ def _emit_answer_trace_from_state(
         [hit.get("vector_score") or hit.get("score", 0.0) for hit in all_hits],
         reverse=True,
     )[:5]
-    metadata: dict[str, Any] = {
-        "query_hash": hashlib.sha256(raw_query.encode("utf-8")).hexdigest(),
-        "as_of": session_as_of.isoformat(),
-        "query_type": query_type,
-        "latency_ms": _elapsed_ms(wall_clock_start),
+    output: dict[str, Any] = {
         "gate_decision": "abstained" if not all_results else "answered",
         "result_count": len(all_results),
         "top_chunk_scores": top_chunk_scores,
+        "latency_ms": _elapsed_ms(wall_clock_start),
         "validation_claims_passed": claims_passed,
         "validation_claims_abstained": claims_abstained,
     }
     if s.LANGFUSE_LOG_CONTENT:
-        metadata["query"] = raw_query
+        output["query"] = raw_query
         for r in all_results:
             if not r.get("abstained"):
-                metadata["answer_summary"] = (
+                output["answer_summary"] = (
                     r.get("plain_language") or r.get("claim", "")[:200]
                 )
                 break
-    _emit_answer_trace(metadata)
+    try:
+        lf_trace.update(output=output)
+        lf_trace.end()
+    except Exception:
+        pass
 
 
 def answer(question: str, session_as_of: date, conn: connection) -> dict[str, Any]:
