@@ -45,9 +45,13 @@ def test_postgres_down_returns_503(monkeypatch: Any) -> None:
 def test_model_down_uses_extractive_claim_still_validated(monkeypatch: Any) -> None:
     hit = {"component_uri": "/law/1", "text_ne": "abcdef" * 100}
     seen: dict[str, Any] = {}
-    monkeypatch.setattr(orchestrator, "retrieve_postgres", lambda conn, q, a, k: [hit])
     monkeypatch.setattr(
-        orchestrator, "_structured_claims", lambda facts, issue_queries, hits: None
+        orchestrator, "retrieve_postgres", lambda conn, q, a, k=5, **kw: [hit]
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_structured_claims",
+        lambda facts, issue_queries, hits, **kw: None,
     )
 
     def validate(

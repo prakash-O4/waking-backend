@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib as _hashlib
-from datetime import date
+from datetime import date, datetime
 from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
@@ -17,13 +17,7 @@ from app.retrieval.query_state import QueryState
 
 def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     lf_trace = config["configurable"].get("lf_trace")
-    result = (
-        _orch._fact_extract(
-            state["raw_query"], state["session_as_of"], lf_trace=lf_trace
-        )
-        if lf_trace is not None
-        else _orch._fact_extract(state["raw_query"], state["session_as_of"])
-    )
+    result = _orch._fact_extract(state["raw_query"], state["session_as_of"], lf_trace=lf_trace)
     issue_queries = result["issue_queries"]
     missing_facts = result["missing_facts"]
 
@@ -61,13 +55,7 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     for idx, iq in enumerate(issue_queries):
         if _orch._wall_clock_expired(state["wall_clock_start"]):
             break
-        hits = (
-            _orch.retrieve_postgres(
-                conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace
-            )
-            if lf_trace is not None
-            else _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5)
-        )
+        hits = _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace)
         for h in hits:
             all_hits.append({**h, "_issue_idx": idx})
 
@@ -102,11 +90,7 @@ def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         if not issue_hits:
             continue
 
-        parsed = (
-            _orch._structured_claims(facts, [iq], issue_hits, lf_trace=lf_trace)
-            if lf_trace is not None
-            else _orch._structured_claims(facts, [iq], issue_hits)
-        )
+        parsed = _orch._structured_claims(facts, [iq], issue_hits, lf_trace=lf_trace)
         if parsed is None:
             claims = _orch._extractive_claim(issue_hits)
             query_type = "extractive"
@@ -195,8 +179,10 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
     if state.get("interrupted"):
         if lf_trace is not None:
             try:
-                lf_trace.update(output={"interrupted": True, "result_count": 0})
-                lf_trace.end()
+                lf_trace.update(
+                    output={"interrupted": True, "result_count": 0},
+                    end_time=datetime.now(),
+                )
             except Exception:
                 pass
         return {
@@ -225,23 +211,13 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
         if h.get("conflict_flag")
     ]
 
-    composed = (
-        _orch._compose_answer(
-            state["facts"],
-            state["missing_facts"],
-            all_results,
-            conflict_hits,
-            session_as_of,
-            lf_trace=lf_trace,
-        )
-        if lf_trace is not None
-        else _orch._compose_answer(
-            state["facts"],
-            state["missing_facts"],
-            all_results,
-            conflict_hits,
-            session_as_of,
-        )
+    composed = _orch._compose_answer(
+        state["facts"],
+        state["missing_facts"],
+        all_results,
+        conflict_hits,
+        session_as_of,
+        lf_trace=lf_trace,
     )
 
     _orch._emit_answer_trace_from_state(

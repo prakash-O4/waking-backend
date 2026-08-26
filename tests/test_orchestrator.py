@@ -27,7 +27,7 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
     seen: list[date] = []
 
     def retrieve(
-        conn: object, query: str, as_of: date, k: int = 5
+        conn: object, query: str, as_of: date, k: int = 5, **kwargs: Any
     ) -> list[dict[str, str]]:
         seen.append(as_of)
         return [{"component_uri": "/law/1", "text_ne": "text"}]
@@ -35,7 +35,7 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
-        lambda question, as_of: {
+        lambda question, as_of, **kw: {
             "facts": None,
             "missing_facts": [],
             "issue_queries": [
@@ -47,7 +47,7 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "_structured_claims",
-        lambda facts, issue_queries, hits: {
+        lambda facts, issue_queries, hits, **kw: {
             "claims": [
                 {
                     "claim": "ok",
@@ -74,7 +74,7 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
-        lambda question, as_of: {
+        lambda question, as_of, **kw: {
             "facts": {"parties": [], "events": [], "dates": [], "location": None},
             "missing_facts": [],
             "issue_queries": [
@@ -86,14 +86,14 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "retrieve_postgres",
-        lambda conn, query, as_of, k=5: [
+        lambda conn, query, as_of, k=5, **kw: [
             {"component_uri": f"/{query}", "text_ne": query}
         ],
     )
     monkeypatch.setattr(
         orchestrator,
         "_structured_claims",
-        lambda facts, issue_queries, hits: {
+        lambda facts, issue_queries, hits, **kw: {
             "claims": [
                 {
                     "claim": issue_queries[0]["query"],
@@ -126,7 +126,7 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
-        lambda question, as_of: {
+        lambda question, as_of, **kw: {
             "facts": None,
             "missing_facts": [],
             "issue_queries": [
@@ -142,14 +142,14 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "retrieve_postgres",
-        lambda conn, query, as_of, k=5: [
+        lambda conn, query, as_of, k=5, **kw: [
             {"component_uri": f"/{query}", "text_ne": query}
         ],
     )
     monkeypatch.setattr(
         orchestrator,
         "_structured_claims",
-        lambda facts, issue_queries, hits: {
+        lambda facts, issue_queries, hits, **kw: {
             "claims": [
                 {
                     "claim": issue_queries[0]["query"],
@@ -174,7 +174,7 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
-        lambda question, as_of: {
+        lambda question, as_of, **kw: {
             "facts": None,
             "missing_facts": [],
             "issue_queries": [
@@ -185,14 +185,14 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
     monkeypatch.setattr(
         orchestrator,
         "retrieve_postgres",
-        lambda conn, query, as_of, k=5: [
+        lambda conn, query, as_of, k=5, **kw: [
             {"component_uri": "/law/1", "text_ne": "text"}
         ],
     )
     monkeypatch.setattr(
         orchestrator,
         "_structured_claims",
-        lambda facts, issue_queries, hits: {
+        lambda facts, issue_queries, hits, **kw: {
             "claims": [
                 {
                     "claim": "ok",
@@ -669,7 +669,7 @@ def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) ->
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
-        lambda question, as_of: {
+        lambda question, as_of, **kw: {
             "facts": None,
             "missing_facts": [
                 {
@@ -685,7 +685,9 @@ def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) ->
 
     retrieve_called: list[Any] = []
 
-    def retrieve(conn: object, q: str, as_of: date, k: int = 5) -> list[Any]:
+    def retrieve(
+        conn: object, q: str, as_of: date, k: int = 5, **kwargs: Any
+    ) -> list[Any]:
         retrieve_called.append(1)
         return []
 

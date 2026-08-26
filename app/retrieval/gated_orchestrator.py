@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import Any, cast
 
 from psycopg2.extensions import connection
@@ -45,24 +45,14 @@ _CROSS_REF_RE = re.compile(
 )
 
 
-def _langfuse_callback(trace_id: str | None = None) -> list[Any]:
-    settings = get_settings()
-    if not settings.LANGFUSE_PUBLIC_KEY:
+def _get_lf_callbacks(lf_trace: Any) -> list[Any]:
+    """Return a LangChain callback list linked to the active trace, or empty."""
+    if lf_trace is None:
         return []
     try:
-        from langfuse.callback import (  # type: ignore[import-not-found]
-            CallbackHandler as LangfuseCallbackHandler,
-        )
-    except ImportError:
+        return [lf_trace.get_langchain_handler()]
+    except Exception:
         return []
-    kwargs: dict[str, Any] = {
-        "public_key": settings.LANGFUSE_PUBLIC_KEY,
-        "secret_key": settings.LANGFUSE_SECRET_KEY,
-        "host": settings.LANGFUSE_HOST,
-    }
-    if trace_id:
-        kwargs["trace_id"] = trace_id
-    return [LangfuseCallbackHandler(**kwargs)]
 
 
 def _elapsed_ms(start: float | None) -> int:
@@ -160,8 +150,7 @@ def _structured_claims(
             api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
-        trace_id = lf_trace.id if lf_trace is not None else None
-        callbacks = _langfuse_callback(trace_id)
+        callbacks = _get_lf_callbacks(lf_trace)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -171,7 +160,7 @@ def _structured_claims(
         )
         if callbacks:
             try:
-                callbacks[0].langfuse.flush()
+                callbacks[0].flush()
             except Exception:
                 pass
         return cast(dict[str, Any], json.loads(str(resp.content).strip()))
@@ -247,8 +236,7 @@ def _compose_answer(
             google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
         )
-        trace_id = lf_trace.id if lf_trace is not None else None
-        callbacks = _langfuse_callback(trace_id)
+        callbacks = _get_lf_callbacks(lf_trace)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -258,7 +246,7 @@ def _compose_answer(
         )
         if callbacks:
             try:
-                callbacks[0].langfuse.flush()
+                callbacks[0].flush()
             except Exception:
                 pass
         raw = str(resp.content).strip()
@@ -314,8 +302,7 @@ def _fact_extract(
             temperature=0.0,
             max_output_tokens=1000,
         )
-        trace_id = lf_trace.id if lf_trace is not None else None
-        callbacks = _langfuse_callback(trace_id)
+        callbacks = _get_lf_callbacks(lf_trace)
         resp = llm.invoke(
             [
                 {"role": "system", "content": system},
@@ -325,7 +312,7 @@ def _fact_extract(
         )
         if callbacks:
             try:
-                callbacks[0].langfuse.flush()
+                callbacks[0].flush()
             except Exception:
                 pass
         parsed = cast(dict[str, Any], json.loads(str(resp.content).strip()))
@@ -516,8 +503,7 @@ def _emit_answer_trace_from_state(
                 )
                 break
     try:
-        lf_trace.update(output=output)
-        lf_trace.end()
+        lf_trace.update(output=output, end_time=datetime.now())
     except Exception:
         pass
 
