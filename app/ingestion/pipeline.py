@@ -154,6 +154,21 @@ class IngestionPipeline:
             source_type = "act"
         source_id = str(record.get("_id") or record.get("name") or "")
         content_hash = _content_hash(content)
+
+        # Idempotency check before any Langfuse trace is created — skipped
+        # records produce no trace (no noise in observability dashboard).
+        t0 = time.monotonic()
+        existing = self._find_existing(source_type, source_id)
+        elapsed = time.monotonic() - t0
+        if existing and existing[1] == content_hash:
+            logger.info(f"{source_id}: unchanged content_hash, skipping")
+            self.last_outcome = "skipped"
+            print(
+                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
+                flush=True,
+            )
+            return None
+
         lf = _get_lf_client()
         trace = (
             lf.trace(
@@ -179,19 +194,6 @@ class IngestionPipeline:
                 "content_len": len(content),
             },
         )
-        existing = self._find_existing(source_type, source_id)
-        elapsed = time.monotonic() - t0
-        if existing and existing[1] == content_hash:
-            logger.info(f"{source_id}: unchanged content_hash, skipping")
-            self.last_outcome = "skipped"
-            _end_span(span, {"outcome": "skipped", "is_amendment": False})
-            print(
-                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
-                flush=True,
-            )
-            _end_trace(trace, {"outcome": "skipped", "chunk_count": 0})
-            _flush(lf)
-            return None
 
         law = parse_law(record)
         work_id = upsert_work(self._conn, law)
@@ -377,6 +379,21 @@ class IngestionPipeline:
         full_text = str(record.get("full_text") or "")
         source_id = str(record.get("case_id") or "")
         content_hash = _content_hash(full_text)
+
+        # Idempotency check before any Langfuse trace is created — skipped
+        # records produce no trace (no noise in observability dashboard).
+        t0 = time.monotonic()
+        existing = self._find_existing("nkp_case", source_id)
+        elapsed = time.monotonic() - t0
+        if existing and existing[1] == content_hash:
+            logger.info(f"{source_id}: unchanged content_hash, skipping")
+            self.last_outcome = "skipped"
+            print(
+                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
+                flush=True,
+            )
+            return None
+
         lf = _get_lf_client()
         trace = (
             lf.trace(
@@ -402,19 +419,6 @@ class IngestionPipeline:
                 "content_len": len(full_text),
             },
         )
-        existing = self._find_existing("nkp_case", source_id)
-        elapsed = time.monotonic() - t0
-        if existing and existing[1] == content_hash:
-            logger.info(f"{source_id}: unchanged content_hash, skipping")
-            self.last_outcome = "skipped"
-            _end_span(span, {"outcome": "skipped", "is_amendment": False})
-            print(
-                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
-                flush=True,
-            )
-            _end_trace(trace, {"outcome": "skipped", "chunk_count": 0})
-            _flush(lf)
-            return None
         if existing:
             document_id = existing[0]
             self._execute(
