@@ -11,6 +11,7 @@ failures quarantine, LLM failures leave NULL columns.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import time
 import unicodedata
@@ -62,13 +63,37 @@ def _get_lf_client() -> Any | None:
     return _lf_client
 
 
-def _span(trace: Any, stage: str, *, outcome: str, latency_ms: int) -> None:
+def _begin_span(trace: Any, stage: str, input: dict) -> Any:
+    if trace is None:
+        return None
+    try:
+        return trace.span(name=f"stage.{stage}", input=input)
+    except Exception:
+        return None
+
+
+def _end_span(span: Any, output: dict) -> None:
+    if span is None:
+        return
+    try:
+        span.end(output=output)
+    except Exception:
+        pass
+
+
+def _fmt_latency(s: float) -> str:
+    return f"{int(s * 1000)}ms" if s < 1.0 else f"{s:.1f}s"
+
+
+def _end_trace(trace: Any, output: dict | None = None) -> None:
     if trace is None:
         return
-    trace.span(
-        name=f"stage.{stage}",
-        metadata={"outcome": outcome, "latency_ms": latency_ms},
-    )
+    try:
+        if output is not None:
+            trace.update(output=output)
+        trace.end()
+    except Exception:
+        pass
 
 
 def _flush(lf: Any) -> None:
@@ -122,6 +147,7 @@ class IngestionPipeline:
 
     def ingest_law(self, record: dict[str, Any]) -> str | None:
         """Run stages 1–8 for a laws.jsonl record. Returns document_id or None."""
+        record_start = time.monotonic()
         content = str(record.get("content") or "")
         source_type = str(record.get("document_type") or "act")
         if source_type not in ("act", "regulation"):
@@ -132,36 +158,44 @@ class IngestionPipeline:
         trace = (
             lf.trace(
                 name="ingestion.law",
+                input={
+                    "source_id": source_id,
+                    "source_type": source_type,
+                    "content_len": len(content),
+                },
                 metadata={"source_id": source_id, "source_type": source_type},
             )
             if lf
             else None
         )
 
-        # Stage 1 — LOAD (idempotency check before any paid work).
         t0 = time.monotonic()
+        span = _begin_span(
+            trace,
+            "LOAD",
+            {
+                "source_id": source_id,
+                "source_type": source_type,
+                "content_len": len(content),
+            },
+        )
         existing = self._find_existing(source_type, source_id)
+        elapsed = time.monotonic() - t0
         if existing and existing[1] == content_hash:
             logger.info(f"{source_id}: unchanged content_hash, skipping")
             self.last_outcome = "skipped"
-            _span(
-                trace,
-                "LOAD",
-                outcome="skipped",
-                latency_ms=int((time.monotonic() - t0) * 1000),
+            _end_span(span, {"outcome": "skipped", "is_amendment": False})
+            print(
+                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
+                flush=True,
             )
+            _end_trace(trace, {"outcome": "skipped", "chunk_count": 0})
             _flush(lf)
             return None
 
-        # The work row is upserted during document load (design §3.2).
         law = parse_law(record)
         work_id = upsert_work(self._conn, law)
-
         if existing:
-            # Amended source. UNIQUE(source_type, source_id) forbids a second
-            # row, so the existing row is reset to pending with a fresh
-            # valid_time range (the old range is closed by replacement) and
-            # approvers are cleared — never an in-place approval carry-over.
             document_id = existing[0]
             self._execute(
                 """
@@ -178,65 +212,76 @@ class IngestionPipeline:
             document_id = self._insert_document(
                 source_type, source_id, content_hash, content
             )
-        _span(
-            trace,
-            "LOAD",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        _end_span(span, {"outcome": "passed", "is_amendment": bool(existing)})
+        print(
+            f"  {'LOAD':<12} {_fmt_latency(elapsed)}  new document · {len(content):,} chars",
+            flush=True,
         )
 
-        # Stage 2 — VALIDATE.
         t0 = time.monotonic()
-        if not content.strip() or not _DAFA_ANCHOR_RE.search(content):
+        span = _begin_span(trace, "VALIDATE", {"content_len": len(content)})
+        has_dafa = bool(content.strip() and _DAFA_ANCHOR_RE.search(content))
+        elapsed = time.monotonic() - t0
+        if not has_dafa:
             logger.warning(f"{source_id}: no दफा heading found, rejecting")
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
-            _span(
-                trace,
-                "VALIDATE",
-                outcome="rejected",
-                latency_ms=int((time.monotonic() - t0) * 1000),
+            _end_span(span, {"outcome": "rejected", "has_dafa_anchor": False})
+            print(
+                f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  दफा anchor missing",
+                flush=True,
             )
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
             _flush(lf)
             return None
-        _span(
-            trace,
-            "VALIDATE",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        _end_span(span, {"outcome": "passed", "has_dafa_anchor": True})
+        print(
+            f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  दफा anchor found", flush=True
         )
 
-        # Stage 4 — CHUNK.
         t0 = time.monotonic()
+        span = _begin_span(trace, "CHUNK", {"content_len": len(content)})
         chunks = self._laws_chunker.chunk_text(content)
+        elapsed = time.monotonic() - t0
         if not chunks:
             logger.warning(f"{source_id}: chunker produced no chunks, rejecting")
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
-            _span(
-                trace,
-                "CHUNK",
-                outcome="rejected",
-                latency_ms=int((time.monotonic() - t0) * 1000),
-            )
+            _end_span(span, {"outcome": "rejected", "chunk_count": 0})
+            print(f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → 0 chunks", flush=True)
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
             _flush(lf)
             return None
-        _span(
-            trace,
-            "CHUNK",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        _end_span(span, {"outcome": "passed", "chunk_count": len(chunks)})
+        print(
+            f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → {len(chunks)} chunks",
+            flush=True,
         )
 
-        # Stage 5 — EXTRACT_METADATA (haiku; failures leave NULL columns).
+        batch_count = math.ceil(len(chunks) / metadata_enricher.CHUNK_BATCH_SIZE)
+        span = _begin_span(
+            trace,
+            "EXTRACT_METADATA",
+            {
+                "chunk_count": len(chunks),
+                "batch_count": batch_count,
+                "llm_calls": 1 + batch_count if self._enable_llm else 0,
+            },
+        )
         t0 = time.monotonic()
         metadata_outcome = "passed"
         summary: str | None = None
+        llm_calls = in_tok = out_tok = 0
         if self._enable_llm:
             try:
-                for meta in metadata_enricher.enrich_law_chunks(record, chunks):
+                metadata, llm_calls, in_tok, out_tok = (
+                    metadata_enricher.enrich_law_chunks(record, chunks, lf_parent=span)
+                )
+                for meta in metadata:
                     index = meta["chunk_index"]
                     chunks[index].keywords = meta.get("keywords")
                     chunks[index].relevant_questions = meta.get("relevant_questions")
@@ -244,21 +289,33 @@ class IngestionPipeline:
             except Exception as exc:  # noqa: BLE001 — NULL columns, never crash
                 metadata_outcome = "failed"
                 logger.warning(f"{source_id}: metadata extraction failed: {exc}")
-        _span(
-            trace,
-            "EXTRACT_METADATA",
-            outcome=metadata_outcome,
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        elapsed = time.monotonic() - t0
+        _end_span(
+            span,
+            {
+                "outcome": metadata_outcome,
+                "llm_calls": llm_calls,
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "summary_extracted": bool(summary),
+                "keywords_extracted": sum(1 for c in chunks if c.keywords),
+            },
+        )
+        print(
+            f"  {'EXTRACT_META':<12} {_fmt_latency(elapsed)}  {llm_calls} LLM calls · {in_tok:,} in + {out_tok:,} out tok",
+            flush=True,
         )
 
-        # effective_date_ad: denormalized cache of the approved commence effect,
-        # NULL-pending when unverified (PS-2 — never parsed from text).
         for chunk in chunks:
             chunk.effective_date_ad = self._commence_date(law.uri, chunk.section_number)
 
-        # Stages 6–7 — EMBED + UPSERT.
+        embed_span = _begin_span(
+            trace, "EMBED_AND_UPSERT", {"chunk_count": len(chunks)}
+        )
         t0 = time.monotonic()
-        embeddings = self._embed([c.embed_text for c in chunks])
+        embeddings, embed_tok = self._embed(
+            [c.embed_text for c in chunks], lf_parent=embed_span
+        )
         document = {
             "source_type": source_type,
             "source_id": source_id,
@@ -273,22 +330,41 @@ class IngestionPipeline:
         }
         document_id = self._indexer.upsert_document(document, chunks, embeddings)
         self._conn.commit()
-        _span(
-            trace,
-            "EMBED_AND_UPSERT",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        elapsed = time.monotonic() - t0
+        _end_span(
+            embed_span,
+            {
+                "outcome": "passed",
+                "document_id": document_id,
+                "total_embedding_tokens": embed_tok,
+            },
+        )
+        print(
+            f"  {'EMBED+UPSERT':<12} {_fmt_latency(elapsed)}  {len(chunks)} chunks · {embed_tok:,} embed tok",
+            flush=True,
         )
 
-        # Stage 8 — DUAL APPROVAL PAUSE (PS-2): nothing is searchable yet.
+        span = _begin_span(trace, "DUAL_APPROVAL_PAUSE", {"document_id": document_id})
         t0 = time.monotonic()
         logger.info(f"document {document_id} awaiting dual approval.")
         self.last_outcome = "ingested"
-        _span(
+        elapsed = time.monotonic() - t0
+        _end_span(span, {"outcome": "ingested", "status": "pending"})
+        print(f"  {'DUAL_APPROVAL':<12} {_fmt_latency(elapsed)}  pending", flush=True)
+        _end_trace(
             trace,
-            "DUAL_APPROVAL_PAUSE",
-            outcome="ingested",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+            {
+                "outcome": "ingested",
+                "chunk_count": len(chunks),
+                "total_llm_calls": llm_calls,
+                "total_input_tokens": in_tok,
+                "total_output_tokens": out_tok,
+                "total_embedding_tokens": embed_tok,
+            },
+        )
+        print(
+            f"  {'total':<12} {_fmt_latency(time.monotonic() - record_start)}",
+            flush=True,
         )
         _flush(lf)
         return document_id
@@ -297,6 +373,7 @@ class IngestionPipeline:
 
     def ingest_nkp_case(self, record: dict[str, Any]) -> str | None:
         """Run stages 1–8 for an nkp_cases.jsonl record."""
+        record_start = time.monotonic()
         full_text = str(record.get("full_text") or "")
         source_id = str(record.get("case_id") or "")
         content_hash = _content_hash(full_text)
@@ -304,24 +381,38 @@ class IngestionPipeline:
         trace = (
             lf.trace(
                 name="ingestion.nkp_case",
+                input={
+                    "source_id": source_id,
+                    "source_type": "nkp_case",
+                    "content_len": len(full_text),
+                },
                 metadata={"source_id": source_id, "source_type": "nkp_case"},
             )
             if lf
             else None
         )
 
-        # Stage 1 — LOAD.
         t0 = time.monotonic()
+        span = _begin_span(
+            trace,
+            "LOAD",
+            {
+                "source_id": source_id,
+                "source_type": "nkp_case",
+                "content_len": len(full_text),
+            },
+        )
         existing = self._find_existing("nkp_case", source_id)
+        elapsed = time.monotonic() - t0
         if existing and existing[1] == content_hash:
             logger.info(f"{source_id}: unchanged content_hash, skipping")
             self.last_outcome = "skipped"
-            _span(
-                trace,
-                "LOAD",
-                outcome="skipped",
-                latency_ms=int((time.monotonic() - t0) * 1000),
+            _end_span(span, {"outcome": "skipped", "is_amendment": False})
+            print(
+                f"  {'LOAD':<12} {_fmt_latency(elapsed)}  skipped (unchanged)",
+                flush=True,
             )
+            _end_trace(trace, {"outcome": "skipped", "chunk_count": 0})
             _flush(lf)
             return None
         if existing:
@@ -338,40 +429,36 @@ class IngestionPipeline:
                 (content_hash, document_id),
             )
         else:
-            # raw_content is filled with the REDACTED text at upsert time;
-            # unredacted NKP content only ever lands in pii_vault (PS-14).
             document_id = self._insert_document("nkp_case", source_id, content_hash, "")
-        _span(
-            trace,
-            "LOAD",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        _end_span(span, {"outcome": "passed", "is_amendment": bool(existing)})
+        print(
+            f"  {'LOAD':<12} {_fmt_latency(elapsed)}  new document · {len(full_text):,} chars",
+            flush=True,
         )
 
-        # Stage 2 — VALIDATE.
         t0 = time.monotonic()
-        if not full_text.strip():
+        span = _begin_span(trace, "VALIDATE", {"content_len": len(full_text)})
+        is_valid = bool(full_text.strip())
+        elapsed = time.monotonic() - t0
+        if not is_valid:
             logger.warning(f"{source_id}: empty full_text, rejecting")
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
-            _span(
-                trace,
-                "VALIDATE",
-                outcome="rejected",
-                latency_ms=int((time.monotonic() - t0) * 1000),
+            _end_span(span, {"outcome": "rejected", "has_dafa_anchor": False})
+            print(
+                f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  empty full_text",
+                flush=True,
             )
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
             _flush(lf)
             return None
-        _span(
-            trace,
-            "VALIDATE",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
-        )
+        _end_span(span, {"outcome": "passed", "has_dafa_anchor": False})
+        print(f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  non-empty text", flush=True)
 
-        # Stage 3 — REDACT_PII.
         t0 = time.monotonic()
+        span = _begin_span(trace, "REDACT_PII", {"content_len": len(full_text)})
         appellant = str(record.get("appellant") or "")
         respondent = str(record.get("respondent") or "")
         try:
@@ -381,7 +468,6 @@ class IngestionPipeline:
             for warning in warnings:
                 logger.warning(f"{source_id}: redaction warning: {warning}")
         except RedactionVerificationError as exc:
-            # Quarantine: stays pending + flagged, never silently passed.
             logger.error(f"{source_id}: redaction verification failed: {exc}")
             self._execute(
                 "UPDATE documents SET redaction_failed = TRUE WHERE id = %s",
@@ -389,45 +475,49 @@ class IngestionPipeline:
             )
             self._conn.commit()
             self.last_outcome = "quarantined"
-            _span(
-                trace,
-                "REDACT_PII",
-                outcome="quarantined",
-                latency_ms=int((time.monotonic() - t0) * 1000),
+            elapsed = time.monotonic() - t0
+            _end_span(span, {"outcome": "quarantined", "warning_count": 0})
+            print(
+                f"  {'REDACT_PII':<12} {_fmt_latency(elapsed)}  quarantined", flush=True
             )
+            _end_trace(trace, {"outcome": "quarantined", "chunk_count": 0})
             _flush(lf)
             return None
-        _span(
-            trace,
-            "REDACT_PII",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        elapsed = time.monotonic() - t0
+        _end_span(
+            span,
+            {
+                "outcome": "passed",
+                "warning_count": len(warnings),
+                "content_len": len(redacted_text),
+            },
+        )
+        print(
+            f"  {'REDACT_PII':<12} {_fmt_latency(elapsed)}  {len(warnings)} warnings",
+            flush=True,
         )
 
-        # Stage 4 — CHUNK (on redacted text).
         t0 = time.monotonic()
+        span = _begin_span(trace, "CHUNK", {"content_len": len(redacted_text)})
         chunks = self._nkp_chunker.chunk_text(redacted_text)
+        elapsed = time.monotonic() - t0
         if not chunks:
             logger.warning(f"{source_id}: chunker produced no chunks, rejecting")
             self._set_status(document_id, "rejected")
             self._conn.commit()
             self.last_outcome = "rejected"
-            _span(
-                trace,
-                "CHUNK",
-                outcome="rejected",
-                latency_ms=int((time.monotonic() - t0) * 1000),
-            )
+            _end_span(span, {"outcome": "rejected", "chunk_count": 0})
+            print(f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → 0 chunks", flush=True)
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
             _flush(lf)
             return None
-        _span(
-            trace,
-            "CHUNK",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        _end_span(span, {"outcome": "passed", "chunk_count": len(chunks)})
+        print(
+            f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → {len(chunks)} chunks",
+            flush=True,
         )
 
-        # Deterministic case metadata (design §3.1).
         decision_date_ad, is_boundary = parse_decision_date(
             str(record.get("decision_date") or "")
         )
@@ -443,15 +533,28 @@ class IngestionPipeline:
         headnote_count = sum(1 for c in chunks if c.section_type == "headnote")
         is_landmark = bench_type in _LANDMARK_BENCHES or headnote_count >= 2
 
-        # Stage 5 — EXTRACT_METADATA.
+        batch_count = math.ceil(len(chunks) / metadata_enricher.CHUNK_BATCH_SIZE)
+        span = _begin_span(
+            trace,
+            "EXTRACT_METADATA",
+            {
+                "chunk_count": len(chunks),
+                "batch_count": batch_count,
+                "llm_calls": 1 + batch_count if self._enable_llm else 0,
+            },
+        )
         t0 = time.monotonic()
         metadata_outcome = "passed"
         cited_statutes: list[str] | None = None
         headnotes: str | None = None
         summary: str | None = None
+        llm_calls = in_tok = out_tok = 0
         if self._enable_llm:
             try:
-                for meta in metadata_enricher.enrich_nkp_chunks(record, chunks):
+                metadata, llm_calls, in_tok, out_tok = (
+                    metadata_enricher.enrich_nkp_chunks(record, chunks, lf_parent=span)
+                )
+                for meta in metadata:
                     index = meta["chunk_index"]
                     chunks[index].keywords = meta.get("keywords")
                     chunks[index].relevant_questions = meta.get("relevant_questions")
@@ -462,16 +565,30 @@ class IngestionPipeline:
                 metadata_outcome = "failed"
                 logger.warning(f"{source_id}: metadata extraction failed: {exc}")
             cited_statutes = self._validate_cited_statutes(cited_statutes)
-        _span(
-            trace,
-            "EXTRACT_METADATA",
-            outcome=metadata_outcome,
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        elapsed = time.monotonic() - t0
+        _end_span(
+            span,
+            {
+                "outcome": metadata_outcome,
+                "llm_calls": llm_calls,
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "summary_extracted": bool(summary),
+                "keywords_extracted": sum(1 for c in chunks if c.keywords),
+            },
+        )
+        print(
+            f"  {'EXTRACT_META':<12} {_fmt_latency(elapsed)}  {llm_calls} LLM calls · {in_tok:,} in + {out_tok:,} out tok",
+            flush=True,
         )
 
-        # Stages 6–7 — EMBED + UPSERT (+ pii_vault for the raw text, PS-14).
+        embed_span = _begin_span(
+            trace, "EMBED_AND_UPSERT", {"chunk_count": len(chunks)}
+        )
         t0 = time.monotonic()
-        embeddings = self._embed([c.embed_text for c in chunks])
+        embeddings, embed_tok = self._embed(
+            [c.embed_text for c in chunks], lf_parent=embed_span
+        )
         document = {
             "source_type": "nkp_case",
             "source_id": source_id,
@@ -493,22 +610,41 @@ class IngestionPipeline:
         document_id = self._indexer.upsert_document(document, chunks, embeddings)
         self._indexer.insert_pii_vault(document_id, appellant, respondent, full_text)
         self._conn.commit()
-        _span(
-            trace,
-            "EMBED_AND_UPSERT",
-            outcome="passed",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+        elapsed = time.monotonic() - t0
+        _end_span(
+            embed_span,
+            {
+                "outcome": "passed",
+                "document_id": document_id,
+                "total_embedding_tokens": embed_tok,
+            },
+        )
+        print(
+            f"  {'EMBED+UPSERT':<12} {_fmt_latency(elapsed)}  {len(chunks)} chunks · {embed_tok:,} embed tok",
+            flush=True,
         )
 
-        # Stage 8 — DUAL APPROVAL PAUSE (PS-2).
+        span = _begin_span(trace, "DUAL_APPROVAL_PAUSE", {"document_id": document_id})
         t0 = time.monotonic()
         logger.info(f"document {document_id} awaiting dual approval.")
         self.last_outcome = "ingested"
-        _span(
+        elapsed = time.monotonic() - t0
+        _end_span(span, {"outcome": "ingested", "status": "pending"})
+        print(f"  {'DUAL_APPROVAL':<12} {_fmt_latency(elapsed)}  pending", flush=True)
+        _end_trace(
             trace,
-            "DUAL_APPROVAL_PAUSE",
-            outcome="ingested",
-            latency_ms=int((time.monotonic() - t0) * 1000),
+            {
+                "outcome": "ingested",
+                "chunk_count": len(chunks),
+                "total_llm_calls": llm_calls,
+                "total_input_tokens": in_tok,
+                "total_output_tokens": out_tok,
+                "total_embedding_tokens": embed_tok,
+            },
+        )
+        print(
+            f"  {'total':<12} {_fmt_latency(time.monotonic() - record_start)}",
+            flush=True,
         )
         _flush(lf)
         return document_id
@@ -598,5 +734,7 @@ class IngestionPipeline:
             return None
         return validated or None
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        return self._indexer.embed_chunks(texts)
+    def _embed(
+        self, texts: list[str], lf_parent: Any = None
+    ) -> tuple[list[list[float]], int]:
+        return self._indexer.embed_chunks(texts, lf_parent=lf_parent)

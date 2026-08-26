@@ -63,16 +63,60 @@ def _parse_json(raw: str, expected: type) -> Any:
     return json.loads(raw[start : end + 1])
 
 
-def _call_llm(prompt: str) -> str:
-    """One LLM call with exponential backoff on transient failures (max 3 retries)."""
+def _call_llm(
+    prompt: str,
+    lf_parent: Any = None,
+    generation_name: str = "llm_call",
+) -> tuple[str, dict]:
+    """One LLM call with exponential backoff. Returns (content, usage)."""
     from langchain_core.messages import HumanMessage
 
+    settings = get_settings()
     delay = 1.0
     for attempt in range(MAX_RETRIES + 1):
+        gen = None
         try:
+            if lf_parent is not None:
+                gen_input = (
+                    prompt
+                    if settings.LANGFUSE_LOG_CONTENT
+                    else f"[redacted {len(prompt)} chars]"
+                )
+                try:
+                    gen = lf_parent.generation(
+                        name=generation_name,
+                        model=settings.AZURE_OPENAI_LLM_DEPLOYMENT,
+                        input=gen_input,
+                    )
+                except Exception:  # noqa: BLE001 — tracing must not affect ingest
+                    gen = None
             response = _get_llm().invoke([HumanMessage(content=prompt)])
-            return response.content
+            content = str(response.content)
+            usage = getattr(response, "response_metadata", {}).get("token_usage", {})
+            if gen is not None:
+                gen_output = (
+                    content
+                    if settings.LANGFUSE_LOG_CONTENT
+                    else f"[redacted {len(content)} chars]"
+                )
+                try:
+                    gen.end(
+                        output=gen_output,
+                        usage_details={
+                            "input": usage.get("prompt_tokens", 0),
+                            "output": usage.get("completion_tokens", 0),
+                            "total": usage.get("total_tokens", 0),
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return content, usage
         except Exception as exc:  # noqa: BLE001 — provider-agnostic retry
+            if gen is not None:
+                try:
+                    gen.end(level="ERROR", status_message=str(exc))
+                except Exception:  # noqa: BLE001
+                    pass
             if attempt == MAX_RETRIES:
                 raise
             logger.warning(
@@ -135,80 +179,100 @@ def _apply_chunk_metadata(
     return metadata
 
 
-def _parallel_chunk_metadata(chunks: list[Any], intro: str) -> list[dict[str, Any]]:
-    """Split chunks into CHUNK_BATCH_SIZE groups, call LLM on each concurrently
-    (≤ MAX_CONCURRENT_LLM at a time), merge results by chunk_index."""
+def _parallel_chunk_metadata(
+    chunks: list[Any], intro: str, lf_parent: Any = None
+) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Returns (metadata, batch_count, total_input_tokens, total_output_tokens)."""
     metadata = _empty_chunk_metadata(chunks)
     batches = [
         chunks[i : i + CHUNK_BATCH_SIZE]
         for i in range(0, len(chunks), CHUNK_BATCH_SIZE)
     ]
 
-    def _process(batch: list[Any]) -> list[dict[str, Any]]:
-        return _apply_chunk_metadata(batch, _call_llm(_chunk_metadata_prompt(batch, intro)))
+    def _process(batch: list[Any], batch_idx: int) -> tuple[list[dict[str, Any]], dict]:
+        raw, usage = _call_llm(
+            _chunk_metadata_prompt(batch, intro),
+            lf_parent=lf_parent,
+            generation_name=f"chunk_keywords_batch_{batch_idx}",
+        )
+        return _apply_chunk_metadata(batch, raw), usage
 
+    total_in = total_out = 0
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LLM) as pool:
-        futures = {pool.submit(_process, batch): batch for batch in batches}
+        futures = {
+            pool.submit(_process, batch, idx): batch
+            for idx, batch in enumerate(batches)
+        }
         for future in as_completed(futures):
             try:
-                for entry in future.result():
+                batch_meta, usage = future.result()
+                total_in += usage.get("prompt_tokens", 0)
+                total_out += usage.get("completion_tokens", 0)
+                for entry in batch_meta:
                     metadata[entry["chunk_index"]].update(entry)
             except Exception as exc:  # noqa: BLE001 — leave NULL, never crash
                 logger.warning(f"parallel chunk-metadata batch failed: {exc}")
 
-    return metadata
+    return metadata, len(batches), total_in, total_out
 
 
 def enrich_law_chunks(
-    act_record: dict[str, Any], chunks: list[LawChunk]
-) -> list[dict[str, Any]]:
-    """
-    Two LLM calls per act:
-    1. Document-level summary of the act.
-    2. Per-chunk keywords + relevant_questions.
-    Returns metadata dicts aligned by chunk_index; each carries the act summary.
-    """
+    act_record: dict[str, Any],
+    chunks: list[LawChunk],
+    lf_parent: Any = None,
+) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Returns (metadata, llm_call_count, total_input_tokens, total_output_tokens)."""
     if not chunks:
-        return []
+        return [], 0, 0, 0
     act_name = act_record.get("name", "")
     sample_text = "\n\n".join(c.chunk_text for c in chunks[:5])
 
     doc_extra: dict[str, Any] = {"summary": None}
+    total_in = total_out = 0
     try:
-        raw = _call_llm(
+        raw, usage = _call_llm(
             f"You are indexing the Nepali act «{act_name}» for legal search.\n"
             "Write a 2-3 sentence Nepali summary: what this act governs and its key provisions.\n"
             'Return ONLY JSON: {"summary": "..."}'
-            f"\n\nAct excerpt:\n{sample_text[:8000]}"
+            f"\n\nAct excerpt:\n{sample_text[:8000]}",
+            lf_parent=lf_parent,
+            generation_name="act_summary",
         )
+        total_in += usage.get("prompt_tokens", 0)
+        total_out += usage.get("completion_tokens", 0)
         parsed = _parse_json(raw, dict)
         doc_extra["summary"] = parsed.get("summary") or None
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm act summary not parseable, left NULL: {exc}")
 
-    metadata = _parallel_chunk_metadata(
-        chunks, f"You are indexing the Nepali act «{act_name}» for legal search."
+    metadata, batch_count, chunk_in, chunk_out = _parallel_chunk_metadata(
+        chunks,
+        f"You are indexing the Nepali act «{act_name}» for legal search.",
+        lf_parent=lf_parent,
     )
+    total_in += chunk_in
+    total_out += chunk_out
     for entry in metadata:
         entry.update(doc_extra)
-    return metadata
+    return metadata, 1 + batch_count, total_in, total_out
 
 
 def enrich_nkp_chunks(
-    case_record: dict[str, Any], chunks: list[NKPChunk]
-) -> list[dict[str, Any]]:
-    """
-    Two LLM calls per case:
-    1. cited_statutes + headnotes cleanup over the full redacted text.
-    2. keywords + relevant_questions per chunk (single batched call).
-    Returns metadata dicts aligned by chunk_index; each also carries the
-    document-level cited_statutes / headnotes.
-    """
+    case_record: dict[str, Any],
+    chunks: list[NKPChunk],
+    lf_parent: Any = None,
+) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Returns (metadata, llm_call_count, total_input_tokens, total_output_tokens)."""
     full_text = "\n\n".join(chunk.chunk_text for chunk in chunks)
 
-    doc_extra: dict[str, Any] = {"cited_statutes": None, "headnotes": None, "summary": None}
+    doc_extra: dict[str, Any] = {
+        "cited_statutes": None,
+        "headnotes": None,
+        "summary": None,
+    }
+    total_in = total_out = 0
     try:
-        raw = _call_llm(
+        raw, usage = _call_llm(
             "You are indexing a Nepali Supreme Court decision for legal search.\n"
             "From the redacted full text below, extract:\n"
             '- "cited_statutes": names of Nepali acts/regulations cited (Nepali)\n'
@@ -216,8 +280,12 @@ def enrich_nkp_chunks(
             '- "summary": 2-3 sentence Nepali summary — case topic, legal question decided, and outcome\n'
             "Return ONLY JSON: "
             '{"cited_statutes": [...], "headnotes": "...", "summary": "..."}'
-            f"\n\nText:\n{full_text[:30000]}"
+            f"\n\nText:\n{full_text[:30000]}",
+            lf_parent=lf_parent,
+            generation_name="nkp_case_metadata",
         )
+        total_in += usage.get("prompt_tokens", 0)
+        total_out += usage.get("completion_tokens", 0)
         parsed = _parse_json(raw, dict)
         doc_extra["cited_statutes"] = parsed.get("cited_statutes") or None
         doc_extra["headnotes"] = parsed.get("headnotes") or None
@@ -225,9 +293,13 @@ def enrich_nkp_chunks(
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm case-level metadata not parseable, left NULL: {exc}")
 
-    metadata = _parallel_chunk_metadata(
-        chunks, "You are indexing a Nepali Supreme Court decision for legal search."
+    metadata, batch_count, chunk_in, chunk_out = _parallel_chunk_metadata(
+        chunks,
+        "You are indexing a Nepali Supreme Court decision for legal search.",
+        lf_parent=lf_parent,
     )
+    total_in += chunk_in
+    total_out += chunk_out
     for entry in metadata:
         entry.update(doc_extra)
-    return metadata
+    return metadata, 1 + batch_count, total_in, total_out

@@ -10,6 +10,7 @@ bitemporal store remains the only authority; these tables are derivatives
 from __future__ import annotations
 
 import hashlib
+import math
 import unicodedata
 import uuid
 from typing import Any
@@ -22,8 +23,10 @@ from app.ingestion.nkp_chunker import NKPChunk
 from app.utils.loggers import logger
 
 EMBEDDING_MODEL = "text-embedding-3-large"
-EMBEDDING_DIM = 1024 
-DEFAULT_BATCH_SIZE = 512  # Azure API has no GPU memory limit — large batches reduce round-trips
+EMBEDDING_DIM = 1024
+DEFAULT_BATCH_SIZE = (
+    512  # Azure API has no GPU memory limit — large batches reduce round-trips
+)
 
 _CHUNK_INSERT_SQL = """
 INSERT INTO chunks (
@@ -59,7 +62,9 @@ class PgvectorIndexer:
         except Exception:  # noqa: BLE001 — ImportError when absent, ProgrammingError on mocked connections
             # pgvector is only needed for real DB writes; unit tests run with
             # mocked connections and without the package installed.
-            logger.warning("pgvector vector adapter not registered (mocked connection or package missing)")
+            logger.warning(
+                "pgvector vector adapter not registered (mocked connection or package missing)"
+            )
 
     def _get_embed_client(self) -> AzureOpenAI:
         if self._embed_client is None:
@@ -74,17 +79,35 @@ class PgvectorIndexer:
         return self._embed_client
 
     def embed_chunks(
-        self, texts: list[str], batch_size: int = DEFAULT_BATCH_SIZE
-    ) -> list[list[float]]:
-        """Embed in batches via Azure OpenAI text-embedding-3-large (dimensions=1024)."""
+        self,
+        texts: list[str],
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        lf_parent: Any = None,
+    ) -> tuple[list[list[float]], int]:
+        """Embed in batches. Returns (embeddings, total_tokens)."""
         if not texts:
-            return []
+            return [], 0
         from app.config import get_settings
 
         client = self._get_embed_client()
         deployment = get_settings().AZURE_OPENAI_EMBEDDING_DEPLOYMENT
         dims = get_settings().AZURE_OPENAI_EMBEDDING_DIMENSIONS
+        gen = None
+        if lf_parent is not None:
+            try:
+                gen = lf_parent.generation(
+                    name="embedding",
+                    model=deployment,
+                    input={
+                        "chunk_count": len(texts),
+                        "batch_count": math.ceil(len(texts) / batch_size),
+                    },
+                )
+            except Exception:  # noqa: BLE001 — tracing must not affect ingest
+                gen = None
+
         embeddings: list[list[float]] = []
+        total_tokens = 0
         for start in range(0, len(texts), batch_size):
             batch = texts[start : start + batch_size]
             response = client.embeddings.create(
@@ -93,7 +116,17 @@ class PgvectorIndexer:
                 dimensions=dims,
             )
             embeddings.extend([d.embedding for d in response.data])
-        return embeddings
+            total_tokens += response.usage.total_tokens
+
+        if gen is not None:
+            try:
+                gen.end(
+                    output={"vectors_produced": len(embeddings)},
+                    usage_details={"input": total_tokens, "total": total_tokens},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        return embeddings, total_tokens
 
     def upsert_document(
         self,
