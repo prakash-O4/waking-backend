@@ -1,30 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-7 — Unified Langfuse trace: one tree per query**
+None.
 
 ## Status
-**IN PROGRESS** — Branch `agent/stage-7-unified-trace` created. Task brief in `task.md`. Assigned to Pi.
-
-- Base: `dev`
-- Branch: `agent/stage-7-unified-trace`
-- Engineer: Pi
-- PS in scope: PS-14 (LOG_CONTENT flag unchanged)
-- Zero-tolerance gates: none touched
-
-### What this fixes
-Root cause of "wtf logs": every query produces 3+ disconnected top-level traces with `endTime: null`.
-Fix: one `rag.query` root trace per query; retrieval, reasoning, validation, composition all as children;
-`lf_trace` threaded via `config["configurable"]` (not QueryState); single `_lf.flush()` in `run_query`.
-
-### Files in scope
-- `postgres_retriever.py` — export `get_lf_client`; `retrieve_postgres(lf_trace=None)`; child spans under `retrieval_span` not root trace
-- `gated_orchestrator.py` — `_langfuse_callback(trace_id=None)`; `lf_trace=None` on all 3 LLM fns; remove `_emit_answer_trace`; rewrite `_emit_answer_trace_from_state` to update+end existing trace
-- `query_graph.py` — create root trace in `run_query`; pass via config; node-level spans; flush at end
-- `tests/test_orchestrator.py` — update `test_emit_trace_uses_vector_score` for new signature
-
-### Next action
-Prakash runs Pi on branch `agent/stage-7-unified-trace` with `task.md`.
+**IDLE** — AGENT-7 merged to dev. Awaiting Prakash's direction.
 
 ---
 
@@ -49,6 +29,13 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-7 — Unified Langfuse trace (MERGED to dev, 2026-08-26)
+- `postgres_retriever.py`: `_get_lf_client` → `get_lf_client` (exported); `retrieve_postgres(lf_trace=None)` — creates `retrieval_span` as child of `lf_trace` instead of root trace; all `lf.trace()` and `lf.flush()` calls removed; `_end_span` now in try/except; `retrieval_span.end(metadata=...)` at normal return with `eligible_count`, `final_count`, `top_vector_score`
+- `gated_orchestrator.py`: `_langfuse_callback(trace_id=None)` — passes `trace_id` to handler to link LLM generations as children; `_fact_extract`, `_structured_claims`, `_compose_answer` all gain `lf_trace=None` param; `_emit_answer_trace` removed; `_emit_answer_trace_from_state` rewritten — takes `lf_trace` as first arg, calls `lf_trace.update(output=...)` + `lf_trace.end()`; `import hashlib` removed (moved to query_graph)
+- `query_graph.py`: `run_query` creates root `rag.query` trace via `get_lf_client()`, passes via `config["configurable"]["lf_trace"]`, flushes with `_lf.flush()` after invoke; every node pulls `lf_trace` from config; `authority_ranker_node`, `cross_ref_resolver_node`, `validate_node` each create a child span; `answer_composer_node` calls `_compose_answer` first (generation fires), then `_emit_answer_trace_from_state` (root trace ends); interrupted path also ends root trace
+- `tests/test_orchestrator.py`: `test_emit_trace_uses_vector_score` updated — uses `FakeTrace` object with `.update()/.end()`, confirms vector_score used and gate_decision correct
+- Minor smell (carry forward): redundant `if lf_trace is not None else` ternary in 4 node functions — functionally correct (default is None), can be simplified in cleanup pass
 
 ### AGENT-6 — Observability Fix (MERGED to dev, 2026-08-25)
 - `postgres_retriever.py`: `_span` → `_end_span` — calls `span.end()` so all spans have `endTime`; `_hit()` gains `vector_score` param; `vector_scores` dict built from vector search rows; cosine similarity propagated through RRF and rerank to returned hits
