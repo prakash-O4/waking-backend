@@ -45,14 +45,22 @@ _CROSS_REF_RE = re.compile(
 )
 
 
-def _get_lf_callbacks(lf_trace: Any) -> list[Any]:
-    """Return a LangChain callback list linked to the active trace, or empty."""
+def _lf_gen_start(lf_trace: Any, name: str, model: str, messages: list[Any]) -> Any:
     if lf_trace is None:
-        return []
+        return None
     try:
-        return [lf_trace.get_langchain_handler()]
+        return lf_trace.generation(name=name, model=model, input=messages)
     except Exception:
-        return []
+        return None
+
+
+def _lf_gen_end(gen: Any, output: str) -> None:
+    if gen is None:
+        return
+    try:
+        gen.end(output=output)
+    except Exception:
+        pass
 
 
 def _elapsed_ms(start: float | None) -> int:
@@ -150,19 +158,15 @@ def _structured_claims(
             api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
-        callbacks = _get_lf_callbacks(lf_trace)
-        resp = llm.invoke(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            config={"callbacks": callbacks},
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        gen = _lf_gen_start(
+            lf_trace, "structured_claims", s.AZURE_OPENAI_LLM_DEPLOYMENT, messages
         )
-        if callbacks:
-            try:
-                callbacks[0].flush()
-            except Exception:
-                pass
+        resp = llm.invoke(messages)
+        _lf_gen_end(gen, str(resp.content))
         return cast(dict[str, Any], json.loads(str(resp.content).strip()))
     except Exception:
         return None
@@ -236,19 +240,13 @@ def _compose_answer(
             google_api_key=s.GEMINI_API_KEY,
             temperature=0.0,
         )
-        callbacks = _get_lf_callbacks(lf_trace)
-        resp = llm.invoke(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            config={"callbacks": callbacks},
-        )
-        if callbacks:
-            try:
-                callbacks[0].flush()
-            except Exception:
-                pass
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        gen = _lf_gen_start(lf_trace, "compose_answer", "gemini-2.5-flash", messages)
+        resp = llm.invoke(messages)
+        _lf_gen_end(gen, str(resp.content))
         raw = str(resp.content).strip()
         if raw.startswith("```"):
             raw = raw.split("```", 2)[1]
@@ -302,19 +300,13 @@ def _fact_extract(
             temperature=0.0,
             max_output_tokens=1000,
         )
-        callbacks = _get_lf_callbacks(lf_trace)
-        resp = llm.invoke(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": question},
-            ],
-            config={"callbacks": callbacks},
-        )
-        if callbacks:
-            try:
-                callbacks[0].flush()
-            except Exception:
-                pass
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ]
+        gen = _lf_gen_start(lf_trace, "fact_extract", "gemini-2.5-flash", messages)
+        resp = llm.invoke(messages)
+        _lf_gen_end(gen, str(resp.content))
         parsed = cast(dict[str, Any], json.loads(str(resp.content).strip()))
 
         issue_queries: list[dict[str, Any]] = []
