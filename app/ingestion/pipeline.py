@@ -28,6 +28,7 @@ from app.ingestion.laws_chunker import LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
 from app.ingestion.pgvector_indexer import PgvectorIndexer
 from app.ingestion.pii_redactor import PIIRedactor, RedactionVerificationError
+from app.ingestion.tariff_chunker import TariffChunker, is_tariff_dominant
 from app.utils.loggers import logger
 
 _DAFA_ANCHOR_RE = re.compile(r"\*\*[०-९]+\.")
@@ -138,6 +139,7 @@ class IngestionPipeline:
         self._redactor = PIIRedactor(enable_llm=enable_llm)
         self._laws_chunker = LawsChunker()
         self._nkp_chunker = NKPChunker()
+        self._tariff_chunker = TariffChunker()
         self._enable_llm = enable_llm
         # Outcome of the most recent ingest call, for CLI reporting:
         # 'ingested' | 'skipped' | 'rejected' | 'quarantined'.
@@ -245,7 +247,13 @@ class IngestionPipeline:
 
         t0 = time.monotonic()
         span = _begin_span(trace, "CHUNK", {"content_len": len(content)})
-        chunks = self._laws_chunker.chunk_text(content)
+        is_tariff = is_tariff_dominant(content)
+        if is_tariff:
+            chunks = self._tariff_chunker.chunk_text(
+                content, act_name=record.get("name", "")
+            )
+        else:
+            chunks = self._laws_chunker.chunk_text(content)
         elapsed = time.monotonic() - t0
         if not chunks:
             logger.warning(f"{source_id}: chunker produced no chunks, rejecting")
@@ -258,7 +266,14 @@ class IngestionPipeline:
             _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
             _flush(lf)
             return None
-        _end_span(span, {"outcome": "passed", "chunk_count": len(chunks)})
+        _end_span(
+            span,
+            {
+                "outcome": "passed",
+                "chunk_count": len(chunks),
+                "chunker": "tariff" if is_tariff else "laws",
+            },
+        )
         print(
             f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → {len(chunks)} chunks",
             flush=True,
@@ -271,14 +286,18 @@ class IngestionPipeline:
             {
                 "chunk_count": len(chunks),
                 "batch_count": batch_count,
-                "llm_calls": 1 + batch_count if self._enable_llm else 0,
+                "llm_calls": 0
+                if is_tariff
+                else (1 + batch_count if self._enable_llm else 0),
             },
         )
         t0 = time.monotonic()
         metadata_outcome = "passed"
         summary: str | None = None
         llm_calls = in_tok = out_tok = 0
-        if self._enable_llm:
+        if is_tariff:
+            summary = f"{record.get('name', '')} — भन्सार महसुल दर तालिका"
+        elif self._enable_llm:
             try:
                 metadata, llm_calls, in_tok, out_tok = (
                     metadata_enricher.enrich_law_chunks(record, chunks, lf_parent=span)
