@@ -8,8 +8,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 import app.retrieval.gated_orchestrator as _orch
+from app.retrieval.eligibility_gate import eligible_chunk_ids
 from app.retrieval.postgres_retriever import get_lf_client as _get_lf_client
 from app.retrieval.query_state import QueryState
+
+_ASCII_TO_DEVA = str.maketrans("0123456789", "०१२३४५६७८९")
 
 
 # ── nodes ──────────────────────────────────────────────────────────────────────
@@ -137,6 +140,111 @@ def cross_ref_resolver_node(
     return {"all_hits": state["all_hits"] + additional}
 
 
+def _fetch_enabling_chunk(
+    conn: Any, hit: dict[str, Any], as_of: date
+) -> dict[str, Any] | None:
+    """Co-retrieve the enabling provision for a regulation chunk, if eligible."""
+    chunk_id = hit.get("component_uri", "")
+    if not chunk_id:
+        return None
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT work_id FROM chunks WHERE id = %s", (chunk_id,))
+        row = cur.fetchone()
+    if not row or not row[0]:
+        return None
+    subordinate_work_id = str(row[0])
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT enabling_work_id, enabling_section_number
+            FROM work_relations
+            WHERE subordinate_work_id = %s
+              AND enabling_work_id IS NOT NULL
+            LIMIT 1
+            """,
+            (subordinate_work_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+
+    enabling_work_id, section_num_ascii = row
+    if not enabling_work_id or not section_num_ascii:
+        return None
+
+    section_num_deva = str(section_num_ascii).translate(_ASCII_TO_DEVA)
+    chunk_type = f"दफा {section_num_deva}"
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, d.source_id
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.work_id = %s
+              AND c.section_number = %s
+              AND c.chunk_type = %s
+            ORDER BY c.chunk_index ASC
+            LIMIT 1
+            """,
+            (enabling_work_id, section_num_deva, chunk_type),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+
+    enabling_chunk_id = str(row[0])
+    eligible = eligible_chunk_ids(conn, as_of)
+    if enabling_chunk_id not in eligible:
+        return None
+
+    return {
+        "component_uri": enabling_chunk_id,
+        "text_ne": row[1],
+        "text_hash": row[2],
+        "score": 0.0,
+        "work_title_ne": row[3] or "",
+        "chunk_type": chunk_type,
+        "section_number": section_num_deva,
+        "document_source_id": str(row[4]) if row[4] else "",
+        "co_retrieved": True,
+        "_issue_idx": hit.get("_issue_idx", 0),
+    }
+
+
+def enabling_power_resolver_node(
+    state: QueryState, config: RunnableConfig
+) -> dict[str, Any]:
+    conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
+    as_of = state["session_as_of"]
+    hits = state.get("all_hits", [])
+    additional: list[dict[str, Any]] = []
+
+    try:
+        for h in hits[:5]:
+            if h.get("co_retrieved"):
+                continue
+            enabling = _fetch_enabling_chunk(conn, h, as_of)
+            if enabling:
+                additional.append(enabling)
+    except Exception:
+        # DB or eligibility-gate failure must not break the query path.
+        additional = []
+
+    if lf_trace is not None:
+        try:
+            sp = lf_trace.span(name="enabling_power_resolution")
+            sp.end(metadata={"enabling_chunks_added": len(additional)})
+        except Exception:
+            pass
+    if not additional:
+        return {}
+    return {"all_hits": hits + additional}
+
+
 def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
@@ -253,6 +361,7 @@ def build_graph() -> Any:
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("authority_ranker", authority_ranker_node)
     builder.add_node("cross_ref_resolver", cross_ref_resolver_node)
+    builder.add_node("enabling_power_resolver", enabling_power_resolver_node)
     builder.add_node("reasoner", reasoner_node)
     builder.add_node("validate", validate_node)
     builder.add_node("answer_composer", answer_composer_node)
@@ -265,7 +374,8 @@ def build_graph() -> Any:
     )
     builder.add_edge("retrieve", "authority_ranker")
     builder.add_edge("authority_ranker", "cross_ref_resolver")
-    builder.add_edge("cross_ref_resolver", "reasoner")
+    builder.add_edge("cross_ref_resolver", "enabling_power_resolver")
+    builder.add_edge("enabling_power_resolver", "reasoner")
     builder.add_edge("reasoner", "validate")
     builder.add_edge("validate", "answer_composer")
     builder.add_edge("answer_composer", END)
