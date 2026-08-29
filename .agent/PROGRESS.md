@@ -1,10 +1,90 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-10 — Enabling-power links**
+Branch: `agent/enabling-power-links` (base: dev at `70bf122`)
+Engineer: Kimi
+PS in scope: PS-4, PS-6, PS-16, PS-2
 
 ## Status
-**IDLE** — AGENT-8 merged to dev. Awaiting Prakash's direction.
+**IN PROGRESS** — brief committed at `a127e06`. Kimi implementing.
+
+### Scope
+- Migration `008_work_relations.sql`: law_level enum fix (tariff values) + work_relations table
+- `app/ingestion/enabling_extractor.py` (new): regex extraction + work resolution + DB write
+- `app/ingestion/pipeline.py`: call extractor after CHUNK for नियमावली docs
+- `scripts/backfill_enabling_links.py` (new): post-process 6 already-ingested नियमावली
+- `app/retrieval/query_graph.py`: `enabling_power_resolver_node` after cross_ref_resolver
+- Tests: `tests/test_enabling_extractor.py`, `tests/test_enabling_retrieval.py`
+
+### Zero-tolerance gates
+All three at 0 — do not touch eligibility gate or bitemporal path.
+
+---
+
+## Pending research — enabling-power links (2026-08-29)
+
+### Why we are doing this
+When a user asks about a नियमावली provision, the system retrieves that chunk but has
+no way to automatically surface the enabling दफा from the parent ऐन — even though
+that दफा defines the scope and limits of the regulation. This is a completeness gap
+for every question that spans a subordinate regulation and its parent act, which is
+a very common query pattern in practice.
+
+`system-design.md §7.5` explicitly requires this: "an enabling_power link from
+subordinate legislation to its parent enabling provision (so orphaned Rules are
+flagged when the enabling section is repealed)." PS-4 also requires it.
+
+### What we found in the corpus (verified against laws.jsonl and DB)
+- 314 total नियमावली + नियमहरू in the corpus
+- 295 / 314 (94%) have a parseable enabling clause in their first ~1,500 chars
+- Pattern is consistent across all domains (governance, procurement, anti-corruption,
+  women, indigenous peoples, statistics, forest, health, etc.) — not just customs:
+    सुशासन नियमावली २०६५       → सुशासन ऐन, २०६४ को दफा ४४
+    सार्वजनिक खरिद नियमावली    → सार्वजनिक खरिद ऐन, २०६३ को दफा ७४
+    भ्रष्टाचार निवारण नियमावली  → भ्रष्टाचार निवारण ऐन, २०५९ को दफा ६४
+    लोक सेवा आयोग नियमावली     → लोक सेवा आयोग ऐन, २०७९ को दफा ५९
+- Regex: `r"([^\n।]{5,80})\s+को\s+(दफा|धारा)\s+([^\s,।]{1,20})\s+ले दिएको अधिकार"`
+- The 19 without the pattern are parliamentary procedural rules, military
+  regulations, and Constitution-derived bodies — they use a different authority
+  source (no parent ऐन). Leave them without an enabling link; they still work.
+
+### Current DB state (verified 2026-08-29)
+- 345 acts ingested, 344 of them are ऐन (parent acts), only 6 are नियमावली
+- The ~270 नियमावली are almost entirely in the remaining ~332 un-ingested laws
+- raw_content is already stored in DB for all ingested docs — no re-embedding needed
+  for post-processing the 6 already-ingested नियमावली
+
+### Why no re-ingest is needed
+The enabling link belongs in a separate `work_relations` table (work → work, with
+enabling section pointer), not as a new column on the chunks table. This means:
+- No chunk deletion, no re-embedding, no LLM calls
+- For नियमावली ingested in the future: extract at ingestion time from preamble,
+  write to `work_relations` in the same pipeline run
+- For the 6 already-ingested नियमावली: one post-processing script reads
+  `documents.raw_content`, applies regex, inserts into `work_relations`
+
+### Practical order for AGENT-10
+1. **Migration** — add `work_relations` table:
+   `(id, subordinate_work_id, enabling_work_id, enabling_section, relation_type)`
+   `enabling_work_id` is nullable (for the 6% with no parseable clause).
+2. **Pipeline change** — in `ingest_law()`, after CHUNK stage, if doc is a
+   नियमावली/नियमहरू: apply enabling-clause regex to first 1,500 chars of content,
+   resolve enabling_work_id by matching against `work.source_id` or `documents.source_id`,
+   insert into `work_relations`. Zero extra API cost.
+3. **Post-processing script** — for the 6 already-ingested नियमावली: read
+   `raw_content` from DB, apply same regex, insert into `work_relations`.
+4. **Retriever change** — when a नियमावली chunk is returned, JOIN `work_relations`
+   to find the enabling work + section, fetch that chunk and co-retrieve it
+   (same pattern as PS-16 proviso co-retrieval).
+5. **Test** — assert that `सुशासन नियमावली` retrieval co-retrieves the
+   `सुशासन ऐन दफा ४४` chunk; assert that a नियमावली with no enabling link
+   still returns results (graceful null handling).
+
+### Scope note
+Do NOT add enabling_power to the chunks table — that requires re-ingestion of all
+subordinate legislation every time the pipeline logic changes. Keep it at the
+work level in `work_relations`. Retriever resolves chunk at query time.
 
 ---
 
@@ -29,6 +109,16 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-9 — TariffChunker + detection gate (MERGED to dev, 2026-08-29)
+- `app/ingestion/tariff_chunker.py` (new): `is_tariff_dominant()` (>5000 HS codes + tariff keyword), `TariffChunk` dataclass (identical fields to `LawChunk`), `TariffChunker.chunk_text()` — parses pipe-table rows into `tariff_heading` / `tariff_row` / `tariff_note` chunks with deterministic keywords, `embed_text` from structured fields, and `co_retrieve_parent_index` linkage (PS-16)
+- `app/ingestion/pipeline.py`: routing condition at CHUNK stage — tariff-dominant content → `TariffChunker`, skips `enrich_law_chunks`, EXTRACT_METADATA span emitted with `llm_calls=0`
+- `app/ingestion/pgvector_indexer.py`: `TariffChunk` import + `isinstance` branch for PS-10-correct `chunk_type` (`"tariff_heading"` / `"tariff_row"`)
+- `app/retrieval/postgres_retriever.py`: pre-existing mypy `type: ignore` added (1-line; fixes AGENT-8 carry-forward)
+- `tests/test_tariff_chunker.py` (new): 7 tests — detection gate, heading/row linkage, embed_text richness, deterministic questions, pipeline routing
+- Verification: `भन्सार_महसुल_ऐन_२०८१` → 10,381 chunks (1,309 headings, 5,265 rows, 3,807 notes) vs. 892 broken prose chunks before
+- 76 tests passing, lint clean, eval-gates all at 0
+- Carry-forwards: type annotations on `upsert_document`/`_chunk_row` missing `TariffChunk` (runtime-correct, mypy doesn't cover ingestion); chapter title not captured in embed_text (chapter number present)
 
 ### AGENT-8 — Production-grade ingestion observability (MERGED to dev, 2026-08-26)
 - `pipeline.py`: `_span()` replaced with `_begin_span()` / `_end_span()` / `_end_trace()` — every span now has non-null `endTime`; every stage has `input`/`output` fields; per-stage stdout with `flush=True`; root trace updated with totals and `.end()` called on all paths including skipped/rejected/quarantined
