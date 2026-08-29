@@ -36,7 +36,7 @@ _DAFA_ANCHOR_RE = re.compile(r"\*\*[०-९]+\.")
 _BS_DATE_RE = re.compile(r"([०-९]{4})[।./-]([०-९]{1,2})[।./-]([०-९]{1,2})")
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _LANDMARK_BENCHES = {"पूर्ण इजलास", "संवैधानिक इजलास"}
-_NIYAM_SUFFIXES = ("नियमावली", "नियमहरू", "नियम")
+_NIYAM_RE = re.compile(r"(?:^|\s)(नियमावली|नियमहरू|नियम)(?=\s|$|,|\.)")
 
 
 _lf_client: Any = None
@@ -281,8 +281,8 @@ class IngestionPipeline:
             flush=True,
         )
 
-        doc_name = record.get("name", "")
-        if any(doc_name.endswith(s) for s in _NIYAM_SUFFIXES):
+        doc_name = str(record.get("name") or "")
+        if _NIYAM_RE.search(doc_name):
             try:
                 extract_enabling_clause(
                     content=content,

@@ -23,12 +23,20 @@ def test_enabling_regex_standard() -> None:
     )
     row = ee._parse_enabling_clause(preamble)
     assert row is not None
-    provision_type_raw, section_raw, subsection_raw, act_ref, provision_kind = row
+    (
+        provision_type_raw,
+        section_raw,
+        subsection_raw,
+        act_ref,
+        provision_kind,
+        raw_match,
+    ) = row
     assert provision_type_raw == "दफा"
     assert provision_kind == "dafa"
     assert section_raw == "५५"
     assert subsection_raw is None
     assert "सुशासन (व्यवस्थापन तथा सञ्चालन) ऐन, २०६४" in act_ref
+    assert "ले दिएको अधिकार" in raw_match
 
 
 def test_enabling_regex_upadafa_variant() -> None:
@@ -38,12 +46,20 @@ def test_enabling_regex_upadafa_variant() -> None:
     )
     row = ee._parse_enabling_clause(preamble)
     assert row is not None
-    provision_type_raw, section_raw, subsection_raw, act_ref, provision_kind = row
+    (
+        provision_type_raw,
+        section_raw,
+        subsection_raw,
+        act_ref,
+        provision_kind,
+        raw_match,
+    ) = row
     assert provision_type_raw == "दफा"
     assert provision_kind == "dafa"
     assert section_raw == "१०"
     assert subsection_raw == "२"
     assert "कर्मचारी समायोजन ऐन, २०७५" in act_ref
+    assert "उपदफा (२)" in raw_match
 
 
 def test_enabling_regex_amend_markup_no_false_positive() -> None:
@@ -117,6 +133,7 @@ def test_extract_inserts_resolved_row(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call["status"] == "auto_extracted"
     assert "सुशासन ऐन, २०६४" in call["raw_clause_text"]
     assert "दफा" in call["raw_clause_text"]
+    assert "ले दिएको अधिकार" in call["raw_clause_text"]
 
 
 def test_extract_inserts_parent_not_in_corpus(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -46,6 +46,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS work_relations_null_unique_idx
     ON work_relations (subordinate_work_id)
     WHERE enabling_work_id IS NULL AND resolution_status = 'no_enabling_clause';
 
+-- One unresolved row per subordinate when the parent act is absent
+CREATE UNIQUE INDEX IF NOT EXISTS work_relations_parent_not_in_corpus_idx
+    ON work_relations (subordinate_work_id)
+    WHERE enabling_work_id IS NULL AND resolution_status = 'parent_not_in_corpus';
+
 CREATE INDEX IF NOT EXISTS work_relations_enabling_idx
     ON work_relations (enabling_work_id)
     WHERE enabling_work_id IS NOT NULL;

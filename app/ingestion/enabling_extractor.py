@@ -69,6 +69,7 @@ def _parse_enabling_clause(
             subsection_num_raw,
             act_ref_raw,
             provision_kind,
+            match.group(0),
         )
 
     match = _ENABLING_STRICT_RE.search(preamble)
@@ -77,7 +78,14 @@ def _parse_enabling_clause(
         provision_type_raw = match.group(2)
         provision_kind = "dafa" if provision_type_raw == "दफा" else "dhara"
         section_num_raw = match.group(3).strip()
-        return provision_type_raw, section_num_raw, None, act_ref_raw, provision_kind
+        return (
+            provision_type_raw,
+            section_num_raw,
+            None,
+            act_ref_raw,
+            provision_kind,
+            match.group(0),
+        )
 
     return None
 
@@ -158,6 +166,7 @@ def extract_enabling_clause(
         subsection_num_raw,
         act_ref_raw,
         provision_kind,
+        raw_clause_text,
     ) = row
     section_num = _normalize_section_num(section_num_raw)
     subsection_num = (
@@ -175,6 +184,6 @@ def extract_enabling_clause(
         provision_kind,
         section_num,
         subsection_num,
-        raw_clause_text=f"{act_ref_raw} को {provision_type_raw} {section_num_raw}",
+        raw_clause_text=raw_clause_text,
         status=status,
     )

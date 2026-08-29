@@ -158,24 +158,29 @@ def _fetch_enabling_chunk(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT enabling_work_id, enabling_section_number
+            SELECT enabling_work_id, enabling_section_number, enabling_provision_type
             FROM work_relations
-            WHERE subordinate_work_id = %s
+            WHERE subordinate_work_id = %(work_id)s
               AND enabling_work_id IS NOT NULL
+              AND resolution_status IN ('auto_extracted', 'human_verified')
+              AND valid_time @> %(as_of)s::timestamptz
             LIMIT 1
             """,
-            (subordinate_work_id,),
+            {"work_id": subordinate_work_id, "as_of": as_of},
         )
         row = cur.fetchone()
     if not row:
         return None
 
-    enabling_work_id, section_num_ascii = row
+    enabling_work_id, section_num_ascii, provision_type = row
     if not enabling_work_id or not section_num_ascii:
         return None
 
     section_num_deva = str(section_num_ascii).translate(_ASCII_TO_DEVA)
-    chunk_type = f"दफा {section_num_deva}"
+    # The indexer labels all law section chunks with a "दफा" prefix regardless of
+    # whether the source uses "दफा" or "धारा"; match on section_number only.
+    chunk_label = "धारा" if provision_type == "dhara" else "दफा"
+    chunk_type = f"{chunk_label} {section_num_deva}"
 
     with conn.cursor() as cur:
         cur.execute(
@@ -183,13 +188,12 @@ def _fetch_enabling_chunk(
             SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, d.source_id
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
-            WHERE c.work_id = %s
-              AND c.section_number = %s
-              AND c.chunk_type = %s
+            WHERE c.work_id = %(work_id)s
+              AND c.section_number = %(section)s
             ORDER BY c.chunk_index ASC
             LIMIT 1
             """,
-            (enabling_work_id, section_num_deva, chunk_type),
+            {"work_id": enabling_work_id, "section": section_num_deva},
         )
         row = cur.fetchone()
     if not row:
@@ -223,12 +227,14 @@ def enabling_power_resolver_node(
     hits = state.get("all_hits", [])
     additional: list[dict[str, Any]] = []
 
+    existing_ids = {h.get("component_uri", "") for h in hits}
     try:
         for h in hits[:5]:
             if h.get("co_retrieved"):
                 continue
             enabling = _fetch_enabling_chunk(conn, h, as_of)
-            if enabling:
+            if enabling and enabling["component_uri"] not in existing_ids:
+                existing_ids.add(enabling["component_uri"])
                 additional.append(enabling)
     except Exception:
         # DB or eligibility-gate failure must not break the query path.

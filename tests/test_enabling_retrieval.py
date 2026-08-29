@@ -48,7 +48,7 @@ def test_enabling_chunk_passes_eligibility_gate(
     cursor = mock_conn.cursor.return_value.__enter__.return_value
     cursor.fetchone.side_effect = [
         ("sub-work-id",),  # chunk -> subordinate work_id
-        ("parent-work-id", "55"),  # work_relations link
+        ("parent-work-id", "55", "dafa"),  # work_relations link
         ("parent-chunk-1", "parent text", "sha256", "Parent Act", "parent-1"),
     ]
     monkeypatch.setattr(qg, "eligible_chunk_ids", lambda _conn, _as_of: set())
@@ -71,7 +71,7 @@ def test_enabling_resolver_coretrieves(
     cursor = mock_conn.cursor.return_value.__enter__.return_value
     cursor.fetchone.side_effect = [
         ("sub-work-id",),
-        ("parent-work-id", "55"),
+        ("parent-work-id", "55", "dafa"),
         ("parent-chunk-1", "parent text", "sha256", "Parent Act", "parent-1"),
     ]
     monkeypatch.setattr(
@@ -112,3 +112,33 @@ def test_enabling_resolver_null_link_skipped(
     result = qg.enabling_power_resolver_node(state, _make_config(mock_conn))
 
     assert result == {}
+
+
+def test_enabling_resolver_dedupes_duplicate_parents(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_conn: MagicMock,
+    base_hit: dict[str, Any],
+) -> None:
+    """Multiple regulation hits pointing to the same parent दफा add it only once."""
+    second_hit = {**base_hit, "component_uri": "reg-chunk-2"}
+    cursor = mock_conn.cursor.return_value.__enter__.return_value
+    cursor.fetchone.side_effect = [
+        ("sub-work-id",),
+        ("parent-work-id", "55", "dafa"),
+        ("parent-chunk-1", "parent text", "sha256", "Parent Act", "parent-1"),
+        ("sub-work-id",),
+        ("parent-work-id", "55", "dafa"),
+        ("parent-chunk-1", "parent text", "sha256", "Parent Act", "parent-1"),
+    ]
+    monkeypatch.setattr(
+        qg, "eligible_chunk_ids", lambda _conn, _as_of: {"parent-chunk-1"}
+    )
+
+    state: dict[str, Any] = {
+        "session_as_of": date(2025, 1, 1),
+        "all_hits": [base_hit, second_hit],
+    }
+    result = qg.enabling_power_resolver_node(state, _make_config(mock_conn))
+
+    assert len(result["all_hits"]) == 3
+    assert sum(1 for h in result["all_hits"] if h.get("co_retrieved")) == 1
