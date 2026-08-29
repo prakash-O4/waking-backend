@@ -20,6 +20,7 @@ from psycopg2.extensions import connection as PgConnection
 
 from app.ingestion.laws_chunker import LawChunk
 from app.ingestion.nkp_chunker import NKPChunk
+from app.ingestion.tariff_chunker import TariffChunk
 from app.utils.loggers import logger
 
 EMBEDDING_MODEL = "text-embedding-3-large"
@@ -266,13 +267,15 @@ class PgvectorIndexer:
                 }
             )
         else:
+            if isinstance(chunk, TariffChunk):
+                chunk_type = chunk.level
+            elif chunk.section_number:
+                chunk_type = f"दफा {chunk.section_number}"
+            else:
+                chunk_type = chunk.level
             row.update(
                 {
-                    "chunk_type": (
-                        f"दफा {chunk.section_number}"
-                        if chunk.section_number
-                        else chunk.level
-                    ),
+                    "chunk_type": chunk_type,
                     "work_id": document.get("work_id"),
                     "act_name": document.get("act_name"),
                     "english_name": document.get("english_name"),
