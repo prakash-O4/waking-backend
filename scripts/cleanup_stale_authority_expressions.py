@@ -47,11 +47,20 @@ def _raw_sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _expression_count(conn: PgConnection) -> int:
+def _table_count(conn: PgConnection, table: str) -> int:
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM expression")
+        cur.execute(f"SELECT COUNT(*) FROM {table}")
         row = cur.fetchone()
     return int(row[0]) if row else 0
+
+
+def _table_counts(conn: PgConnection) -> Counter[str]:
+    return Counter(
+        {
+            table: _table_count(conn, table)
+            for table in ("component", "expression", "lifecycle_effect")
+        }
+    )
 
 
 def _expected_hashes(law: ParsedLaw) -> dict[str, str]:
@@ -111,6 +120,70 @@ def _upsert_missing_expressions(conn: PgConnection, law: ParsedLaw, as_of: date)
     return missing
 
 
+def _component_uris(conn: PgConnection, work_id: str) -> set[str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT uri FROM component WHERE work_id=%s", (work_id,))
+        return {str(row[0]) for row in cur.fetchall()}
+
+
+def _lifecycle_statuses(conn: PgConnection, component_uri: str) -> Counter[str]:
+    statuses: Counter[str] = Counter()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT approval_status, COUNT(*)
+            FROM lifecycle_effect
+            WHERE component_uri=%s
+            GROUP BY approval_status
+            """,
+            (component_uri,),
+        )
+        for status, count in cur.fetchall():
+            statuses[str(status)] = int(count)
+    return statuses
+
+
+def _row_count(conn: PgConnection, table: str, column: str, value: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM {table} WHERE {column}=%s", (value,))
+        row = cur.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _delete_orphan_component(conn: PgConnection, component_uri: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM expression WHERE component_uri=%s", (component_uri,))
+        cur.execute(
+            "DELETE FROM lifecycle_effect WHERE component_uri=%s", (component_uri,)
+        )
+        cur.execute("DELETE FROM component WHERE uri=%s", (component_uri,))
+
+
+def _cleanup_orphan_components(
+    conn: PgConnection, work_id: str, law: ParsedLaw, *, dry_run: bool
+) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    expected_uris = {component.uri for component in law.components}
+    orphan_uris = _component_uris(conn, work_id) - expected_uris
+    for component_uri in orphan_uris:
+        statuses = _lifecycle_statuses(conn, component_uri)
+        if any(status != "pending" for status in statuses):
+            counts["orphan_components_blocked"] += 1
+            print(
+                f"WARNING {component_uri}: orphan has non-pending lifecycle rows {dict(statuses)}",
+                file=sys.stderr,
+            )
+            continue
+        counts["orphan_components"] += 1
+        counts["orphan_expressions"] += _row_count(
+            conn, "expression", "component_uri", component_uri
+        )
+        counts["orphan_lifecycle_effects"] += sum(statuses.values())
+        if not dry_run:
+            _delete_orphan_component(conn, component_uri)
+    return counts
+
+
 def _fix_source_sha(
     conn: PgConnection, work_id: str, content: str, law: ParsedLaw, *, dry_run: bool
 ) -> int:
@@ -145,19 +218,19 @@ def cleanup_document(
     records: dict[str, dict[str, Any]],
     as_of: date,
     dry_run: bool,
-) -> tuple[str, int, int, int]:
+) -> tuple[str, Counter[str]]:
     record = records.get(source_id)
     if record is None:
-        return "missing_record", 0, 0, 0
+        return "missing_record", Counter()
 
     content = str(record.get("content") or "")
     if _content_hash(content) != content_hash:
-        return "hash_mismatch", 0, 0, 0
+        return "hash_mismatch", Counter()
 
     law = parse_law(record)
     work_id = work_id_for_document(conn, document_id)
     if not work_id:
-        return "missing_work_id", 0, 0, 0
+        return "missing_work_id", Counter()
 
     stored_uri = work_uri(conn, work_id)
     if stored_uri != law.uri:
@@ -165,15 +238,19 @@ def cleanup_document(
             f"WARNING {source_id}: law.uri != work.uri ({law.uri!r} != {stored_uri!r})",
             file=sys.stderr,
         )
-        return "uri_mismatch", 0, 0, 0
+        return "uri_mismatch", Counter()
 
     stale_ids = _stale_expression_ids(conn, law, as_of)
-    missing = _missing_expression_count(conn, law, as_of)
-    sha_updates = _fix_source_sha(conn, work_id, content, law, dry_run=dry_run)
+    counts = _cleanup_orphan_components(conn, work_id, law, dry_run=dry_run)
+    counts["stale_expressions"] += len(stale_ids)
+    counts["missing_expressions"] += _missing_expression_count(conn, law, as_of)
+    counts["source_sha_updates"] += _fix_source_sha(
+        conn, work_id, content, law, dry_run=dry_run
+    )
     if not dry_run:
         _upsert_missing_expressions(conn, law, as_of)
         _delete_expressions(conn, stale_ids)
-    return "processed", len(stale_ids), sha_updates, missing
+    return "processed", counts
 
 
 def run_cleanup(
@@ -185,11 +262,12 @@ def run_cleanup(
 ) -> Summary:
     summary = Summary()
     as_of = as_of or date.today()
-    summary.counts["expressions_before"] = _expression_count(conn)
+    for table, count in _table_counts(conn).items():
+        summary.counts[f"{table}_before"] = count
 
     for document_id, source_id, _source_type, content_hash in law_documents(conn):
         try:
-            status, stale, sha_updates, missing = cleanup_document(
+            status, counts = cleanup_document(
                 conn,
                 document_id=document_id,
                 source_id=source_id,
@@ -199,9 +277,7 @@ def run_cleanup(
                 dry_run=dry_run,
             )
             summary.counts[status] += 1
-            summary.counts["stale_expressions"] += stale
-            summary.counts["source_sha_updates"] += sha_updates
-            summary.counts["missing_expressions"] += missing
+            summary.counts.update(counts)
             conn.rollback() if dry_run else conn.commit()
         except Exception as exc:  # noqa: BLE001 - keep batch moving
             conn.rollback()
@@ -210,7 +286,8 @@ def run_cleanup(
                 summary.failed_source_ids.append(source_id)
             print(f"WARNING {source_id}: cleanup failed: {exc}", file=sys.stderr)
 
-    summary.counts["expressions_after"] = _expression_count(conn)
+    for table, count in _table_counts(conn).items():
+        summary.counts[f"{table}_after"] = count
     return summary
 
 
@@ -223,11 +300,19 @@ def print_summary(summary: Summary, *, dry_run: bool) -> None:
     print(f"  skipped missing work_id:   {counts.get('missing_work_id', 0)}")
     print(f"  skipped uri mismatch:      {counts.get('uri_mismatch', 0)}")
     print(f"  skipped write exception:   {counts.get('write_exception', 0)}")
-    print(f"  expressions before:        {counts.get('expressions_before', 0)}")
+    print(f"  components before:         {counts.get('component_before', 0)}")
+    print(f"  expressions before:        {counts.get('expression_before', 0)}")
+    print(f"  lifecycle rows before:     {counts.get('lifecycle_effect_before', 0)}")
     print(f"  stale expressions found:   {counts.get('stale_expressions', 0)}")
+    print(f"  orphan components found:   {counts.get('orphan_components', 0)}")
+    print(f"  orphan expressions found:  {counts.get('orphan_expressions', 0)}")
+    print(f"  orphan lifecycle found:    {counts.get('orphan_lifecycle_effects', 0)}")
+    print(f"  orphan components blocked: {counts.get('orphan_components_blocked', 0)}")
     print(f"  missing expressions found: {counts.get('missing_expressions', 0)}")
     print(f"  source sha rows updated:   {counts.get('source_sha_updates', 0)}")
-    print(f"  expressions after:         {counts.get('expressions_after', 0)}")
+    print(f"  components after:          {counts.get('component_after', 0)}")
+    print(f"  expressions after:         {counts.get('expression_after', 0)}")
+    print(f"  lifecycle rows after:      {counts.get('lifecycle_effect_after', 0)}")
     if summary.failed_source_ids:
         print(f"  write exception samples:   {', '.join(summary.failed_source_ids)}")
 
