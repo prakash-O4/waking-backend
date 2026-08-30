@@ -1,24 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-10 — Enabling-power links**
-Branch: `agent/enabling-power-links` (base: dev at `70bf122`)
-Engineer: Kimi
-PS in scope: PS-4, PS-6, PS-16, PS-2
+None.
 
 ## Status
-**IN PROGRESS** — brief committed at `a127e06`. Kimi implementing.
-
-### Scope
-- Migration `008_work_relations.sql`: law_level enum fix (tariff values) + work_relations table
-- `app/ingestion/enabling_extractor.py` (new): regex extraction + work resolution + DB write
-- `app/ingestion/pipeline.py`: call extractor after CHUNK for नियमावली docs
-- `scripts/backfill_enabling_links.py` (new): post-process 6 already-ingested नियमावली
-- `app/retrieval/query_graph.py`: `enabling_power_resolver_node` after cross_ref_resolver
-- Tests: `tests/test_enabling_extractor.py`, `tests/test_enabling_retrieval.py`
-
-### Zero-tolerance gates
-All three at 0 — do not touch eligibility gate or bitemporal path.
+**IDLE** — AGENT-10 merged to dev. Awaiting Prakash's direction.
 
 ---
 
@@ -109,6 +95,19 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-10 — Enabling-power links (MERGED to dev, 2026-08-30)
+- `migrations/008_work_relations.sql`: `law_level` enum widened (tariff_heading/row/note, unblocks AGENT-9 ingest) + `work_relations` table with section-aware unique indexes and `valid_time` (PS-6)
+- `app/ingestion/enabling_extractor.py` (new): two-regex extraction (strict + उपदफा variant), amend-markup strip, comma-normalize for `work.title_ne` resolution, explicit `no_enabling_clause` sentinel rows — no LLM, fully deterministic
+- `app/ingestion/pipeline.py`: `_NIYAM_RE` suffix check triggers extractor after CHUNK stage; exception guard so failure never blocks ingest
+- `app/retrieval/query_graph.py`: `_fetch_enabling_chunk` + `enabling_power_resolver_node` inserted after `cross_ref_resolver`; eligibility gate mandatory (PS-6); deduplication of parent chunks; Langfuse span for observability
+- `scripts/backfill_enabling_links.py` (new): idempotent post-processing for already-ingested नियमावली
+- `scripts/migrate.py`: `008_work_relations` entry + idempotency probe
+- `tests/test_enabling_extractor.py` (new): 9 tests — standard regex, उपदफा variant, amend markup, normalization, resolved/unresolved/no-clause insertion, idempotency
+- `tests/test_enabling_retrieval.py` (new): 4 tests — eligibility gate respected, happy-path co-retrieval, null link skipped, duplicate parent deduplication
+- 89 tests passing, lint clean (mypy clean), eval-gates all at 0
+- Review fix: Kimi removed pre-existing `# type: ignore[import-not-found]` on langfuse import in `postgres_retriever.py`; restored by Claude in fixup commit
+- Carry-forward: backfill script not executed (no DB available in Kimi's env); run `scripts/backfill_enabling_links.py` with `DATABASE_URL` set before next ingest run
 
 ### AGENT-9 — TariffChunker + detection gate (MERGED to dev, 2026-08-29)
 - `app/ingestion/tariff_chunker.py` (new): `is_tariff_dominant()` (>5000 HS codes + tariff keyword), `TariffChunk` dataclass (identical fields to `LawChunk`), `TariffChunker.chunk_text()` — parses pipe-table rows into `tariff_heading` / `tariff_row` / `tariff_note` chunks with deterministic keywords, `embed_text` from structured fields, and `co_retrieve_parent_index` linkage (PS-16)
