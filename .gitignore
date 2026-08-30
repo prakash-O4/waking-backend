@@ -13,3 +13,5 @@ __pycache__
 # Large data files — keep local only
 laws.jsonl
 regulations.json
+
+logs/

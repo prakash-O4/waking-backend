@@ -8,13 +8,17 @@ used at ingestion time. Idempotent: safe to run multiple times.
 from __future__ import annotations
 
 import os
+import sys
 from collections import Counter
-from typing import Any
+from pathlib import Path
 
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
 
-from app.ingestion.enabling_extractor import extract_enabling_clause
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from app.ingestion.enabling_extractor import extract_enabling_clause  # noqa: E402
 
 
 def _db_url() -> str:

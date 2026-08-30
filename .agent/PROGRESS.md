@@ -42,7 +42,7 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - `tests/test_enabling_retrieval.py` (new): 4 tests — eligibility gate respected, happy-path co-retrieval, null link skipped, duplicate parent deduplication
 - 89 tests passing, lint clean (mypy clean), eval-gates all at 0
 - Review fix: Kimi removed pre-existing `# type: ignore[import-not-found]` on langfuse import in `postgres_retriever.py`; restored by Claude in fixup commit
-- Carry-forward: backfill script not executed (no DB available in Kimi's env); run `scripts/backfill_enabling_links.py` with `DATABASE_URL` set before next ingest run
+- `scripts/backfill_enabling_links.py` fix (2026-08-30, on dev): script failed on standalone execution (`ModuleNotFoundError: app`) — added repo-root `sys.path` insertion so `python scripts/backfill_enabling_links.py` resolves `app.ingestion.enabling_extractor` without requiring `PYTHONPATH`. Prakash ran it successfully against local DB — carry-forward resolved.
 
 ### AGENT-9 — TariffChunker + detection gate (MERGED to dev, 2026-08-29)
 - `app/ingestion/tariff_chunker.py` (new): `is_tariff_dominant()` (>5000 HS codes + tariff keyword), `TariffChunk` dataclass (identical fields to `LawChunk`), `TariffChunker.chunk_text()` — parses pipe-table rows into `tariff_heading` / `tariff_row` / `tariff_note` chunks with deterministic keywords, `embed_text` from structured fields, and `co_retrieve_parent_index` linkage (PS-16)
