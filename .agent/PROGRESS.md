@@ -1,12 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-12 — Commencement proposal extraction + dual-approval review CLI.
+None.
 
 ## Status
-**ASSIGNED, not yet run.** Branch `agent/lifecycle-commencement` created
-from `dev` (07dfd08). `task.md` written on that branch. Awaiting Prakash to
-run Pi.
+**IDLE** — AGENT-12 merged to dev. Awaiting Prakash's direction.
 
 - Ingestion-pipeline gap analysis (2026-08-30): a pasted external-agent
   review of `app/ingestion/pipeline.py` was verified claim-by-claim against
@@ -72,6 +70,19 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-12 — Commencement proposal extraction + dual-approval review CLI (MERGED to dev, 2026-08-30)
+- Corpus-grounded before writing any regex — see scope-narrowing note above (four commencement patterns, gazette-notification false-positive trap avoided, amend/repeal split to AGENT-15)
+- `migrations/009_lifecycle_raw_clause.sql`: `lifecycle_effect.raw_clause_text TEXT` (audit trail, same pattern as `work_relations.raw_clause_text` from AGENT-10); registered in `scripts/migrate.py`
+- `app/authority/writer.py`: `propose_lifecycle_commence()` — always writes `approval_status='pending'`; empty-range `legal_valid_time` (`'empty'::tstzrange`) when `effective_date` is unknown rather than an unbounded range that would silently assert always-valid; dedup on `(component_uri, effect_type='commence', approval_status='pending')`; `insert_commence`'s Phase-0 auto-approve stub left untouched and unused
+- `app/ingestion/commencement_extractor.py` (new): four-pattern regex classifier (immediate / N-days-relative / gazette-dependent / नियमावली-own-publication), 41-entry Devanagari-ordinal→day table with safe abstention (`unparsed_relative_delay`) on unrecognized words rather than guessing; one proposal per दफा component for real matches (matches `pipeline.py::_commence_date()`'s per-दफा lookup), exactly one proposal keyed to `law.uri` for the `no_commencement_clause` sentinel (not fanned out per-दफा — fixed in review, see below)
+- `app/ingestion/pipeline.py`: new `PROPOSE_LIFECYCLE` span after `PERSIST_AUTHORITY`/before `CHUNK`; wrapped in `SAVEPOINT`/`ROLLBACK TO SAVEPOINT` (not a bare try/except) so a failure can't poison the rest of `ingest_law()`'s transaction — best-effort, does not reject the document (proposals aren't authority data); `PERSIST_AUTHORITY`'s `upsert_source()` return value now captured and threaded through as `source_pub_id`
+- `scripts/review_lifecycle.py` (new): `--list`/`--list-work`, `--approve`/`--reject <id> --by <uuid>`, `--approve-work`/`--reject-work <work_uri> --by <uuid>` (bulk convenience over the fan-out problem, flagged as a deliberate addition beyond the literal spec). Dual sign-off enforced by SQL logic: `FOR UPDATE` row lock, first approver recorded without flipping status, a second *distinct* approver required to reach `'approved'`, same-person double-approval refused via `str(approver1) == by`. Reject is single-action (lower-risk direction), reuses `approved_by_1` for rejecter attribution. `no_overlap` EXCLUDE constraint violations caught and reported cleanly, not as a raw traceback. First tool in this codebase that can approve anything (document-level dual approval has no CLI either, still raw SQL only).
+- `tests/test_commencement_extractor.py` (10 tests), `tests/test_review_lifecycle.py` (7 tests) — 114 tests passing total, lint clean, eval-gates all at 0
+- Review fixes (commit 826b424, before merge): (1) `no_commencement_clause` sentinel was fanning out one row per दफा component (171/677 no-match docs × avg दफा count — thousands of redundant rows, `--list` clutter); fixed to write exactly one row keyed to `law.uri`. (2) immediate-commencement branch silently dropped `commencement_dependency` when `law.enactment_ad` was `None`, unlike the other three branches; fixed to set `'enactment_date_unknown'`.
+- **Honest scope note (carried forward, still true):** approving a proposal does not yet change retrieval — `eligibility_gate.py` still derives eligibility from `documents`/`chunks` only, not `component`/`lifecycle_effect`/`is_eligible()`. That rewiring is a separate future task.
+- **Backlog note (Pi's return, unresolved):** re-running `scripts/ingest_laws.py` today will NOT create commencement proposals for the 677 already-ingested laws — the pre-trace `content_hash` idempotency skip returns before `PROPOSE_LIFECYCLE` ever runs. No backfill script was written this task (deliberately, per brief). Prakash needs to decide: a one-off backfill pass (separate small task), or accept lifecycle proposals only apply to laws ingested/changed going forward.
+- Corpus pattern counts (all 677 laws): immediate 460, relative-days 5, gazette-dependent 40, नियमावली-own-publication 1, no_commencement_clause 171. Distinct ordinal words actually found in corpus: 4 (आठौं, एकतिसौँ, एकतीसौँ, एकानब्बेऔं) — all covered by the table.
 
 ### AGENT-11 — Persist parsed law authority structure (MERGED to dev, 2026-08-30)
 - `app/ingestion/pipeline.py`: new `PERSIST_AUTHORITY` span in `ingest_law()`, after VALIDATE and before CHUNK — calls `upsert_source`, then `upsert_component`/`upsert_expression` per parsed component (`as_of=date.today()`, computed once); any failure rejects the document (`_set_status(..., "rejected")`, matches CHUNK-stage rejection shape) rather than silently continuing — components/expressions are authority data, not a derivative annotation
