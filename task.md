@@ -32,8 +32,17 @@ below.
      any other date; rationale below).
 2. These writes happen **after VALIDATE passes** (not before — a record that
    fails the दफा-anchor check should not pollute the authority tables) and
-   **before CHUNK**. Reuse the existing LOAD span (no new pipeline stage) —
-   add `component_count` to its output metadata.
+   **before CHUNK**. Give this its own span — `_begin_span(trace,
+   "PERSIST_AUTHORITY", {...})` / `_end_span(...)` — following the exact
+   pattern every other stage already uses. **Do not** try to reuse the LOAD
+   span: it's already closed by this point (`_end_span` called on it at the
+   end of the LOAD block, before VALIDATE even begins) and the local `span`
+   variable has been reassigned to VALIDATE's span by the time persistence
+   runs. Reopening or re-ending an already-closed span is not a documented
+   Langfuse.py pattern — don't fake metadata onto it. A new span costs
+   nothing architecturally (same helper functions, same shape as every
+   other stage) so this isn't a Ponytail violation. Output should include
+   `component_count`.
 3. If any of the three writes raises, the document is **rejected** — same
    pattern as the existing VALIDATE/CHUNK failure paths (`_set_status(...,
    "rejected")`, commit, `last_outcome = "rejected"`, `_end_span` with
@@ -109,14 +118,15 @@ for component in law.components:
 `date` is already imported at the top of `pipeline.py`
 (`from datetime import date`).
 
-Wrap this block so a failure rejects the document using the exact same
-shape as the existing CHUNK-stage rejection block (see lines ~260-270 of the
-current file for the pattern to copy: `_set_status`, `self._conn.commit()`,
-`self.last_outcome = "rejected"`, `_end_span`, print, `_end_trace`, `_flush`,
-`return None`). Update the LOAD span's `_end_span` output dict (or add a
-dedicated span if you find the LOAD span already closed by this point —
-check the actual control flow, don't assume) to include
-`"component_count": len(law.components)`.
+Wrap this block in its own `PERSIST_AUTHORITY` span (`_begin_span` right
+before the `upsert_source` call, `_end_span` right after the loop) — see
+acceptance criterion 2 above for why this can't reuse the LOAD span. On
+success, `_end_span(span, {"outcome": "passed", "component_count":
+len(law.components)})`. On failure, use the exact same rejection shape as
+the existing CHUNK-stage rejection block (see lines ~260-270 of the current
+file for the pattern to copy: `_set_status`, `self._conn.commit()`,
+`self.last_outcome = "rejected"`, `_end_span` with `outcome: "rejected"`,
+print, `_end_trace`, `_flush`, `return None`).
 
 ## Step 2 — `as_of` semantics (read before implementing)
 
