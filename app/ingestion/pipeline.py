@@ -22,7 +22,12 @@ from psycopg2.extensions import connection as PgConnection
 
 from app.authority.bs_ad_calendar import BeyondCalendarRange, lookup
 from app.authority.parser import parse_law
-from app.authority.writer import upsert_work
+from app.authority.writer import (
+    upsert_component,
+    upsert_expression,
+    upsert_source,
+    upsert_work,
+)
 from app.ingestion import metadata_enricher
 from app.ingestion.enabling_extractor import extract_enabling_clause
 from app.ingestion.laws_chunker import LawsChunker
@@ -245,6 +250,49 @@ class IngestionPipeline:
         _end_span(span, {"outcome": "passed", "has_dafa_anchor": True})
         print(
             f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  दफा anchor found", flush=True
+        )
+
+        t0 = time.monotonic()
+        span = _begin_span(
+            trace,
+            "PERSIST_AUTHORITY",
+            {"work_id": work_id, "component_count": len(law.components)},
+        )
+        try:
+            upsert_source(self._conn, work_id, law, source_url=None)
+            today = date.today()
+            for component in law.components:
+                upsert_component(self._conn, work_id, component)
+                upsert_expression(self._conn, component, as_of=today)
+        except Exception as exc:  # noqa: BLE001 - authority write failure rejects ingest
+            logger.warning(f"{source_id}: authority persistence failed: {exc}")
+            self._set_status(document_id, "rejected")
+            self._conn.commit()
+            self.last_outcome = "rejected"
+            elapsed = time.monotonic() - t0
+            _end_span(
+                span,
+                {
+                    "outcome": "rejected",
+                    "component_count": len(law.components),
+                    "error": str(exc),
+                },
+            )
+            print(
+                f"  {'PERSIST_AUTH':<12} {_fmt_latency(elapsed)}  rejected",
+                flush=True,
+            )
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
+            _flush(lf)
+            return None
+        elapsed = time.monotonic() - t0
+        _end_span(
+            span, {"outcome": "passed", "component_count": len(law.components)}
+        )
+        print(
+            f"  {'PERSIST_AUTH':<12} {_fmt_latency(elapsed)}  {len(law.components)} components",
+            flush=True,
         )
 
         t0 = time.monotonic()
