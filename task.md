@@ -164,3 +164,77 @@ Every commit must be authored as `Prakash Basnet
 ```
 git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"
 ```
+
+---
+
+## Rework — round 1 (2026-08-30)
+
+Review of `9c843ff`: part A (regex fix) and part C (`source_sha256`
+canonicalization) are correct — independently verified against the
+corpus. Part B (the cleanup script) has a real gap, confirmed against
+the live local DB, not hypothesized.
+
+### The gap
+
+`_expected_hashes()` builds its expected `{component_uri: text_hash}`
+map from `law.components` — i.e. only from URIs the **corrected**
+parser still produces. `_stale_expression_ids()` only ever looks up
+expression rows for URIs in that map. This misses the case where a
+URI's *only* match, under the old buggy parser, was a false-positive
+cross-reference with **zero** genuine header anywhere in the document —
+the task brief's assumption that "component URIs are unaffected by this
+fix (only fragment *count* changes per URI)" was wrong for this case.
+When every match for a given दफा/परिच्छेद number in a document was a
+false positive, that URI disappears entirely from `law.components`
+post-fix, `_expected_hashes()` never contains it, and the script silently
+never looks at its rows.
+
+**Verified against the live local DB** (branch `agent/dafa-header-dedup`,
+fixed parser): corpus-wide, 255 documents have at least one दफा number
+whose only prior match was the false-positive loose pattern (856 such
+numbers total). Querying the live DB directly for `component` rows with
+no matching URI in the corrected parse output, across all 345 ingested
+documents:
+
+```
+orphaned component rows:            1,901
+orphaned expression rows under them: 2,350
+lifecycle_effect rows referencing
+  those orphaned component_uris:    1,238 (all approval_status='pending',
+                                     none 'approved' — confirmed by
+                                     GROUP BY query)
+```
+
+None of the 1,901 `component` rows, their 2,350 `expression` children,
+or the 1,238 pending `lifecycle_effect` proposals keyed to them get
+touched by the current script. They are sitting in the bitemporal
+authority store as fully fictitious records — Core Invariant #1
+territory (`system-design.md` §2.1: "the bitemporal store is the single
+authority... never a source of derivative garbage" in spirit, even
+though not literally quoted that way).
+
+### What to do
+
+Extend the cleanup script with a second pass: for each document, after
+computing `expected_uris = {c.uri for c in law.components}`, fetch the
+DB's actual `component` URIs for that `work_id` and compute the set
+difference (DB URIs not in `expected_uris`). For each orphaned URI:
+
+1. Delete its `expression` rows.
+2. Delete its `lifecycle_effect` rows — but **only** if every row for
+   that URI has `approval_status='pending'`. If you find even one
+   `approved` row (the live DB currently has none, per the breakdown
+   above, but don't assume that stays true — check it live before
+   deleting), stop for that URI, do not delete anything under it, and
+   report it instead — an approved lifecycle fact needs a human decision,
+   not a script deleting it.
+3. Delete the `component` row itself.
+
+Same discipline as the rest of this task: per-document commit/rollback,
+`--dry-run` first, hand-verify a couple of the orphaned URIs you found
+before running for real, run for real against the live DB afterward,
+and report the before/after counts for `component`, `expression`, and
+`lifecycle_effect` (not just `expression` as in the first pass).
+
+Re-run `make test`, `make lint`, `make eval-gates` after the change and
+report results, same as before.
