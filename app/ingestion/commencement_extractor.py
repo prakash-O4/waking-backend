@@ -86,6 +86,8 @@ def classify_commencement(law: Any, content: str) -> CommencementProposal:
 
     match = _IMMEDIATE_RE.search(head)
     if match:
+        if law.enactment_ad is None:
+            return CommencementProposal(None, "enactment_date_unknown", match.group(0))
         return CommencementProposal(law.enactment_ad, None, match.group(0))
 
     match = _RELATIVE_RE.search(head)
@@ -116,10 +118,15 @@ def extract_commencement_proposals(
     *, law: Any, content: str, source_pub_id: str, conn: Any
 ) -> None:
     proposal = classify_commencement(law, content)
-    for component in law.components:
+    component_uris = (
+        [law.uri]
+        if proposal.commencement_dependency == "no_commencement_clause"
+        else [component.uri for component in law.components]
+    )
+    for component_uri in component_uris:
         propose_lifecycle_commence(
             conn,
-            component.uri,
+            component_uri,
             source_pub_id,
             effective_date=proposal.effective_date,
             commencement_dependency=proposal.commencement_dependency,

@@ -11,6 +11,7 @@ from app.ingestion import commencement_extractor as ce
 
 def law(enactment_ad: date | None = date(2020, 1, 1), n: int = 2) -> SimpleNamespace:
     return SimpleNamespace(
+        uri="/np/act/1/test",
         enactment_ad=enactment_ad,
         components=[SimpleNamespace(uri=f"/np/act/1/test/dafa/{i}") for i in range(n)],
     )
@@ -34,6 +35,12 @@ def test_immediate_proposal_per_component(monkeypatch):
     assert len(calls) == 2
     assert all(c[1]["effective_date"] == date(2020, 1, 1) for c in calls)
     assert all(c[1]["commencement_dependency"] is None for c in calls)
+
+
+def test_immediate_without_enactment_date_is_flagged():
+    row = ce.classify_commencement(law(None), "यो ऐन तुरुन्त प्रारम्भ हुनेछ")
+    assert row.effective_date is None
+    assert row.commencement_dependency == "enactment_date_unknown"
 
 
 def test_relative_known_ordinal():
@@ -105,6 +112,15 @@ def test_no_pattern_sentinel():
     assert row.effective_date is None
     assert row.commencement_dependency == "no_commencement_clause"
     assert row.raw_clause_text == ""
+
+
+def test_no_pattern_sentinel_writes_once_for_work(monkeypatch):
+    calls = capture(monkeypatch)
+    ce.extract_commencement_proposals(
+        law=law(n=3), content="कुनै प्रारम्भ दफा छैन", source_pub_id="s", conn=None
+    )
+    assert len(calls) == 1
+    assert calls[0][0][1] == "/np/act/1/test"
 
 
 def test_writer_dedups_pending():
