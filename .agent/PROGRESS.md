@@ -1,11 +1,24 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-13 — Backfill authority layer (components/source/expression/
+commencement proposals) for already-ingested laws.
 
 ## Status
-**IDLE** — AGENT-12 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, not yet run.** Branch `agent/backfill-authority-layer` created
+from `dev` (e732992). `task.md` written on that branch. Awaiting Prakash to
+run Pi.
 
+- **DB check before scoping (2026-08-30)**: queried the live local DB
+  directly rather than assume. `documents`/`work`: 345 rows each.
+  `component`/`source_publication`/`expression`/`lifecycle_effect`: **0
+  rows, all four**. AGENT-11's persistence and AGENT-12's commencement
+  extraction only run inside `ingest_law()`, which the content_hash
+  idempotency skip short-circuits before either stage for anything already
+  ingested. Backfilling commencement alone (the literal AGENT-12 backlog
+  ask) would need `source_publication` rows that don't exist either — so
+  AGENT-13 backfills the whole authority layer in one script, not just
+  commencement.
 - Ingestion-pipeline gap analysis (2026-08-30): a pasted external-agent
   review of `app/ingestion/pipeline.py` was verified claim-by-claim against
   code. All 7 claims CONFIRMED — see AGENT-11 entry below for detail.
@@ -32,16 +45,18 @@ None.
   still derives eligibility from `documents`/`chunks` only, not from
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
-- Planned follow-on tasks (not yet branched):
-  - **AGENT-13** — strengthen VALIDATE stage (structural checks beyond दफा
+- Planned follow-on tasks (not yet branched; renumbered 2026-08-30 —
+  AGENT-13 was reassigned to the authority-layer backfill above, these
+  shifted up by one):
+  - **AGENT-14** — strengthen VALIDATE stage (structural checks beyond दफा
     anchor: duplicate/broken section numbering, malformed markup, doc-type
     support, chunk-size violations) + canonical `content_hash` rule + named
     tariff-threshold constant (currently a bare `5000` literal in
     `app/ingestion/tariff_chunker.py:38`).
-  - **AGENT-14** — non-authoritative/unreviewed flag on LLM-derived chunk
+  - **AGENT-15** — non-authoritative/unreviewed flag on LLM-derived chunk
     metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
     inputs and temporal clauses.
-  - **AGENT-15** — amend/repeal/expiry lifecycle extraction, after a
+  - **AGENT-16** — amend/repeal/expiry lifecycle extraction, after a
     dedicated corpus study of the amendment-history table structure and
     its correlation to `<amend>` tags (split out of AGENT-12's original
     scope, see note above).
