@@ -1,5 +1,33 @@
 # AGENT-11 — Persist parsed law structure (components, source, expression)
 
+## Rework note (post-review, commit dde4267)
+
+Everything else in dde4267 is approved — span placement, rejection semantics,
+`as_of` handling, and all 6 tests are correct. One fix needed before merge:
+
+In the `PERSIST_AUTHORITY` failure branch, `_end_span(span, {..., "error":
+str(exc)})` puts a raw exception message into the Langfuse trace. Every
+other stage in this file logs `str(exc)` to `logger.warning` only, never
+into the span — that's PS-14 (traces store IDs/hashes by default, not raw
+content). Concretely: `upsert_expression` inserts `text_ne` (full दफा text)
+as a column; a NOT NULL violation on that insert would put Postgres's
+`DETAIL: Failing row contains (...)` — full row values, including
+`text_ne` — into `str(exc)`, and from there into the span.
+
+**Fix:** drop `"error": str(exc)` from the span output. The `logger.warning`
+call above it already captures it locally, matching every other stage's
+pattern. If you want a signal in the trace, use `"error_type":
+type(exc).__name__` instead — no data, just the exception class.
+
+Update `test_ingest_law_persistence_failure_rejects_document` (or add a
+new assertion) to confirm the span output has no `"error"` key with the
+exception text.
+
+Same commit authorship rule applies (see bottom of this file). Push a new
+commit on `agent/persist-law-structure` — don't amend dde4267.
+
+---
+
 ## Objective
 
 `ingest_law()` currently parses full structure via `parse_law()` — components with
