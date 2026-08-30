@@ -1,10 +1,12 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-12 — Commencement proposal extraction + dual-approval review CLI.
 
 ## Status
-**IDLE** — AGENT-11 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, not yet run.** Branch `agent/lifecycle-commencement` created
+from `dev` (07dfd08). `task.md` written on that branch. Awaiting Prakash to
+run Pi.
 
 - Ingestion-pipeline gap analysis (2026-08-30): a pasted external-agent
   review of `app/ingestion/pipeline.py` was verified claim-by-claim against
@@ -12,13 +14,27 @@ None.
   AGENT-11 closes claims #1/#3 (component/source/expression persistence).
   Root cause was structural, not missing code: `writer.py` already had the
   needed functions; `pipeline.py` never wired them in.
+- AGENT-12 scope narrowed after corpus grounding (2026-08-30): grepped all
+  677 `laws.jsonl` records for commencement/repeal/amend phrasing before
+  writing any regex (AGENTS.md "become one with the data"). Found: (a) four
+  distinct commencement patterns (immediate / N-days-relative /
+  gazette-dependent / नियमावली-own-publication), not two; (b) a naive
+  "राजपत्रमा सूचना प्रकाशन गरी तोकिएको" regex is a false-positive trap —
+  ~96 hits, almost all boilerplate definitions of "तोकिएको" unrelated to
+  commencement, must anchor on the full clause ending in `प्रारम्भ हुनेछ`;
+  (c) what looked like "repeal" mentions are actually entries in each
+  document's amendment-history table (other acts that amended this one, by
+  name/year) — not inline repeal instructions; real amend/repeal extraction
+  needs correlating that table against `<amend>` tags, a harder, separate
+  problem. Decision: AGENT-12 = commencement extraction only + a
+  dual-approval review CLI (nothing in the codebase can approve *anything*
+  yet — this CLI is the first). Amend/repeal/expiry moved to AGENT-15.
+- **Honest scope note carried into AGENT-12's brief:** approving a
+  commencement proposal does not yet change retrieval — `eligibility_gate.py`
+  still derives eligibility from `documents`/`chunks` only, not from
+  `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
+  this bitemporal layer is a distinct future task.
 - Planned follow-on tasks (not yet branched):
-  - **AGENT-12** — lifecycle proposal extraction (commencement, delayed
-    commencement, Gazette dependency, amendment, repeal, expiry) written as
-    `approval_status='pending'` rows. Must NOT reuse `insert_commence`'s
-    Phase-0 auto-approve stub (`PHASE0_APPROVER`) — that would auto-approve
-    commencement for every दफा with zero human review, violating Invariant
-    #5. Needs a new pending-insert path.
   - **AGENT-13** — strengthen VALIDATE stage (structural checks beyond दफा
     anchor: duplicate/broken section numbering, malformed markup, doc-type
     support, chunk-size violations) + canonical `content_hash` rule + named
@@ -27,6 +43,10 @@ None.
   - **AGENT-14** — non-authoritative/unreviewed flag on LLM-derived chunk
     metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
     inputs and temporal clauses.
+  - **AGENT-15** — amend/repeal/expiry lifecycle extraction, after a
+    dedicated corpus study of the amendment-history table structure and
+    its correlation to `<amend>` tags (split out of AGENT-12's original
+    scope, see note above).
 
 ---
 
