@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import unicodedata
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -183,15 +184,21 @@ def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
     def fake_parse_law(record: dict[str, Any]) -> SimpleNamespace:
-        return SimpleNamespace(uri="/work/test")
+        return SimpleNamespace(uri="/work/test", components=[])
 
     def fake_upsert_work(conn: Any, law: Any) -> str:
         return "work-id"
+
+    def fake_authority_write(*args: Any, **kwargs: Any) -> None:
+        pass
 
     fake_lf = SimpleNamespace(trace=fake_trace, flush=fake_flush)
     monkeypatch.setattr(pipeline_mod, "_get_lf_client", lambda: fake_lf)
     monkeypatch.setattr(pipeline_mod, "parse_law", fake_parse_law)
     monkeypatch.setattr(pipeline_mod, "upsert_work", fake_upsert_work)
+    monkeypatch.setattr(pipeline_mod, "upsert_source", fake_authority_write)
+    monkeypatch.setattr(pipeline_mod, "upsert_component", fake_authority_write)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", fake_authority_write)
 
     conn = MagicMock()
     pipeline = IngestionPipeline(conn, enable_llm=False)
@@ -212,6 +219,7 @@ def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
     for stage in [
         "stage.LOAD",
         "stage.VALIDATE",
+        "stage.PERSIST_AUTHORITY",
         "stage.CHUNK",
         "stage.EXTRACT_METADATA",
         "stage.EMBED_AND_UPSERT",
@@ -269,6 +277,181 @@ def test_pipeline_idempotency_skips_unchanged_document() -> None:
     assert pipeline.last_outcome == "skipped"
     pipeline._indexer.embed_chunks.assert_not_called()
     pipeline._indexer.upsert_document.assert_not_called()
+
+
+def _pipeline_for_law(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[IngestionPipeline, MagicMock]:
+    from app.ingestion import pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "_get_lf_client", lambda: None)
+    monkeypatch.setattr(pipeline_mod, "upsert_work", lambda conn, law: "work-id")
+    conn = MagicMock()
+    pipeline = IngestionPipeline(conn, enable_llm=False)
+    pipeline._find_existing = MagicMock(return_value=None)
+    pipeline._insert_document = MagicMock(return_value="doc-id")
+    pipeline._commence_date = MagicMock(return_value=None)
+    pipeline._embed = MagicMock(return_value=([[0.1]] * 20, 0))
+    pipeline._indexer.upsert_document = MagicMock(return_value="doc-id")
+    return pipeline, conn
+
+
+def test_ingest_law_persists_components(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    calls: list[tuple[str, Any]] = []
+    monkeypatch.setattr(pipeline_mod, "upsert_source", lambda *a, **k: "source-id")
+    monkeypatch.setattr(
+        pipeline_mod,
+        "upsert_component",
+        lambda conn, work_id, component: calls.append((work_id, component)),
+    )
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    assert (
+        pipeline.ingest_law(
+            {"_id": "law-c", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
+        )
+        == "doc-id"
+    )
+    assert len(calls) >= 2
+    assert {work_id for work_id, _ in calls} == {"work-id"}
+
+
+def test_ingest_law_persists_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    source_calls: list[tuple[str, Any, Any]] = []
+    monkeypatch.setattr(
+        pipeline_mod,
+        "upsert_source",
+        lambda conn, work_id, law, source_url=None: source_calls.append(
+            (work_id, law, source_url)
+        ),
+    )
+    monkeypatch.setattr(pipeline_mod, "upsert_component", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    pipeline.ingest_law(
+        {"_id": "law-s", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
+    )
+
+    assert len(source_calls) == 1
+    assert source_calls[0][0] == "work-id"
+    assert source_calls[0][1].uri.endswith("/law-s")
+    assert source_calls[0][2] is None
+
+
+def test_ingest_law_persists_expression_with_todays_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    as_ofs: list[date] = []
+    monkeypatch.setattr(pipeline_mod, "upsert_source", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline_mod, "upsert_component", lambda *a, **k: None)
+    monkeypatch.setattr(
+        pipeline_mod,
+        "upsert_expression",
+        lambda conn, component, as_of: as_ofs.append(as_of),
+    )
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    pipeline.ingest_law(
+        {"_id": "law-e", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
+    )
+
+    assert as_ofs
+    assert set(as_ofs) == {date.today()}
+
+
+def test_ingest_law_skip_path_no_persistence_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    record = {"_id": "law-skip", "name": "परीक्षण ऐन", "content": "**१. परीक्षण:** पाठ ।"}
+    content_hash = hashlib.sha256(
+        unicodedata.normalize("NFC", str(record["content"])).encode("utf-8")
+    ).hexdigest()
+    source = MagicMock()
+    component = MagicMock()
+    expression = MagicMock()
+    monkeypatch.setattr(pipeline_mod, "upsert_source", source)
+    monkeypatch.setattr(pipeline_mod, "upsert_component", component)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", expression)
+    conn = MagicMock()
+    pipeline = IngestionPipeline(conn, enable_llm=False)
+    pipeline._find_existing = MagicMock(return_value=("doc-id", content_hash))
+
+    assert pipeline.ingest_law(record) is None
+    source.assert_not_called()
+    component.assert_not_called()
+    expression.assert_not_called()
+
+
+def test_ingest_law_persistence_failure_rejects_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "upsert_source", lambda *a, **k: None)
+
+    def fail_component(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pipeline_mod, "upsert_component", fail_component)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
+    span_outputs: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(pipeline_mod, "_begin_span", lambda trace, stage, input: stage)
+    monkeypatch.setattr(
+        pipeline_mod,
+        "_end_span",
+        lambda span, output: span_outputs.append((span, output)),
+    )
+    pipeline, conn = _pipeline_for_law(monkeypatch)
+    pipeline._set_status = MagicMock()
+    pipeline._laws_chunker.chunk_text = MagicMock(return_value=[])
+
+    assert (
+        pipeline.ingest_law(
+            {"_id": "law-f", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
+        )
+        is None
+    )
+    pipeline._set_status.assert_called_once_with("doc-id", "rejected")
+    assert pipeline.last_outcome == "rejected"
+    conn.commit.assert_called_once()
+    pipeline._laws_chunker.chunk_text.assert_not_called()
+    persist_output = dict(span_outputs)["PERSIST_AUTHORITY"]
+    assert "error" not in persist_output
+    assert persist_output["error_type"] == "RuntimeError"
+
+
+def test_ingest_law_validate_failure_before_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    source = MagicMock()
+    component = MagicMock()
+    expression = MagicMock()
+    monkeypatch.setattr(pipeline_mod, "upsert_source", source)
+    monkeypatch.setattr(pipeline_mod, "upsert_component", component)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", expression)
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    assert (
+        pipeline.ingest_law(
+            {"_id": "bad-law", "name": "खराब_ऐन_२०८०", "content": "दफा छैन"}
+        )
+        is None
+    )
+    source.assert_not_called()
+    component.assert_not_called()
+    expression.assert_not_called()
 
 
 def _check_constraint_holds(

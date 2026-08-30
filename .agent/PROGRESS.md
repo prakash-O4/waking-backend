@@ -1,10 +1,42 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-11 — Persist parsed law structure (components, source_publication,
+expression) into the bitemporal store at ingest time.
 
 ## Status
-**IDLE** — AGENT-10 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, not yet run.** Branch `agent/persist-law-structure` created from
+`dev` (836bd75). `task.md` written on that branch. Awaiting Prakash to run Pi.
+
+- Ingestion-pipeline gap analysis (2026-08-30): a pasted external-agent
+  review of `app/ingestion/pipeline.py` was verified claim-by-claim against
+  code. All 7 claims CONFIRMED: `ingest_law()` parses full component
+  structure via `parse_law()` then discards it after `upsert_work()`;
+  `upsert_source`/`upsert_component`/`upsert_expression` in
+  `app/authority/writer.py` are never called; no lifecycle extraction exists
+  at all (not even as human-review proposals); VALIDATE is a single दफा-
+  anchor regex; `content_hash` is plain NFC+sha256 with no documented
+  canonicalization; tariff-routing threshold (`>5000` HS codes) is a bare
+  literal; LLM-derived chunk metadata has no unreviewed/non-authoritative
+  flag despite the schema already having an `is_derived` pattern for exactly
+  this (`expression.is_derived`, unreachable until AGENT-11).
+- Root cause is structural, not missing code: `writer.py` already has the
+  needed functions; `pipeline.py` never wires them in.
+- Planned follow-on tasks (not yet branched):
+  - **AGENT-12** — lifecycle proposal extraction (commencement, delayed
+    commencement, Gazette dependency, amendment, repeal, expiry) written as
+    `approval_status='pending'` rows. Must NOT reuse `insert_commence`'s
+    Phase-0 auto-approve stub (`PHASE0_APPROVER`) — that would auto-approve
+    commencement for every दफा with zero human review, violating Invariant
+    #5. Needs a new pending-insert path.
+  - **AGENT-13** — strengthen VALIDATE stage (structural checks beyond दफा
+    anchor: duplicate/broken section numbering, malformed markup, doc-type
+    support, chunk-size violations) + canonical `content_hash` rule + named
+    tariff-threshold constant (currently a bare `5000` literal in
+    `app/ingestion/tariff_chunker.py:38`).
+  - **AGENT-14** — non-authoritative/unreviewed flag on LLM-derived chunk
+    metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
+    inputs and temporal clauses.
 
 ---
 
