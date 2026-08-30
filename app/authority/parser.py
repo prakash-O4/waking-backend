@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -38,7 +39,7 @@ _DATE_RE = re.compile(
 )
 _AMEND_RE = re.compile(r"</?amend>")
 _HEADER_RE = re.compile(
-    r"(?m)(\*\*\s*(?:दफा\s*)?([०-९0-9]+)[\.।:][^\n*]*\*\*|दफा\s+([०-९0-9]+)[\.।\s]|परिच्छेद[-–]\s*([०-९0-9]+)|धारा\s+([०-९0-9]+)[\.।\s])"
+    r"(?m)(\*\*\s*(?:दफा\s*)?([०-९0-9]+)[\.।:][^\n*]*\*\*|^दफा\s+([०-९0-9]+)[\.।]|^परिच्छेद[-–]\s*([०-९0-9]+)\s*$|^धारा\s+([०-९0-9]+)[\.।])"
 )
 
 
@@ -151,7 +152,9 @@ def parse_law(record: dict[str, Any]) -> ParsedLaw:
         title_ne=unquote(str(record["name"])).replace("_", " "),
         title_en=record.get("english_name"),
         enactment_ad=_enactment_ad(content),
-        source_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        source_sha256=hashlib.sha256(
+            unicodedata.normalize("NFC", content).encode("utf-8")
+        ).hexdigest(),
         components=components,
     )
 
