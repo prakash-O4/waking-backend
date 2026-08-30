@@ -1,5 +1,62 @@
 # AGENT-12 — Commencement proposal extraction + dual-approval review CLI
 
+## Rework note (post-review, commit 1aa6e53)
+
+Everything else is approved — the four-pattern classifier, the ordinal
+table with safe abstention on unknown words, the `no_overlap` false-
+positive guard, the `FOR UPDATE` row locks, the `str(approver1) == by`
+UUID-vs-string comparison, and the `SAVEPOINT`/`ROLLBACK TO SAVEPOINT`
+handling in `pipeline.py` (good catch beyond the brief — without it, an
+exception mid-`PROPOSE_LIFECYCLE` would poison the rest of `ingest_law()`'s
+transaction). Two fixes needed in
+`app/ingestion/commencement_extractor.py` before merge:
+
+**1. Sentinel (`no_commencement_clause`) proposals must not fan out per-
+दफा.** `extract_commencement_proposals()` currently loops `law.components`
+unconditionally for every case, including the no-match sentinel. Real
+proposals genuinely need one row per दफा (that's what
+`pipeline.py::_commence_date()` looks up by, per-component). But "no
+clause found" is a document-level fact — fanning it out per-दफा means the
+171/677 no-match docs in the corpus each write one near-duplicate,
+zero-information row *per दफा component*, potentially thousands of rows
+total, and it clutters `--list` with repeated "nothing found" lines a
+reviewer has to scroll past for every दफा of the same act.
+
+Fix: in `extract_commencement_proposals()`, branch on
+`proposal.commencement_dependency == "no_commencement_clause"` — write
+**exactly one** proposal in that case, keyed to `law.uri` as the
+`component_uri` (legal: `lifecycle_effect.component_uri` is a free TEXT
+column, not FK-enforced to `component.id`). All other cases keep the
+existing per-component loop unchanged.
+
+**2. The immediate-commencement branch doesn't guard `law.enactment_ad is
+None`.** The relative-days and नियमावली-publication branches both
+explicitly check for a missing `enactment_ad` and set a descriptive
+`commencement_dependency` so a reviewer knows why the date is absent. The
+immediate branch (`_IMMEDIATE_RE` match in `classify_commencement()`)
+skips that check — `return CommencementProposal(law.enactment_ad, None,
+match.group(0))` silently produces `effective_date=None,
+commencement_dependency=None` when `enactment_ad` is `None`,
+indistinguishable in the data from a clean resolution.
+
+Fix: mirror the other branches —
+```python
+if law.enactment_ad is None:
+    return CommencementProposal(None, "enactment_date_unknown", match.group(0))
+return CommencementProposal(law.enactment_ad, None, match.group(0))
+```
+
+Add test coverage for both: (1) a law with `n=3` components whose content
+matches nothing → assert exactly one `propose_lifecycle_commence` call,
+with `component_uri` equal to the law's own `uri`, not any component's
+uri; (2) `law(None)` + immediate-pattern content →
+`commencement_dependency == "enactment_date_unknown"`.
+
+Same commit authorship rule applies (see bottom of this file). Push a new
+commit on `agent/lifecycle-commencement` — don't amend 1aa6e53.
+
+---
+
 ## Objective
 
 The system currently stores what a law's text *says*, but has no memory of
