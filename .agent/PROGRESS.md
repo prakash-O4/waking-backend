@@ -1,27 +1,17 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-11 — Persist parsed law structure (components, source_publication,
-expression) into the bitemporal store at ingest time.
+None.
 
 ## Status
-**ASSIGNED, not yet run.** Branch `agent/persist-law-structure` created from
-`dev` (836bd75). `task.md` written on that branch. Awaiting Prakash to run Pi.
+**IDLE** — AGENT-11 merged to dev. Awaiting Prakash's direction.
 
 - Ingestion-pipeline gap analysis (2026-08-30): a pasted external-agent
   review of `app/ingestion/pipeline.py` was verified claim-by-claim against
-  code. All 7 claims CONFIRMED: `ingest_law()` parses full component
-  structure via `parse_law()` then discards it after `upsert_work()`;
-  `upsert_source`/`upsert_component`/`upsert_expression` in
-  `app/authority/writer.py` are never called; no lifecycle extraction exists
-  at all (not even as human-review proposals); VALIDATE is a single दफा-
-  anchor regex; `content_hash` is plain NFC+sha256 with no documented
-  canonicalization; tariff-routing threshold (`>5000` HS codes) is a bare
-  literal; LLM-derived chunk metadata has no unreviewed/non-authoritative
-  flag despite the schema already having an `is_derived` pattern for exactly
-  this (`expression.is_derived`, unreachable until AGENT-11).
-- Root cause is structural, not missing code: `writer.py` already has the
-  needed functions; `pipeline.py` never wires them in.
+  code. All 7 claims CONFIRMED — see AGENT-11 entry below for detail.
+  AGENT-11 closes claims #1/#3 (component/source/expression persistence).
+  Root cause was structural, not missing code: `writer.py` already had the
+  needed functions; `pipeline.py` never wired them in.
 - Planned follow-on tasks (not yet branched):
   - **AGENT-12** — lifecycle proposal extraction (commencement, delayed
     commencement, Gazette dependency, amendment, repeal, expiry) written as
@@ -62,6 +52,14 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-11 — Persist parsed law authority structure (MERGED to dev, 2026-08-30)
+- `app/ingestion/pipeline.py`: new `PERSIST_AUTHORITY` span in `ingest_law()`, after VALIDATE and before CHUNK — calls `upsert_source`, then `upsert_component`/`upsert_expression` per parsed component (`as_of=date.today()`, computed once); any failure rejects the document (`_set_status(..., "rejected")`, matches CHUNK-stage rejection shape) rather than silently continuing — components/expressions are authority data, not a derivative annotation
+- `tests/test_ingestion_pipeline.py`: 6 new tests — component/source/expression persistence, `as_of` correctness, skip-path (no persistence calls on unchanged content_hash), persistence-failure rejects + never reaches chunker, VALIDATE-failure precedes persistence; `test_langfuse_span_end_called` updated for the new stage
+- 95 tests passing, lint clean (ruff + mypy --strict), eval-gates all at 0
+- Review fix: initial diff (dde4267) put `"error": str(exc)` into the `PERSIST_AUTHORITY` span's rejected-branch output — the only stage in the file to put raw exception text into a Langfuse span. Risk: `upsert_expression` inserts `text_ne` (full दफा text) as a column; a NOT NULL violation on that insert surfaces Postgres's `DETAIL: Failing row contains (...)` — full row values — inside `str(exc)`, which would then leak into the trace (PS-14). Fixed in 1411b79: `"error_type": type(exc).__name__` instead, with a test asserting the span output carries no raw `"error"` key.
+- Scope explicitly excluded lifecycle proposal extraction and any call to `insert_commence` (Phase-0 auto-approve stub) — see AGENT-12 below
+- Deferred to follow-on tasks (not fixed here): shallow VALIDATE stage, `content_hash` canonicalization, tariff-routing magic threshold, LLM-derived metadata authoritativeness flag — see AGENT-13/14 in Status above
 
 ### AGENT-10 — Enabling-power links (MERGED to dev, 2026-08-30)
 - `migrations/008_work_relations.sql`: `law_level` enum widened (tariff_heading/row/note, unblocks AGENT-9 ingest) + `work_relations` table with section-aware unique indexes and `valid_time` (PS-6)
