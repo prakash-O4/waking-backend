@@ -1,14 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-14 — fix दफा/परिच्छेद/धारा header over-matching in
-`app/authority/parser.py` (causing duplicate `expression` rows) +
-canonicalize `source_sha256` to NFC (matching `documents.content_hash`).
-Assigned to **Pi** on branch `agent/dafa-header-dedup`. Brief: `task.md`
-on that branch (and on `dev` at the assignment commit).
+None.
 
 ## Status
-**ASSIGNED, awaiting Pi's run** (2026-08-30).
+**IDLE** — AGENT-14 merged to dev. Awaiting Prakash's direction.
 
 - **AGENT-14 scoping (2026-08-30)**: corpus-wide regex count against all
   677 `laws.jsonl` records confirmed AGENT-13's single-document finding
@@ -104,6 +100,15 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-14 — Fix दफा/परिच्छेद/धारा header over-matching + canonicalize source_sha256 (MERGED to dev, 2026-08-30)
+- `app/authority/parser.py`: `_HEADER_RE`'s three loose (non-bold) alternatives (दफा, परिच्छेद, धारा) anchored to line-start — they were matching inline cross-references anywhere in a document's body (e.g. "यस ऐनको दफा ३ बमोजिम"), not just genuine headers. Corpus-wide verification before/after: दफा 10,743→0 matches, परिच्छेद 3,270→4 (all 4 confirmed genuine chapter headers, e.g. "परिच्छेद-१\nप्रारम्भिक"), धारा 649→0. Bold-header alternative untouched (26,622 matches, unaffected). Root cause of AGENT-13's finding (3,712 components with duplicate `expression` rows, one with 33). `source_sha256` in `parse_law()` now NFC-normalizes before hashing, matching `pipeline.py::_content_hash()` — previously diverged for 2/677 corpus records, breaking the `documents.content_hash` ↔ `source_publication.sha256` provenance match PS-3 needs.
+- `scripts/cleanup_stale_authority_expressions.py` (new): two cleanup passes against the live DB, re-deriving expected state from the fixed `parse_law()` per document (same per-document commit/rollback + `--dry-run` discipline as `backfill_authority_layer.py`). Pass 1: deletes `expression` rows whose `text_hash` no longer matches the fixed parser's output for their `component_uri` (leftover fragments from partially-duplicated components). Pass 2 (added in rework round 1, see below): deletes fully orphaned `component`/`expression`/`lifecycle_effect` rows for section numbers that were **never** real headers at all — these don't show up in pass 1 because the URI itself disappears from the fixed parser's output, not just its fragment count. Also corrects stale `source_publication.sha256` values.
+- **Rework round 1**: first-pass diff only reconciled URIs still present in the corrected parse, silently leaving fully-orphaned URIs untouched. Caught by an independent live-DB query during review (not just corpus regex counts): 1,901 orphan `component` rows, 2,350 orphan `expression` rows, 1,238 `lifecycle_effect` rows (all `approval_status='pending'`, none `approved` — verified before allowing deletion). Fix adds a lifecycle-status guard: an orphan URI with any non-`pending` lifecycle row is blocked and reported, never deleted (Core Invariant #5 territory — an approved lifecycle fact needs a human decision, not a script).
+- `tests/test_parser.py`: cross-reference false-positive regression + non-NFC `source_sha256` regression. `tests/test_cleanup_stale_authority_expressions.py` (new): orphan cleanup counts + approved-row blocking, via a `FakeConn`/`FakeCursor` harness.
+- 126 tests passing, lint clean (ruff + mypy --strict, including the new script which isn't in the Makefile's fixed lint file list — checked manually), eval-gates all at 0.
+- **Run against the live local DB**: `component` 16,459→14,558, `expression` 23,187→14,601, `lifecycle_effect` 10,619→9,381. Independently re-verified post-merge: zero remaining orphans, zero non-pending-lifecycle violations, table counts match exactly.
+- **Scope note**: originally planned as part of a broader AGENT-14 (VALIDATE-stage hardening + tariff constant bundled in) — split during scoping once corpus grounding turned this into a concrete, evidenced correctness bug on its own. The broader hardening work is now **AGENT-17**.
 
 ### AGENT-13 — Backfill authority layer for already-ingested laws (MERGED to dev, 2026-08-30)
 - `scripts/backfill_authority_layer.py` (new): sources records from `laws.jsonl` matched by `source_id` (not reconstructed from `documents` columns — `documents` doesn't store `name`/`work_id`, checked against `migrations/005_ingestion_pipeline.sql` before writing anything), verifies `_content_hash(record["content"]) == documents.content_hash`, asserts `parse_law(record).uri == work.uri` (fetched via `chunks.work_id` join, same pattern as AGENT-10's `backfill_enabling_links.py`) before writing anything — avoids silently computing a different `component.uri` than what `pipeline.py::_commence_date()` would ever query for. Per-document commit/rollback (not one giant transaction); a mid-write failure on one document doesn't lose prior documents' committed work. `--dry-run` flag.
