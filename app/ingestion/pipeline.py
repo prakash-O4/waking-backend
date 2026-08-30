@@ -24,6 +24,7 @@ from app.authority.bs_ad_calendar import BeyondCalendarRange, lookup
 from app.authority.parser import parse_law
 from app.authority.writer import upsert_work
 from app.ingestion import metadata_enricher
+from app.ingestion.enabling_extractor import extract_enabling_clause
 from app.ingestion.laws_chunker import LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
 from app.ingestion.pgvector_indexer import PgvectorIndexer
@@ -35,6 +36,7 @@ _DAFA_ANCHOR_RE = re.compile(r"\*\*[०-९]+\.")
 _BS_DATE_RE = re.compile(r"([०-९]{4})[।./-]([०-९]{1,2})[।./-]([०-९]{1,2})")
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _LANDMARK_BENCHES = {"पूर्ण इजलास", "संवैधानिक इजलास"}
+_NIYAM_RE = re.compile(r"(?:^|\s)(नियमावली|नियमहरू|नियम)(?=\s|$|,|\.)")
 
 
 _lf_client: Any = None
@@ -278,6 +280,20 @@ class IngestionPipeline:
             f"  {'CHUNK':<12} {_fmt_latency(elapsed)}  → {len(chunks)} chunks",
             flush=True,
         )
+
+        doc_name = str(record.get("name") or "")
+        if _NIYAM_RE.search(doc_name):
+            try:
+                extract_enabling_clause(
+                    content=content,
+                    work_id=work_id,
+                    conn=self._conn,
+                    source_id=source_id,
+                )
+            except Exception as exc:  # noqa: BLE001 — derivative metadata, never block ingest
+                logger.warning(
+                    f"{source_id}: enabling-power extraction failed: {exc}"
+                )
 
         batch_count = math.ceil(len(chunks) / metadata_enricher.CHUNK_BATCH_SIZE)
         span = _begin_span(

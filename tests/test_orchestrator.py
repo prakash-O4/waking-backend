@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from itertools import chain, repeat
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -135,7 +136,13 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
             ],
         },
     )
-    times = iter([0.0, 0.0, orchestrator.WALL_CLOCK_CAP + 0.1])
+    # Yield the wall-clock cap once, then continue returning a large value so
+    # background threads (e.g. Langfuse flush) do not exhaust the generator and
+    # hang waiting on a dead consumer thread.
+    times = chain(
+        [0.0, 0.0, orchestrator.WALL_CLOCK_CAP + 0.1],
+        repeat(orchestrator.WALL_CLOCK_CAP + 0.1),
+    )
     monkeypatch.setattr(
         "app.retrieval.gated_orchestrator.time.monotonic", lambda: next(times)
     )

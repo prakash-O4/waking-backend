@@ -21,6 +21,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
     ("005_ingestion_pipeline_bm25", None),  # optional; computed below
     ("006_add_summary", "006_add_summary.sql"),
     ("007_retrieval_indexes", "007_retrieval_indexes.sql"),
+    ("008_work_relations", "008_work_relations.sql"),
 ]
 
 
@@ -63,6 +64,7 @@ def _seed_existing(cur: Any) -> None:
         "005_ingestion_pipeline_bm25": "SELECT 1 FROM pg_extension WHERE extname = 'pg_search'",
         "006_add_summary": "SELECT 1 FROM information_schema.columns WHERE table_name='documents' AND column_name='summary'",
         "007_retrieval_indexes": "SELECT 1 FROM pg_indexes WHERE indexname = 'idx_chunks_chunk_text_fts'",
+        "008_work_relations": "SELECT 1 FROM pg_tables WHERE tablename = 'work_relations'",
     }
     for name, probe in sentinels.items():
         cur.execute("SELECT 1 FROM schema_migrations WHERE name = %s", (name,))
