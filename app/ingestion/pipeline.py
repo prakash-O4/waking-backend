@@ -29,6 +29,7 @@ from app.authority.writer import (
     upsert_work,
 )
 from app.ingestion import metadata_enricher
+from app.ingestion.commencement_extractor import extract_commencement_proposals
 from app.ingestion.enabling_extractor import extract_enabling_clause
 from app.ingestion.laws_chunker import LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
@@ -258,8 +259,9 @@ class IngestionPipeline:
             "PERSIST_AUTHORITY",
             {"work_id": work_id, "component_count": len(law.components)},
         )
+        source_pub_id = ""
         try:
-            upsert_source(self._conn, work_id, law, source_url=None)
+            source_pub_id = upsert_source(self._conn, work_id, law, source_url=None)
             today = date.today()
             for component in law.components:
                 upsert_component(self._conn, work_id, component)
@@ -287,11 +289,33 @@ class IngestionPipeline:
             _flush(lf)
             return None
         elapsed = time.monotonic() - t0
-        _end_span(
-            span, {"outcome": "passed", "component_count": len(law.components)}
-        )
+        _end_span(span, {"outcome": "passed", "component_count": len(law.components)})
         print(
             f"  {'PERSIST_AUTH':<12} {_fmt_latency(elapsed)}  {len(law.components)} components",
+            flush=True,
+        )
+
+        t0 = time.monotonic()
+        span = _begin_span(
+            trace,
+            "PROPOSE_LIFECYCLE",
+            {"component_count": len(law.components), "source_pub_id": source_pub_id},
+        )
+        try:
+            self._execute("SAVEPOINT propose_lifecycle", ())
+            extract_commencement_proposals(
+                law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
+            )
+            self._execute("RELEASE SAVEPOINT propose_lifecycle", ())
+            outcome = "passed"
+        except Exception as exc:  # noqa: BLE001 — proposals never block ingest
+            self._execute("ROLLBACK TO SAVEPOINT propose_lifecycle", ())
+            logger.warning(f"{source_id}: commencement proposal failed: {exc}")
+            outcome = "failed"
+        elapsed = time.monotonic() - t0
+        _end_span(span, {"outcome": outcome})
+        print(
+            f"  {'PROP_LIFE':<12} {_fmt_latency(elapsed)}  {outcome}",
             flush=True,
         )
 
@@ -339,9 +363,7 @@ class IngestionPipeline:
                     source_id=source_id,
                 )
             except Exception as exc:  # noqa: BLE001 — derivative metadata, never block ingest
-                logger.warning(
-                    f"{source_id}: enabling-power extraction failed: {exc}"
-                )
+                logger.warning(f"{source_id}: enabling-power extraction failed: {exc}")
 
         batch_count = math.ceil(len(chunks) / metadata_enricher.CHUNK_BATCH_SIZE)
         span = _begin_span(
