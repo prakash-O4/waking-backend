@@ -1,11 +1,32 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-14 — fix दफा/परिच्छेद/धारा header over-matching in
+`app/authority/parser.py` (causing duplicate `expression` rows) +
+canonicalize `source_sha256` to NFC (matching `documents.content_hash`).
+Assigned to **Pi** on branch `agent/dafa-header-dedup`. Brief: `task.md`
+on that branch (and on `dev` at the assignment commit).
 
 ## Status
-**IDLE** — AGENT-13 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, awaiting Pi's run** (2026-08-30).
 
+- **AGENT-14 scoping (2026-08-30)**: corpus-wide regex count against all
+  677 `laws.jsonl` records confirmed AGENT-13's single-document finding
+  is systemic, not a one-off: `_HEADER_RE`'s three loose (non-bold)
+  alternatives match almost entirely inline cross-references, not real
+  headers — दफा 10,766 total matches vs. 8 at true line-start; परिच्छेद
+  3,270 vs. 7; धारा 651 vs. 0. Root cause of AGENT-13's 3,712
+  duplicate-expression components. Also found while grounding: `parser
+  .py::parse_law()`'s `source_sha256` doesn't NFC-normalize before
+  hashing (unlike `pipeline.py::_content_hash()`), diverging for 2/677
+  corpus records — breaks the `documents.content_hash` ↔
+  `source_publication.source_sha256` provenance match PS-3 needs. Both
+  bundled into AGENT-14 (same file, same investigation) plus a cleanup
+  script for the already-corrupted live-DB rows. **Split out of the
+  originally-planned AGENT-14 scope** (VALIDATE-stage structural
+  hardening + tariff-threshold magic constant) into a new **AGENT-17**,
+  below — bundling all of it risked an oversized, harder-to-review diff
+  for two unrelated concerns.
 - **DB check before scoping (2026-08-30)**: queried the live local DB
   directly rather than assume. `documents`/`work`: 345 rows each.
   `component`/`source_publication`/`expression`/`lifecycle_effect`: **0
@@ -42,24 +63,7 @@ None.
   still derives eligibility from `documents`/`chunks` only, not from
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
-- Planned follow-on tasks (not yet branched; renumbered 2026-08-30 —
-  AGENT-13 was reassigned to the authority-layer backfill above, these
-  shifted up by one):
-  - **AGENT-14** — strengthen VALIDATE stage (structural checks beyond दफा
-    anchor: duplicate/broken section numbering, malformed markup, doc-type
-    support, chunk-size violations) + canonical `content_hash` rule + named
-    tariff-threshold constant (currently a bare `5000` literal in
-    `app/ingestion/tariff_chunker.py:38`). **Concrete evidence found during
-    AGENT-13** (2026-08-30): 3712 of 16459 `component` rows have duplicate
-    `expression` rows (one component_uri has 33!) because
-    `app/authority/parser.py`'s `_HEADER_RE` regex matches the same दफा
-    number more than once in some documents — `upsert_component`'s `ON
-    CONFLICT (uri) DO NOTHING` dedupes the component itself, but
-    `upsert_expression`'s 3-way key doesn't collide on differing text, so
-    every duplicate match's text survives as a separate expression row.
-    Worst offender: `/np/act/unknown/477390c2-28b3-55db-8fc9-4460c096ec15/
-    dafa/3` (33 rows) — note the `unknown` BS-year segment, likely related.
-    Real corpus data, not a hypothetical — start here.
+- Planned follow-on tasks (not yet branched):
   - **AGENT-15** — non-authoritative/unreviewed flag on LLM-derived chunk
     metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
     inputs and temporal clauses.
@@ -67,6 +71,14 @@ None.
     dedicated corpus study of the amendment-history table structure and
     its correlation to `<amend>` tags (split out of AGENT-12's original
     scope, see note above).
+  - **AGENT-17** — strengthen VALIDATE stage (structural checks beyond दफा
+    anchor: duplicate/broken section numbering, malformed markup, doc-type
+    support, chunk-size violations) + named tariff-threshold constant
+    (currently a bare `5000` literal in `app/ingestion/tariff_chunker
+    .py:38`). Split out of the originally-planned AGENT-14 scope
+    (2026-08-30) — the concrete, evidenced part (header regex
+    over-matching + hash canonicalization) became AGENT-14 on its own;
+    this is the remaining open-ended hardening work.
 
 ---
 
