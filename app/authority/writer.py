@@ -113,6 +113,53 @@ def insert_commence(
         )
 
 
+def propose_lifecycle_commence(
+    conn: connection,
+    component_uri: str,
+    source_pub_id: str,
+    *,
+    effective_date: date | None,
+    commencement_dependency: str | None,
+    raw_clause_text: str,
+) -> None:
+    """Write a pending commencement proposal.
+
+    NEVER sets approval_status to anything but 'pending' — approval is
+    exclusively scripts/review_lifecycle.py's dual sign-off path.
+    """
+    valid_time = f"[{effective_date.isoformat()},)" if effective_date else "empty"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM lifecycle_effect
+            WHERE component_uri=%s AND effect_type='commence'
+              AND approval_status='pending'
+            LIMIT 1
+            """,
+            (component_uri,),
+        )
+        if cur.fetchone():
+            return
+        cur.execute(
+            """
+            INSERT INTO lifecycle_effect (
+                component_uri, effect_type, legal_valid_time, transaction_time,
+                effective_date, commencement_dependency, source_pub_id,
+                approval_status, raw_clause_text
+            ) VALUES (%s, 'commence', %s::tstzrange, tstzrange(now(), NULL),
+                      %s, %s, %s, 'pending', %s)
+            """,
+            (
+                component_uri,
+                valid_time,
+                effective_date,
+                commencement_dependency,
+                source_pub_id,
+                raw_clause_text,
+            ),
+        )
+
+
 def upsert_expression(
     conn: connection, component: ParsedComponent, as_of: date
 ) -> None:
