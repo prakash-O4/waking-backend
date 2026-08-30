@@ -1,13 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-13 — Backfill authority layer (components/source/expression/
-commencement proposals) for already-ingested laws.
+None.
 
 ## Status
-**ASSIGNED, not yet run.** Branch `agent/backfill-authority-layer` created
-from `dev` (e732992). `task.md` written on that branch. Awaiting Prakash to
-run Pi.
+**IDLE** — AGENT-13 merged to dev. Awaiting Prakash's direction.
 
 - **DB check before scoping (2026-08-30)**: queried the live local DB
   directly rather than assume. `documents`/`work`: 345 rows each.
@@ -52,7 +49,17 @@ run Pi.
     anchor: duplicate/broken section numbering, malformed markup, doc-type
     support, chunk-size violations) + canonical `content_hash` rule + named
     tariff-threshold constant (currently a bare `5000` literal in
-    `app/ingestion/tariff_chunker.py:38`).
+    `app/ingestion/tariff_chunker.py:38`). **Concrete evidence found during
+    AGENT-13** (2026-08-30): 3712 of 16459 `component` rows have duplicate
+    `expression` rows (one component_uri has 33!) because
+    `app/authority/parser.py`'s `_HEADER_RE` regex matches the same दफा
+    number more than once in some documents — `upsert_component`'s `ON
+    CONFLICT (uri) DO NOTHING` dedupes the component itself, but
+    `upsert_expression`'s 3-way key doesn't collide on differing text, so
+    every duplicate match's text survives as a separate expression row.
+    Worst offender: `/np/act/unknown/477390c2-28b3-55db-8fc9-4460c096ec15/
+    dafa/3` (33 rows) — note the `unknown` BS-year segment, likely related.
+    Real corpus data, not a hypothetical — start here.
   - **AGENT-15** — non-authoritative/unreviewed flag on LLM-derived chunk
     metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
     inputs and temporal clauses.
@@ -85,6 +92,15 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-13 — Backfill authority layer for already-ingested laws (MERGED to dev, 2026-08-30)
+- `scripts/backfill_authority_layer.py` (new): sources records from `laws.jsonl` matched by `source_id` (not reconstructed from `documents` columns — `documents` doesn't store `name`/`work_id`, checked against `migrations/005_ingestion_pipeline.sql` before writing anything), verifies `_content_hash(record["content"]) == documents.content_hash`, asserts `parse_law(record).uri == work.uri` (fetched via `chunks.work_id` join, same pattern as AGENT-10's `backfill_enabling_links.py`) before writing anything — avoids silently computing a different `component.uri` than what `pipeline.py::_commence_date()` would ever query for. Per-document commit/rollback (not one giant transaction); a mid-write failure on one document doesn't lose prior documents' committed work. `--dry-run` flag.
+- Replays AGENT-11's `upsert_source`/`upsert_component`/`upsert_expression` + AGENT-12's `extract_commencement_proposals` unmodified — no new writer logic, this task only orchestrates existing functions
+- `tests/test_backfill_authority_layer.py`: 8 tests via a `FakeConn` harness with real snapshot/rollback semantics — happy path, missing record, hash mismatch, missing work_id, uri mismatch, idempotency (second run writes 0 new rows), dry-run, mid-write failure rolls back cleanly and continues to the next document
+- 122 tests passing, lint clean, eval-gates all at 0
+- **Run against the live local DB** (not just tests): 345/345 documents backfilled, zero skips of any kind (no missing records, no hash mismatches, no missing work_ids, the `law.uri != work.uri` assert never fired), idempotency confirmed by a second real run writing 0 new rows. Final counts: `component` 16459, `source_publication` 345, `expression` 23187, `lifecycle_effect` 10619. Lifecycle breakdown: 9279 resolved commence rows, 1210 `gazette_notification_pending`, 95 `no_commencement_clause`, 35 `enactment_date_unknown`.
+- **Found during review, not a defect in this task** (see AGENT-14 above for the concrete evidence): `expression` count exceeds `component` count because `parser.py`'s दफा-header regex matches the same section number more than once in some documents — pre-existing, out of this task's scope by its own brief (parser.py was explicitly off-limits).
+- **Honest scope note (still true)**: this makes the bitemporal store populated, not the retrieval gate temporal-correct — `eligibility_gate.py` rewiring is still a separate future task.
 
 ### AGENT-12 — Commencement proposal extraction + dual-approval review CLI (MERGED to dev, 2026-08-30)
 - Corpus-grounded before writing any regex — see scope-narrowing note above (four commencement patterns, gazette-notification false-positive trap avoided, amend/repeal split to AGENT-15)
