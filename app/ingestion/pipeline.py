@@ -275,7 +275,7 @@ class IngestionPipeline:
                 {
                     "outcome": "rejected",
                     "component_count": len(law.components),
-                    "error": str(exc),
+                    "error_type": type(exc).__name__,
                 },
             )
             print(

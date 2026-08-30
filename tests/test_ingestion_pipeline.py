@@ -404,6 +404,13 @@ def test_ingest_law_persistence_failure_rejects_document(
 
     monkeypatch.setattr(pipeline_mod, "upsert_component", fail_component)
     monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
+    span_outputs: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(pipeline_mod, "_begin_span", lambda trace, stage, input: stage)
+    monkeypatch.setattr(
+        pipeline_mod,
+        "_end_span",
+        lambda span, output: span_outputs.append((span, output)),
+    )
     pipeline, conn = _pipeline_for_law(monkeypatch)
     pipeline._set_status = MagicMock()
     pipeline._laws_chunker.chunk_text = MagicMock(return_value=[])
@@ -418,6 +425,9 @@ def test_ingest_law_persistence_failure_rejects_document(
     assert pipeline.last_outcome == "rejected"
     conn.commit.assert_called_once()
     pipeline._laws_chunker.chunk_text.assert_not_called()
+    persist_output = dict(span_outputs)["PERSIST_AUTHORITY"]
+    assert "error" not in persist_output
+    assert persist_output["error_type"] == "RuntimeError"
 
 
 def test_ingest_law_validate_failure_before_persistence(
