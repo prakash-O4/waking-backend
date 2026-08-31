@@ -1,11 +1,34 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-15 — regression-guard the LLM-derived `documents.summary` /
+`chunks.keywords` / `chunks.relevant_questions` columns as
+non-authoritative. Assigned to **Pi** on branch `agent/llm-metadata-guard`.
+Brief: `task.md` on that branch (and on `dev` at the assignment commit).
 
 ## Status
-**IDLE** — AGENT-14 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, awaiting Pi's run** (2026-08-31).
 
+- **AGENT-15 scoping (2026-08-31)**: originally planned as "add a
+  non-authoritative/unreviewed flag" on these three columns. Traced
+  every downstream reader before implementing anything (per AGENTS.md
+  "become one with the data"): `postgres_retriever.py::_hit()`,
+  `validation_gate.py`'s `_citation()`/`_expression()`, and
+  `eligibility_gate.py::eligible_chunk_ids()` — none of them select or
+  reference `summary`/`keywords`/`relevant_questions` anywhere today.
+  Ran the Ponytail gate against the literal "add a flag" plan: a new
+  column with zero live consumers and no review workflow that could
+  ever set it to a different value is exactly the speculative-field
+  case the gate blocks. Rescoped to the smallest correct move instead:
+  (A) `tests/test_metadata_enricher.py` — first-ever direct unit tests
+  for `_parse_json`/`_apply_chunk_metadata`'s malformed-LLM-JSON
+  handling (zero coverage existed); (B)/(C) regression tests pinning
+  that these columns never reach the model context, a rendered
+  citation, or the eligibility gate, so a future change that starts
+  threading them through breaks a test loudly instead of silently
+  weakening Core Invariant #8; (D) `COMMENT ON COLUMN` schema
+  documentation only, no behavior change. No new column/table/
+  abstraction added.
 - **AGENT-14 scoping (2026-08-30)**: corpus-wide regex count against all
   677 `laws.jsonl` records confirmed AGENT-13's single-document finding
   is systemic, not a one-off: `_HEADER_RE`'s three loose (non-bold)
@@ -60,9 +83,6 @@ None.
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
 - Planned follow-on tasks (not yet branched):
-  - **AGENT-15** — non-authoritative/unreviewed flag on LLM-derived chunk
-    metadata (`summary`/`keywords`/`relevant_questions`) + tests for bad
-    inputs and temporal clauses.
   - **AGENT-16** — amend/repeal/expiry lifecycle extraction, after a
     dedicated corpus study of the amendment-history table structure and
     its correlation to `<amend>` tags (split out of AGENT-12's original
