@@ -185,3 +185,109 @@ Commit hash(es), changed files, checks run/results (paste the before/after
 677-record duplicate-URI count), live-DB cleanup counts, assumptions made
 (especially your अनुसूची boundary-detection regex and disambiguation scheme
 for pattern 3), and any remaining risks.
+
+---
+
+## Rework — round 1 (2026-08-31)
+
+Review of `cf3c1aa`: the disambiguation safety net (`_disambiguate_component_uris`)
+and the VALIDATE-stage guard are correct — independently re-ran `parse_law()`
+against all 677 `laws.jsonl` records, confirmed 0 documents / 0 excess rows
+with duplicate `component.uri`, matching the reported number exactly. `make
+test` (152 passed, 3 skipped), `make lint`, and manual ruff/mypy on the three
+ingestion-path files not in the Makefile's fixed list all confirmed clean —
+the 5 mypy errors present are byte-for-byte pre-existing on the unmodified
+base (checked by diffing mypy output before/after on the same 3 files).
+
+But two of the three named root-cause fixes don't actually fire on real
+corpus data — only the disambiguation net is doing the work for them, which
+prevents data loss but not the mislabeling this task was supposed to fix.
+
+### Gap 1 — compound N.M दफा numbers still collapse to N
+
+The task's own grounding example — `आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५`, the exact
+document that motivated this part of the fix — still produces
+`.../dafa/2`, `.../dafa/2/occurrence/2`, `.../dafa/2/occurrence/3`,
+`.../dafa/2/occurrence/4` (and same pattern for numbers 1, 5, 6, 7, 9) after
+this diff. Verified directly:
+
+```python
+law = parse_law(<the आयुर्वेद record>)
+# component_type='dafa', numbers: '1','2','2','2','2','5','6','7','9','9', ...
+# NOT '2.1', '2.2', ... '2.9' as task.md's PR summary claims
+```
+
+Root cause: the real header format in this document is
+`**२.१ परिषद्‌को स्थापना :**` — the number is followed by a **space**,
+then the title, then the colon appears only at the very end right before
+`**`. There is no punctuation immediately after `२.१`. The new regex
+`([०-९0-9]+(?:\.[०-९0-9]+)?)[\.।:]` still requires the number (compound or
+not) to be immediately followed by `.`/`।`/`:`. The greedy compound match
+`२.१` fails that immediate-punctuation check (next char is a space), so the
+engine backtracks to the non-compound alternative — matches just `२`
+(followed by the literal `.` that's actually the decimal point of `२.१`),
+exactly reproducing the original collapse bug. The plain (non-compound)
+दफा headers in this corpus (`**४१. खुला कारागार...:**`) *do* have punctuation
+immediately after the number, which is presumably why the added test
+(`"२.१. पहिलो:"`, punctuation right after the compound number) passed —
+that test string doesn't match this document's actual format, which is
+already quoted verbatim in the Grounding section above.
+
+**Ask:** re-derive the compound-header pattern from the real quoted example
+in this file, not from a synthetic string. The title content between the
+number and the closing `**` is already unconstrained (`[^\n*]*`) for the
+plain case — the fix likely needs the punctuation check to also accept
+"number, then whitespace, then anything, then `:` right before `**`" for
+the compound branch, or similar; your call on the exact regex, but verify
+it against `आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५` specifically (and re-run the full
+677-doc corpus check to confirm no regression elsewhere) before returning.
+Add a regression test using this document's real content, not a synthetic
+string with different punctuation placement.
+
+### Gap 2 — अनुसूची boundary regex misses most real formatting variants
+
+Corpus-wide after this diff: 601 components across 80 documents still end
+up `/occurrence/`-suffixed (vs. the 7-8 genuine no-schedule collisions
+this pattern was meant to cover — see original grounding above). Of those
+80 documents, 72 contain the word अनुसूची somewhere in their content — i.e.
+the boundary detection is largely failing to fire on documents that do
+have schedules, not correctly leaving genuine collisions to the
+disambiguation net as designed. Corpus-wide, 389 documents mention अनुसूची
+at all; the parser currently recognizes an अनुसूची boundary in only 240 of
+them.
+
+Concrete example — `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` has ~40 schedule
+section headers; only a fraction match. Formats seen in this one document
+alone, verified by direct inspection of the raw content:
+
+```
+**अनुसूची-१**       → matches (no space before dash)
+**अनुसूची - ३**      → MISS (space before dash)
+**अनुसूची ३ (ख)**   → MISS (no dash at all)
+**अनुसूची १२**      → MISS (no dash at all)
+**अनुसूची- १३**     → matches (dash immediately after, space after dash is fine)
+```
+
+Current regex requires अनुसूची to be *immediately* followed by `-`/`–` (no
+whitespace tolerance): `अनुसूची[-–]\s*(...)`. Real corpus formatting is
+inconsistent — dash sometimes has a leading space, sometimes is missing
+entirely.
+
+**Ask:** relax the boundary match to tolerate optional whitespace before an
+optional dash (e.g. `अनुसूची\s*[-–]?\s*` in place of `अनुसूची[-–]\s*`), then
+re-run the corpus-wide अनुसूची-boundary-detection count (240/677 today) and
+report the new number. Don't chase 100% — some अनुसूची mentions are plain
+cross-references in body text ("...अनुसूची-४ बमोजिम...", not a schedule
+header) and shouldn't match at all; use judgment on what's a real boundary
+vs. a reference, same as the existing दफा cross-reference discipline this
+codebase already has (AGENT-14). Report the before/after count and spot-
+check a handful of newly-caught and still-missed cases by hand, the same
+way the original grounding did.
+
+### Not blocking, no action needed
+The disambiguation-net design, the VALIDATE-stage guard, and the cleanup
+script's `_upsert_missing_components`/`_missing_component_uris` additions
+are all correct as-is and don't need changes — re-verify the 677-doc
+duplicate-URI count is still 0 after fixing gaps 1 and 2 (it should stay
+0; the net is what guaranteed that, independent of these two gaps), but no
+redesign needed there.
