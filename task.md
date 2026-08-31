@@ -235,3 +235,92 @@ Commit hash(es), changed files, checks run/results, the corpus-wide
 proposal count broken down by resolution method, the hand-verified
 spot-check documents and what you found, the honest PS-17 scope note,
 assumptions made, and any remaining risks.
+
+---
+
+## Rework — round 1 (2026-08-31)
+
+Review of `e73103a`: independently re-ran the extractor against all 677
+`laws.jsonl` records (via a stub `conn`) and confirmed your reported
+counts exactly — 438 docs with proposals, 6,424 proposals (1,854
+named-act / 4,570 ordinal), 9,324 skipped, all numbers match. `make test`
+(159 passed, 3 skipped), `make lint`, manual ruff/mypy on the 3
+ingestion-path files (4 pre-existing pipeline.py errors, unchanged from
+base — parser.py isn't touched this round so its usual 5th error doesn't
+apply here), `make eval-gates` (all three zero-tolerance gates at 0) all
+confirmed independently. The dedup design is correct — hand-verified
+against `सुशासन_(व्यवस्थापन_तथा_सञ्चालन)_ऐन_२०६४`'s दफा ३: two `<amend>`
+tags at offsets 2666/2862 really are the same amending act (२०७५) editing
+two different उपदफा within the one दफा, correctly collapsed to one fact
+at दफा granularity, not a bug. `unresolved_named-act` (667) is also
+correct as designed — spot-checked `महाभियोग_(कार्यविधि_नियमित_गर्ने)_ऐन_
+२०५९`: the tag genuinely names an act that isn't in this document's own
+table at all, correctly abstained rather than fabricated.
+
+But two of the skip buckets have a real, fixable, in-scope cause rather
+than being genuine "can't resolve, correctly abstained" cases:
+
+### Gap 1 — `_ROW_RE` silently drops table rows whose act name wraps onto a second line
+
+`_ROW_RE`'s name group is `[^\n।]{2,160}?` — excludes newlines, so any
+table row whose act name is long enough to wrap (very common — these are
+verbose Nepali act names) never matches at all, and the row is silently
+missing from the parsed table. Confirmed directly:
+`महान्यायाधिवक्ताको_पारिश्रमिक_सेवाको_शर्त_र_सुविधा_सम्बन्धी_ऐन_२०५२`'s
+table has 5 real rows (१ through ५); `parse_amendment_table()` only
+captures rows २ and ५ — rows १, ३, ४ all wrap their name onto a second
+line and vanish. Corpus-wide, quantified by counting `^<digit>.` row-start
+markers inside each document's table region vs. what
+`parse_amendment_table()` actually returns: **68/498 documents (13.7%)
+with a table have at least one dropped row; 135/1,952 table rows (6.9%)
+are silently missing.** This directly feeds both `unresolved_named-act`
+and `unresolved_ordinal` — any tag referencing a dropped row (by name or
+by its ordinal position) fails to resolve even though the table
+genuinely lists it, indistinguishable today from a real "act not in this
+table" abstention.
+
+**Ask:** let the name capture span a line-wrap (one embedded newline,
+collapsed to a space) without merging two separate rows into one — a
+continuation line never itself starts with `<digit>[.)।]`, use that as
+the boundary. Verify against the real example above (should recover all
+5 rows) and re-run the corpus-wide row-count check (1,952 expected → how
+many now), plus re-run the full 677-doc proposal count and report the
+new totals — both `unresolved_named-act` and `unresolved_ordinal` should
+drop, but by how much needs the actual re-run, not a guess. Add a
+regression test using this real document's content (or an equivalent
+minimal wrapped-name example) — the current test suite's synthetic table
+rows are all short enough to fit on one line, so this case was never
+exercised, same gap in kind as AGENT-17 round 1's synthetic-vs-real test
+data lesson.
+
+### Gap 2 — ordinal-word spelling variants not recognized
+
+`unresolved_unknown-ordinal` is 936 (out of ~5,731 ordinal-shaped tags —
+16%, a meaningful chunk of the corpus's dominant pattern). These are
+*not* new/different ordinal concepts — they're orthographic variants of
+words already in `ORDINAL_DAYS`: chandrabindु vs. anusvara nasalization
+(`सातौँ` vs `सातौं`, 93 instances), a missing trailing nasal mark
+(`पाँचौ` vs `पाँचौं`, 254 instances — the single largest variant), and a
+few consonant variants (`छैठौं` vs `छैटौं`). 55 distinct unknown tokens
+total, top ones: `पाँचौ` 254, `सातौँ` 93, `छैटौँ` 68, `आठौँ` 65, `छैठौं`
+57, `नवौँ` 48, `बाह्रौँ` 43 — full breakdown reproducible via the
+grounding method already in this file, applied to
+`_ORDINAL_RE`-matched-but-`ORDINAL_DAYS`-missing tokens.
+
+**Ask:** normalize the token before the `ORDINAL_DAYS` lookup rather than
+adding 55+ literal spelling variants as new dict entries — e.g. unify
+chandrabindु (U+0901) and anusvara (U+0902) to one canonical mark, and
+handle the trailing-nasal-omitted form. Verify against the real counts
+above (55 distinct unknown tokens should collapse to at or near 0 once
+the normalization step is right) and re-run the corpus-wide count. This
+is a bounded, deterministic normalization of already-known words, not
+guessing at new ones — stays within "safe-abstain on genuinely unknown
+words" from the original brief.
+
+### Not blocking, no action needed
+Everything else — the writer, the pipeline wiring, the dedup logic, the
+`no_table` abstention (477, matches the ~4% no-table-at-all rate already
+documented), the `unresolved_gazette-date-only`/`other` abstentions, and
+the honest PS-17 scope note — is correct as delivered. Re-verify the
+corpus-wide `unresolved_named-act`/`unresolved_ordinal` counts drop after
+fixing gap 1 (they should, by construction — no redesign needed there).
