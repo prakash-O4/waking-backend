@@ -5,7 +5,42 @@ AGENT-17 — Fix दफा component-URI collisions (schedule + compound numberi
 Branch `agent/schedule-header-collision`, base `dev`, assigned to **Pi**.
 
 ## Status
-**ASSIGNED, awaiting Pi's run.**
+**REWORK ROUND 1 SENT, awaiting Pi's run.**
+
+- **AGENT-17 review round 1 (2026-08-31)**: Pi returned `cf3c1aa` claiming
+  0/677 duplicate-URI docs, `make test`/`make lint`/`make eval-gates` all
+  green. Independently re-verified rather than trusting the report (Claude
+  Review Gate) — re-ran the 677-doc corpus check myself (confirmed 0
+  duplicates), re-ran `make test`/`make lint`, and manually ruff/mypy'd the
+  3 ingestion-path files not in the Makefile's fixed list (5 pre-existing
+  mypy errors, byte-for-byte unchanged from base, confirmed by diffing
+  before/after). But went further than trusting the aggregate 0-duplicate
+  count: checked *why* it was 0, since a disambiguation safety net can mask
+  a broken primary fix, not just verify one exists. Found the compound-N.M
+  fix and the अनुसूची-boundary fix — the two headline root-cause fixes named
+  in the task brief — don't actually fire on real corpus data, only the
+  disambiguation net (`/occurrence/N` suffixing) is doing the work: (1) the
+  task's own grounding example, आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५, still
+  collapses २.१-२.९ onto plain "2" because its real header format has no
+  punctuation immediately after the compound number (`**२.१ परिषद्‌को
+  स्थापना :**`) — the added regression test used a synthetic string with a
+  period right after the number, which isn't how this document (already
+  quoted verbatim in task.md's own grounding section) is actually
+  formatted, so the test passed without exercising the real case; (2) the
+  अनुसूची-boundary regex requires the dash to immediately follow अनुसूची with
+  no whitespace tolerance, missing most real corpus formatting variants
+  (`अनुसूची - ३`, `अनुसूची ३ (ख)`, `अनुसूची १२` — all miss) — only 240/677 docs
+  get a boundary recognized despite 389 containing the word, and 72 of the
+  80 still-`/occurrence/`-suffixed documents do contain schedules the
+  regex should have caught (601 occurrence-suffixed components corpus-wide
+  vs. the 7-8 genuine no-schedule collisions this net was meant to cover).
+  Data integrity holds either way (0 duplicate URIs, no citation could ever
+  resolve ambiguously) — this is a correctness-of-classification gap, not
+  a data-loss risk, but two of three named fixes don't do what the task
+  and Pi's own summary claim. Rework note appended to `task.md`
+  (`d10496e`) with exact regex diagnosis and a re-verification ask; not
+  re-scoped, not re-assigned — same branch, same engineer, per the Rework
+  Loop.
 
 - **AGENT-17 scoping (2026-08-31)**: session-start hygiene pass first — 13
   fully-merged `agent/*` working branches deleted (all confirmed ancestors of
