@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -39,7 +40,7 @@ _DATE_RE = re.compile(
 )
 _AMEND_RE = re.compile(r"</?amend>")
 _HEADER_RE = re.compile(
-    r"(?m)(\*\*\s*(?:दफा\s*)?([०-९0-9]+)[\.।:][^\n*]*\*\*|^दफा\s+([०-९0-9]+)[\.।]|^परिच्छेद[-–]\s*([०-९0-9]+)\s*$|^धारा\s+([०-९0-9]+)[\.।])"
+    r"(?m)(\*\*\s*अनुसूची\s*[-–]?\s*([०-९0-9]+)[^\n*]*\*\*|\*\*\s*(?:दफा\s*)?([०-९0-9]+(?:\.[०-९0-9]+)?)(?:[\.।:]|\s+(?=[^\n*]*:))[^\n*]*\*\*|^दफा\s+([०-९0-9]+(?:\.[०-९0-9]+)?)[\.।]|^परिच्छेद[-–]\s*([०-९0-9]+)\s*$|^धारा\s+([०-९0-9]+)[\.।])"
 )
 
 
@@ -97,14 +98,24 @@ def _clean_text(text: str) -> str:
     return _AMEND_RE.sub("", text).strip()
 
 
-def _component_kind(match: re.Match[str]) -> tuple[str, str | None]:
+def _component_kind(
+    match: re.Match[str], schedule_number: str | None
+) -> tuple[str, str | None, str | None]:
+    if match.group(2):
+        number = _ascii_digits(match.group(2))
+        return "anushuchi", number, number
     if match.group(3):
-        return "dafa", _ascii_digits(match.group(3))
+        number = _ascii_digits(match.group(3))
+        if schedule_number:
+            return "anushuchi", f"{schedule_number}.{number}", schedule_number
+        return "dafa", number, schedule_number
     if match.group(4):
-        return "parichheda", _ascii_digits(match.group(4))
+        return "dafa", _ascii_digits(match.group(4)), schedule_number
     if match.group(5):
-        return "dhara", _ascii_digits(match.group(5))
-    return "dafa", _ascii_digits(match.group(2) or "") or None
+        return "parichheda", _ascii_digits(match.group(5)), schedule_number
+    if match.group(6):
+        return "dhara", _ascii_digits(match.group(6)), schedule_number
+    return "dafa", None, schedule_number
 
 
 def _component(
@@ -122,6 +133,16 @@ def _component(
     )
 
 
+def _disambiguate_component_uris(components: list[ParsedComponent]) -> None:
+    seen: Counter[str] = Counter()
+    for component in components:
+        seen[component.uri] += 1
+        if seen[component.uri] > 1:
+            # Source texts sometimes repeat a दफा number for different provisions;
+            # keep both addressable without guessing which number is wrong.
+            component.uri = f"{component.uri}/occurrence/{seen[component.uri]}"
+
+
 def parse_law(record: dict[str, Any]) -> ParsedLaw:
     content = str(record["content"])
     uri = make_uri(
@@ -135,8 +156,9 @@ def parse_law(record: dict[str, Any]) -> ParsedLaw:
         preamble = _component(uri, "full", "0", content[: matches[0].start()])
         if preamble:
             components.append(preamble)
+        schedule_number: str | None = None
         for idx, match in enumerate(matches):
-            kind, number = _component_kind(match)
+            kind, number, schedule_number = _component_kind(match, schedule_number)
             end = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
             item = _component(uri, kind, number, content[match.start() : end])
             if item:
@@ -145,6 +167,7 @@ def parse_law(record: dict[str, Any]) -> ParsedLaw:
         item = _component(uri, "full", "1", content)
         if item:
             components.append(item)
+    _disambiguate_component_uris(components)
 
     return ParsedLaw(
         uri=uri,

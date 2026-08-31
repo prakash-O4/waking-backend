@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.authority.parser import ParsedLaw, parse_law  # noqa: E402
-from app.authority.writer import upsert_expression  # noqa: E402
+from app.authority.writer import upsert_component, upsert_expression  # noqa: E402
 from app.ingestion.pipeline import _content_hash  # noqa: E402
 from scripts.backfill_authority_layer import (  # noqa: E402
     law_documents,
@@ -66,7 +66,9 @@ def _table_counts(conn: PgConnection) -> Counter[str]:
 def _expected_hashes(law: ParsedLaw) -> dict[str, str]:
     expected: dict[str, str] = {}
     for component in law.components:
-        expected.setdefault(component.uri, component.text_hash)
+        if component.uri in expected:
+            raise RuntimeError(f"parser emitted duplicate URI: {component.uri}")
+        expected[component.uri] = component.text_hash
     return expected
 
 
@@ -93,6 +95,15 @@ def _delete_expressions(conn: PgConnection, ids: list[str]) -> None:
         cur.execute("DELETE FROM expression WHERE id = ANY(%s::uuid[])", (ids,))
 
 
+def _missing_component_uris(
+    conn: PgConnection, work_id: str, law: ParsedLaw
+) -> list[str]:
+    stored = _component_uris(conn, work_id)
+    return [
+        component.uri for component in law.components if component.uri not in stored
+    ]
+
+
 def _missing_expression_count(conn: PgConnection, law: ParsedLaw, as_of: date) -> int:
     missing = 0
     with conn.cursor() as cur:
@@ -109,13 +120,17 @@ def _missing_expression_count(conn: PgConnection, law: ParsedLaw, as_of: date) -
     return missing
 
 
+def _upsert_missing_components(conn: PgConnection, work_id: str, law: ParsedLaw) -> int:
+    missing = set(_missing_component_uris(conn, work_id, law))
+    for component in law.components:
+        if component.uri in missing:
+            upsert_component(conn, work_id, component)
+    return len(missing)
+
+
 def _upsert_missing_expressions(conn: PgConnection, law: ParsedLaw, as_of: date) -> int:
     missing = _missing_expression_count(conn, law, as_of)
-    seen: set[str] = set()
     for component in law.components:
-        if component.uri in seen:
-            continue
-        seen.add(component.uri)
         upsert_expression(conn, component, as_of=as_of)
     return missing
 
@@ -243,11 +258,13 @@ def cleanup_document(
     stale_ids = _stale_expression_ids(conn, law, as_of)
     counts = _cleanup_orphan_components(conn, work_id, law, dry_run=dry_run)
     counts["stale_expressions"] += len(stale_ids)
+    counts["missing_components"] += len(_missing_component_uris(conn, work_id, law))
     counts["missing_expressions"] += _missing_expression_count(conn, law, as_of)
     counts["source_sha_updates"] += _fix_source_sha(
         conn, work_id, content, law, dry_run=dry_run
     )
     if not dry_run:
+        _upsert_missing_components(conn, work_id, law)
         _upsert_missing_expressions(conn, law, as_of)
         _delete_expressions(conn, stale_ids)
     return "processed", counts
@@ -308,6 +325,7 @@ def print_summary(summary: Summary, *, dry_run: bool) -> None:
     print(f"  orphan expressions found:  {counts.get('orphan_expressions', 0)}")
     print(f"  orphan lifecycle found:    {counts.get('orphan_lifecycle_effects', 0)}")
     print(f"  orphan components blocked: {counts.get('orphan_components_blocked', 0)}")
+    print(f"  missing components found:  {counts.get('missing_components', 0)}")
     print(f"  missing expressions found: {counts.get('missing_expressions', 0)}")
     print(f"  source sha rows updated:   {counts.get('source_sha_updates', 0)}")
     print(f"  components after:          {counts.get('component_after', 0)}")

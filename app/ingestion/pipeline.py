@@ -15,6 +15,7 @@ import math
 import re
 import time
 import unicodedata
+from collections import Counter
 from datetime import date
 from typing import Any
 
@@ -44,6 +45,11 @@ _BS_DATE_RE = re.compile(r"([०-९]{4})[।./-]([०-९]{1,2})[।./-]([०-�
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _LANDMARK_BENCHES = {"पूर्ण इजलास", "संवैधानिक इजलास"}
 _NIYAM_RE = re.compile(r"(?:^|\s)(नियमावली|नियमहरू|नियम)(?=\s|$|,|\.)")
+
+
+def _duplicate_component_uris(law: Any) -> list[str]:
+    counts = Counter(component.uri for component in law.components)
+    return sorted(uri for uri, count in counts.items() if count > 1)
 
 
 _lf_client: Any = None
@@ -243,6 +249,28 @@ class IngestionPipeline:
             _end_span(span, {"outcome": "rejected", "has_dafa_anchor": False})
             print(
                 f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  दफा anchor missing",
+                flush=True,
+            )
+            print("  ✗ rejected", flush=True)
+            _end_trace(trace, {"outcome": "rejected", "chunk_count": 0})
+            _flush(lf)
+            return None
+        duplicate_uris = _duplicate_component_uris(law)
+        if duplicate_uris:
+            logger.warning(f"{source_id}: duplicate component URIs, rejecting")
+            self._set_status(document_id, "rejected")
+            self._conn.commit()
+            self.last_outcome = "rejected"
+            _end_span(
+                span,
+                {
+                    "outcome": "rejected",
+                    "has_dafa_anchor": True,
+                    "duplicate_component_uris": duplicate_uris[:10],
+                },
+            )
+            print(
+                f"  {'VALIDATE':<12} {_fmt_latency(elapsed)}  duplicate component URIs",
                 flush=True,
             )
             print("  ✗ rejected", flush=True)
