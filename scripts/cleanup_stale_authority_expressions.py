@@ -99,7 +99,9 @@ def _missing_component_uris(
     conn: PgConnection, work_id: str, law: ParsedLaw
 ) -> list[str]:
     stored = _component_uris(conn, work_id)
-    return [component.uri for component in law.components if component.uri not in stored]
+    return [
+        component.uri for component in law.components if component.uri not in stored
+    ]
 
 
 def _missing_expression_count(conn: PgConnection, law: ParsedLaw, as_of: date) -> int:
@@ -118,9 +120,7 @@ def _missing_expression_count(conn: PgConnection, law: ParsedLaw, as_of: date) -
     return missing
 
 
-def _upsert_missing_components(
-    conn: PgConnection, work_id: str, law: ParsedLaw
-) -> int:
+def _upsert_missing_components(conn: PgConnection, work_id: str, law: ParsedLaw) -> int:
     missing = set(_missing_component_uris(conn, work_id, law))
     for component in law.components:
         if component.uri in missing:
