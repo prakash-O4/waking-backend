@@ -1,13 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-15 — regression-guard the LLM-derived `documents.summary` /
-`chunks.keywords` / `chunks.relevant_questions` columns as
-non-authoritative. Assigned to **Pi** on branch `agent/llm-metadata-guard`.
-Brief: `task.md` on that branch (and on `dev` at the assignment commit).
+None.
 
 ## Status
-**ASSIGNED, awaiting Pi's run** (2026-08-31).
+**IDLE** — AGENT-15 merged to dev. Awaiting Prakash's direction.
 
 - **AGENT-15 scoping (2026-08-31)**: originally planned as "add a
   non-authoritative/unreviewed flag" on these three columns. Traced
@@ -120,6 +117,18 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-15 — Regression-guard LLM-derived chunk metadata as non-authoritative (MERGED to dev, 2026-08-31)
+- Rescoped from the originally-planned "add a non-authoritative/unreviewed flag" column after tracing every downstream reader of `documents.summary`/`chunks.keywords`/`chunks.relevant_questions`: none of `postgres_retriever.py::_hit()`, `validation_gate.py`'s `_citation()`/`_expression()`, or `eligibility_gate.py::eligible_chunk_ids()` read these columns today. Ponytail-blocked the literal flag plan (zero consumers, no review workflow that could ever flip it — a speculative field). See scoping note above for full reasoning.
+- `tests/test_metadata_enricher.py` (new): first direct unit tests for `metadata_enricher.py::_parse_json`/`_apply_chunk_metadata` — malformed JSON, non-list JSON, markdown-fenced JSON, missing/wrong-typed `chunk_index`, wrong-shaped `keywords`/`relevant_questions` values, partial-batch-failure isolation. Zero coverage existed before this task.
+- `app/ingestion/metadata_enricher.py`: `_apply_chunk_metadata`'s `by_index` construction previously did `int(item["chunk_index"])` unguarded outside the JSON-parse try/except — a non-int-convertible `chunk_index` (e.g. a non-numeric string) from a malformed LLM response would raise uncaught, crashing metadata enrichment. Found while writing part A's own test cases, not a separate investigation. Fixed to `isinstance(chunk_index, int)` + skip on mismatch — matches the module's stated "never guesses metadata" design; a numeric-looking string is no longer silently coerced.
+- `tests/test_retrieval.py`: `test_hit_does_not_surface_llm_metadata` pins `_hit()`'s exact returned key set even when fed a wider input row; `test_retriever_sql_does_not_select_llm_metadata` / `test_validation_gate_sql_does_not_read_llm_metadata` assert (via `inspect.getsource`) that no SQL literal in `postgres_retriever.retrieve_postgres` or the `validation_gate` module names `summary`/`keywords`/`relevant_questions` — pins Core Invariant #8 (all retrieved text is untrusted) so a future change threading these columns into the model context or a citation breaks a test instead of landing silently.
+- `tests/test_eligibility_gate.py`: same SQL-literal-absence assertion for `eligibility_gate.eligible_chunk_ids` — pins that unreviewed LLM metadata can never influence temporal eligibility.
+- `migrations/005_ingestion_pipeline.sql` / `006_add_summary.sql`: `COMMENT ON COLUMN` on `chunks.keywords`/`chunks.relevant_questions`/`documents.summary` — LLM-derived, never human-reviewed, not authoritative, must never be rendered as or substituted for statutory text or a citation. Documentation only, no behavior change.
+- `migrations/010_metadata_provenance_comments.sql` (new) + `scripts/migrate.py` registration: applies the same column comments to databases that already ran 005/006 — a judgment call made after checking `scripts/migrate.py` tracks migrations by name, not content-hash, so editing 005/006 alone wouldn't reach already-migrated DBs.
+- 139 tests passing (3 skipped, pre-existing/unrelated), lint clean via `make lint`. `app/ingestion/` isn't in `make lint`'s fixed file list (pre-existing gap, same as noted in AGENT-14) — checked `metadata_enricher.py` manually with ruff + mypy --strict: the 2 `Missing type parameters for generic type "dict"` errors are pre-existing on the unmodified base file (verified by diffing mypy output before/after), not introduced by this change. Eval-gates all at 0.
+- **Process note**: the engineer's diff was never committed — found sitting uncommitted in the working tree when review started. Root cause: `.gitignore` has a bare `tests` line (pre-dating most currently-tracked test files, which stay tracked despite it) that silently blocks `git add` on new files under `tests/` without `-f`; the new `tests/test_metadata_enricher.py` hit this. Verified the full diff content and all required checks independently before committing it myself (author `Prakash Basnet`, per policy) — content was correct, only the commit step was missed.
+- **Hygiene note (not part of this task's diff)**: 3 untracked files were sitting in the working tree unrelated to this task — `.agent/extract_meta_bottleneck.md`, `docs/legal_rag_ingestion_best_practices.md`, `task.md.bak`. Left untouched (not staged, not part of the commit); flagged to Prakash for cleanup, origin unconfirmed.
 
 ### AGENT-14 — Fix दफा/परिच्छेद/धारा header over-matching + canonicalize source_sha256 (MERGED to dev, 2026-08-30)
 - `app/authority/parser.py`: `_HEADER_RE`'s three loose (non-bold) alternatives (दफा, परिच्छेद, धारा) anchored to line-start — they were matching inline cross-references anywhere in a document's body (e.g. "यस ऐनको दफा ३ बमोजिम"), not just genuine headers. Corpus-wide verification before/after: दफा 10,743→0 matches, परिच्छेद 3,270→4 (all 4 confirmed genuine chapter headers, e.g. "परिच्छेद-१\nप्रारम्भिक"), धारा 649→0. Bold-header alternative untouched (26,622 matches, unaffected). Root cause of AGENT-13's finding (3,712 components with duplicate `expression` rows, one with 33). `source_sha256` in `parse_law()` now NFC-normalizes before hashing, matching `pipeline.py::_content_hash()` — previously diverged for 2/677 corpus records, breaking the `documents.content_hash` ↔ `source_publication.sha256` provenance match PS-3 needs.
