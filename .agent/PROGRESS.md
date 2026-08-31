@@ -1,13 +1,10 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-16 — extract whole-act repeal declarations ("खारेजी र बचाउ" clauses)
-into `lifecycle_effect(effect_type='repeal')` proposals. Assigned to
-**Pi** on branch `agent/repeal-extraction`. Brief: `task.md` on that
-branch (and on `dev` at the assignment commit).
+None.
 
 ## Status
-**ASSIGNED, awaiting Pi's run** (2026-08-31).
+**IDLE** — AGENT-16 merged to dev. Awaiting Prakash's direction.
 
 - **AGENT-16 scoping (2026-08-31)**: the old plan's "AGENT-16" label
   ("amend/repeal/expiry lifecycle extraction") was one line covering
@@ -154,6 +151,17 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-16 — Extract whole-act repeal declarations into lifecycle_effect (MERGED to dev, 2026-08-31)
+- `app/ingestion/repeal_extractor.py` (new): deterministic, no LLM — `_REPEAL_RE` matches a named act/ordinance/regulation directly followed by `खारेज गरिएको छ` (handles an optional bold दफा-header prefix and an optional `(१)` sub-clause marker before the title). `classify_repeal()` returns a 3-outcome `RepealMatch` (`auto_extracted` / `repealed_work_not_in_corpus` / `no_repeal_clause`), reusing `enabling_extractor.py`'s `_normalize_title`/`_resolve_work` unchanged (same name-to-`work`-row problem, no reimplementation). Corpus-count regression test hard-asserts `(157, 157)` docs/matches, confirmed independently during review. Verified the savings sub-clauses (e.g. `(२) ... बमोजिम भए गरेका काम ... मानिनेछ`) and the partial-दफा-of-another-act pattern (e.g. `"...ऐन, YYYY को दफा N ... खारेज गरिएको छ"`) both correctly produce `no_repeal_clause`, not a false match — tested explicitly.
+- `app/authority/writer.py::propose_lifecycle_repeal()`: fans out one pending `effect_type='repeal'` proposal per `component.uri` belonging to the repealed work (`lifecycle_effect.effect_type` already allowed `'repeal'` since migration 001 — no schema change). Repeal date resolution: looks up `MIN(effective_date)` across the *repealing* work's own approved `commence` effects; if found, uses it and clears the dependency; if not, `legal_valid_time='empty'` + `commencement_dependency='repealing_work_commencement:<uri>'` — no fabricated date (PS-2), mirrors AGENT-12's `gazette_notification_pending` honesty pattern. Dedups per-component on `(component_uri, effect_type='repeal', approval_status='pending')`, same discipline as `propose_lifecycle_commence`.
+- `app/ingestion/pipeline.py`: wired into the existing `PROPOSE_LIFECYCLE` span (added by AGENT-12) alongside commencement extraction, same `SAVEPOINT`/`ROLLBACK TO SAVEPOINT` best-effort discipline — not a new stage.
+- `scripts/review_lifecycle.py`: generalized the hardcoded `effect_type='commence'` filters into an `--effect-type` flag (`list`/`list_work`/`approve_work`/`reject_work` all accept it; omitted shows all types) — repeal proposals are now listable/approvable through the same dual-sign-off CLI. Without this fix they would have sat `pending` forever, undiscoverable, silently defeating Core Invariant #5's human-gating even though the row itself stayed technically ungranted.
+- 147 tests passing (139 + 8 new), lint clean. `app/ingestion/` still isn't in `make lint`'s fixed file list (same pre-existing gap noted in AGENT-14/15) — checked `repeal_extractor.py`/`pipeline.py` manually: the only new-looking error (`repeal_extractor.py:36`, "Returning Any") was confirmed to be a pure `--follow-imports=skip` artifact (disappears when mypy is allowed to follow the `enabling_extractor` import and see `_normalize_title`'s real `-> str` signature); `pipeline.py`'s 4 errors are byte-for-byte pre-existing on the unmodified base file. Zero new lint/type issues from this diff. Eval-gates all at 0 — `repealed-as-current` is (as documented in the honest scope note below) a synthetic self-test unaffected by real corpus data either way, confirmed unchanged.
+- **Corpus result**: 157 documents' whole-act repeal clauses are now extractable; running ingestion against the live corpus will queue pending repeal proposals for review through `review_lifecycle.py --list --effect-type repeal`.
+- **Honest scope note (still true after this task, same lineage as AGENT-11/12/13/15's commencement caveat)**: this populates the authority store with real repeal facts. It does **not** make retrieval respect them — `eligibility_gate.py::eligible_chunk_ids()` (what retrieval actually calls) still derives eligibility from `documents.ingestion_status`/`chunks.effective_date_ad` only, never `lifecycle_effect`. Rewiring that is a distinct future task.
+- **Known minor gap (not blocking, flagged for a future observability pass)**: `classify_repeal`'s `repealed_work_not_in_corpus`/`no_repeal_clause` outcomes are returned in-memory but never persisted anywhere (unlike `enabling_extractor.py`, which always writes an audit-trail row to `work_relations` regardless of outcome) — `work_relations` reuse was explicitly rejected in this task's brief as a semantic mismatch, and no alternative persistence target was specified, so an unresolved repeal match (a repeal clause naming an act not yet in the corpus) currently leaves no queryable trace. Recoverable via re-parsing `laws.jsonl` from scratch if ever needed (same recourse as other backfill scripts), not silently lost forever — but not proactively discoverable today either.
+- **Known minor limitation**: `_REPEAL_RE.search()` only extracts the first match per document. Corpus-verified as a non-issue today (all 157 matching documents have exactly one clean whole-act repeal clause, zero with two or more) — would need switching to `finditer()` if a future corpus document ever repeals two acts via two separate clean clauses.
 
 ### AGENT-15 — Regression-guard LLM-derived chunk metadata as non-authoritative (MERGED to dev, 2026-08-31)
 - Rescoped from the originally-planned "add a non-authoritative/unreviewed flag" column after tracing every downstream reader of `documents.summary`/`chunks.keywords`/`chunks.relevant_questions`: none of `postgres_retriever.py::_hit()`, `validation_gate.py`'s `_citation()`/`_expression()`, or `eligibility_gate.py::eligible_chunk_ids()` read these columns today. Ponytail-blocked the literal flag plan (zero consumers, no review workflow that could ever flip it — a speculative field). See scoping note above for full reasoning.
