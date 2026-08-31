@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import sys
 import types
 from datetime import date
 from typing import Any, cast
 
 import app.retrieval.postgres_retriever as r
+import app.retrieval.validation_gate as vg
 from app.retrieval.reranker import rerank
 
 
@@ -57,6 +59,50 @@ def patch_common(monkeypatch: Any, eligible: set[str]) -> None:
     monkeypatch.setattr(r, "translate_query", lambda query: None)
     monkeypatch.setattr(r, "_embed_query", lambda query: [0.1, 0.2])
     monkeypatch.setattr(r, "rerank", lambda query, hits, k: hits[:k])
+
+
+LLM_METADATA_COLUMNS = ("summary", "keywords", "relevant_questions")
+
+
+def test_hit_does_not_surface_llm_metadata() -> None:
+    hit = r._hit(
+        (
+            "c1",
+            "authoritative text",
+            "hash",
+            "Act",
+            None,
+            "section",
+            "1",
+            "doc-source",
+            ["llm keyword"],
+            ["llm question"],
+        ),
+        0.5,
+    )
+    assert set(hit) == {
+        "component_uri",
+        "text_ne",
+        "text_hash",
+        "score",
+        "vector_score",
+        "work_title_ne",
+        "chunk_type",
+        "section_number",
+        "document_source_id",
+    }
+    assert "llm keyword" not in repr(hit)
+    assert "llm question" not in repr(hit)
+
+
+def test_retriever_sql_does_not_select_llm_metadata() -> None:
+    source = inspect.getsource(r.retrieve_postgres)
+    assert not any(column in source for column in LLM_METADATA_COLUMNS)
+
+
+def test_validation_gate_sql_does_not_read_llm_metadata() -> None:
+    source = inspect.getsource(vg)
+    assert not any(column in source for column in LLM_METADATA_COLUMNS)
 
 
 def test_is_devanagari_pure_nepali() -> None:

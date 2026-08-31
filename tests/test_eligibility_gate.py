@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from typing import Any, cast
 
+import app.retrieval.eligibility_gate as eg
 from app.retrieval.eligibility_gate import eligible_chunk_ids
 
 
@@ -32,6 +34,13 @@ class Conn:
 
     def cursor(self) -> Cursor:
         return self.cursor_obj
+
+
+def test_eligible_chunk_ids_sql_does_not_read_llm_metadata() -> None:
+    source = inspect.getsource(eg.eligible_chunk_ids)
+    assert not any(
+        column in source for column in ("summary", "keywords", "relevant_questions")
+    )
 
 
 def test_eligible_chunk_ids_includes_pending_valid_document() -> None:
