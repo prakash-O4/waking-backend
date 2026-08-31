@@ -1,11 +1,58 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-17 — Fix दफा component-URI collisions (schedule + compound numbering).
-Branch `agent/schedule-header-collision`, base `dev`, assigned to **Pi**.
+None.
 
 ## Status
-**REWORK ROUND 1 SENT, awaiting Pi's run.**
+**IDLE** — AGENT-17 merged to dev. Awaiting Prakash's direction.
+
+- **AGENT-17 review round 2 (2026-08-31)**: Pi returned `461fcb9` addressing
+  both round-1 findings. Independently re-verified rather than trusting the
+  report: re-ran the 677-doc corpus check (0 duplicate URIs, confirmed),
+  `make test` (153 passed, 3 skipped, matches), `make lint` clean, manual
+  ruff/mypy on the 3 ingestion-path files (same 5 pre-existing errors,
+  confirmed byte-for-byte unchanged), `make eval-gates` (all three
+  zero-tolerance gates at 0). Then specifically re-checked the two flagged
+  documents rather than just the aggregate count: `आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५`
+  now parses cleanly to `2.1`...`2.9` with zero `/occurrence/` suffixes —
+  gap 1 fully fixed, confirmed against the real record (the new test loads
+  it directly from `laws.jsonl` instead of a synthetic string, exactly as
+  asked); `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` now recognizes 185 `anushuchi`-typed
+  components (was ~0) — gap 2 substantively fixed, अनुसूची-boundary docs
+  240→250 corpus-wide (modest increase is legitimate: most of the
+  remaining 389-word-mentions were plain cross-references in body text,
+  not real schedule headers, same discipline as AGENT-14's cross-reference
+  exclusion).
+  **New pattern surfaced by this deeper check, not part of round 1's
+  findings**: 590 components across 78 documents (down from 601/80) are
+  still `/occurrence/`-suffixed — but now concentrated in a different,
+  deeper structural pattern than either of round 1's two gaps: 7 documents
+  (down from 8 — आयुर्वेद's compound fix resolved cleanly) are the original
+  genuine no-schedule same-number collisions (by design, matches the task
+  brief's "disambiguate, don't guess" scope); the remainder is dominated by
+  5 technical/tabular regulation schedules (`स्टाण्डर्ड नाप र तौल नियमहरु
+  २०२७` 115, `भन्सार_महसुल_ऐन_२०८१` 69, engineering/health/education/
+  insurance नियमावली 14-26 each) whose schedules contain their **own
+  internal recursive numbering restarts** — e.g. एक अनुसूची with several
+  sub-tables each independently renumbering from 1, producing URIs like
+  `/anushuchi/10.5.9` (schedule 10 → item 5 → its own compound sub-item 9)
+  that still collide across sub-tables within the same schedule. The
+  disambiguation net absorbs this correctly (0 duplicate URIs holds either
+  way, Core Invariant #1 intact, no citation can ever resolve
+  ambiguously) — this is a classification-precision gap for a narrow set
+  of tabular technical schedules, not a data-integrity risk, and it's a
+  structurally different, deeper problem than what this task's grounding
+  or either rework round scoped (nested/recursive schedule numbering, not
+  top-level दफा-vs-अनुसूची misclassification or one-level compound
+  numbering). **Accepted as-is, not sent for a third round** — the two
+  specific gaps this task actually found and scoped are both genuinely
+  fixed on their real evidenced examples; chasing arbitrarily-deep nested
+  schedule numbering belongs in a dedicated future task (candidate
+  **AGENT-19**, see below), the same way AGENT-9's TariffChunker needed
+  its own dedicated task for भन्सार_महसुल_ऐन's tabular structure rather
+  than being folded into general दफा parsing.
+  Merged `agent/schedule-header-collision` → `dev` (`--no-ff`, matches
+  AGENT-N merge-commit convention).
 
 - **AGENT-17 review round 1 (2026-08-31)**: Pi returned `cf3c1aa` claiming
   0/677 duplicate-URI docs, `make test`/`make lint`/`make eval-gates` all
@@ -174,14 +221,24 @@ Branch `agent/schedule-header-collision`, base `dev`, assigned to **Pi**.
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
 - Planned follow-on tasks (not yet branched):
-  - **AGENT-17** — strengthen VALIDATE stage (structural checks beyond दफा
-    anchor: duplicate/broken section numbering, malformed markup, doc-type
-    support, chunk-size violations) + named tariff-threshold constant
-    (currently a bare `5000` literal in `app/ingestion/tariff_chunker
-    .py:38`). Split out of the originally-planned AGENT-14 scope
-    (2026-08-30) — the concrete, evidenced part (header regex
-    over-matching + hash canonicalization) became AGENT-14 on its own;
-    this is the remaining open-ended hardening work.
+  - **AGENT-19** — nested/recursive schedule-numbering disambiguation for
+    technical/tabular regulation schedules. Surfaced during AGENT-17's
+    round-2 review (2026-08-31), not part of its original scope: a small
+    set of technical नियमावली (weights & measures, customs tariff,
+    engineering-service classification, health/education/insurance
+    regulations) have अनुसूची schedules containing their **own** internal
+    sub-tables that each independently restart numbering from 1 (e.g.
+    `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` — 115 still-colliding components
+    even after AGENT-17's fix, `भन्सार_महसुल_ऐन_२०८१` — 69). AGENT-17's
+    disambiguation net (`/occurrence/N` suffix) already keeps every
+    provision uniquely addressable — Core Invariant #1 holds today, no
+    data-loss risk — this task would be a classification-precision
+    improvement (proper nested numbering instead of an occurrence-suffix
+    fallback), not a correctness fix. Likely wants the same kind of
+    dedicated, structure-aware treatment AGENT-9's TariffChunker gave
+    `भन्सार_महसुल_ऐन` rather than a general परser regex extension. Not
+    scoped further — grounding (which specific sub-table structures repeat
+    across which documents) still needs doing before writing anything.
   - **AGENT-18** — clause-level `<amend>` tag extraction: correlate each
     inline `<amend>...</amend>` marker with the enclosing दफा and with
     the document's own "संशोधन गर्ने ऐन"/"संशोधन" amendment-history
@@ -220,6 +277,82 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-17 — Fix दफा component-URI collisions (schedule + compound numbering) (MERGED to dev, 2026-08-31)
+- `app/authority/parser.py`: `_HEADER_RE` gained an अनुसूची (schedule) boundary
+  alternative (`अनुसूची\s*[-–]?\s*N`, tolerant of the corpus's inconsistent
+  dash/whitespace formatting) so schedule content stops being misclassified
+  as `dafa` components; bold-दफा numbers now optionally capture one compound
+  `.M` decimal level, with the punctuation check widened to also accept
+  "number, whitespace, free-form title, colon before the closing `**`" (the
+  real format for this corpus's compound headers, which don't have
+  punctuation immediately after the number). `_component_kind()` threads a
+  `schedule_number` loop variable so items after an अनुसूची boundary get
+  `component_type="anushuchi"` with a `{schedule}.{item}` URI instead of
+  colliding with real दफा numbers. New `_disambiguate_component_uris()` is
+  an unconditional final pass over every parsed document — any URI that
+  still collides after reclassification (genuine same-number,
+  different-content दफा pairs in the source text itself, not decidable as
+  "which one is correctly numbered") gets a deterministic `/occurrence/N`
+  suffix so both provisions stay distinctly addressable; nothing is ever
+  silently dropped or overwritten.
+- `app/ingestion/pipeline.py`: VALIDATE stage (laws path) now asserts
+  `parse_law()`'s output has no duplicate component URIs and rejects if it
+  does — a regression safety net for any future numbering pattern not in
+  today's corpus, not a substitute for the parser fix (by construction,
+  `_disambiguate_component_uris` already guarantees this can't fire today;
+  the check guards against a future parser change silently reintroducing
+  the invariant violation).
+- `scripts/cleanup_stale_authority_expressions.py`: `_expected_hashes()` now
+  raises loudly on a duplicate URI instead of silently keeping only the
+  first (dead code today, same defense-in-depth reasoning as the VALIDATE
+  guard); new `_missing_component_uris()`/`_upsert_missing_components()`
+  insert `component` rows for the newly-introduced disambiguated URIs
+  (`anushuchi/...`, `.../occurrence/N`) that didn't exist under the old
+  parser; existing orphan-cleanup + lifecycle-status-guard logic
+  (AGENT-14) reconciles the old, now-superseded URIs unchanged — reused,
+  not reimplemented, per Ponytail.
+- **Two-round review, both independently re-verified against the live
+  corpus rather than trusting the engineer's report** (Claude Review
+  Gate) — see Status notes above for full detail. Round 1 (`cf3c1aa`)
+  claimed the fix but the compound-number and अनुसूची-boundary fixes didn't
+  actually fire on the task's own grounding examples, only the
+  disambiguation net was doing the work; sent back with exact regex
+  diagnosis (`task.md` rework note, `d10496e`). Round 2 (`461fcb9`) fixed
+  both, verified against the same real documents (आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५
+  now parses cleanly to `2.1`...`2.9`; `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` now
+  recognizes 185 अनुसूची components, was ~0), new tests load the real
+  corpus record via `laws.jsonl` instead of a synthetic string that didn't
+  match the actual format.
+- 0/677 documents with duplicate component URIs (was 61/677, 857 excess
+  rows), independently re-derived, not just re-quoted from the report.
+  153 tests passing (3 skipped), lint clean, `make eval-gates` all three
+  zero-tolerance gates at 0. The 5 mypy errors on the 3 ingestion-path
+  files not in the Makefile's fixed lint list are byte-for-byte
+  pre-existing on the base, confirmed by diffing mypy output before/after
+  on the unmodified files.
+- **Honest scope note**: a deeper, structurally different pattern surfaced
+  during round-2 review — a handful of technical/tabular regulation
+  schedules (weights & measures, customs tariff, engineering/health/
+  education/insurance नियमावली) have schedules with their own internal
+  recursive numbering restarts, still relying on the `/occurrence/N`
+  safety net rather than proper nested classification (590 components /
+  78 documents, dominated by ~5 technical schedules). Data integrity holds
+  (0 duplicate URIs either way) — this is a citation-precision gap for a
+  narrow technical-schedule corpus slice, not a correctness risk, and it's
+  outside what this task's grounding scoped. Not sent for a third rework
+  round; split out as candidate **AGENT-19** (not yet scoped) rather than
+  chasing arbitrarily-deep nested numbering inside this task, matching the
+  same "don't bundle unrelated concerns" discipline as prior tasks (e.g.
+  AGENT-16→18).
+- Live-DB cleanup script (`--dry-run` then real run) could not be executed
+  this session — local Postgres was not running in either engineer's
+  environment. **Still pending on Prakash**, same operational-steps
+  pattern as other backfill/cleanup scripts in this file (see "Operational
+  steps still pending on Prakash" below) — run
+  `python3 scripts/cleanup_stale_authority_expressions.py --dry-run` then
+  for real against the live local DB, and report before/after counts the
+  same way AGENT-14's cleanup run was reported.
 
 ### AGENT-16 — Extract whole-act repeal declarations into lifecycle_effect (MERGED to dev, 2026-08-31)
 - `app/ingestion/repeal_extractor.py` (new): deterministic, no LLM — `_REPEAL_RE` matches a named act/ordinance/regulation directly followed by `खारेज गरिएको छ` (handles an optional bold दफा-header prefix and an optional `(१)` sub-clause marker before the title). `classify_repeal()` returns a 3-outcome `RepealMatch` (`auto_extracted` / `repealed_work_not_in_corpus` / `no_repeal_clause`), reusing `enabling_extractor.py`'s `_normalize_title`/`_resolve_work` unchanged (same name-to-`work`-row problem, no reimplementation). Corpus-count regression test hard-asserts `(157, 157)` docs/matches, confirmed independently during review. Verified the savings sub-clauses (e.g. `(२) ... बमोजिम भए गरेका काम ... मानिनेछ`) and the partial-दफा-of-another-act pattern (e.g. `"...ऐन, YYYY को दफा N ... खारेज गरिएको छ"`) both correctly produce `no_repeal_clause`, not a false match — tested explicitly.
@@ -535,6 +668,10 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - Zero-tolerance gates: repealed-as-current = 0, not-yet-effective-as-current = 0, overruled-as-good-law = 0
 
 ## Operational steps still pending (on Prakash)
+- Run `python3 scripts/cleanup_stale_authority_expressions.py --dry-run`
+  then for real, against the live local DB (AGENT-17) — reconciles the
+  authority store to the fixed दफा/अनुसूची parser; local Postgres wasn't
+  running in either review session to execute this
 - Run `scripts/ingest_laws.py` for remaining 577 laws (100 done, 677 total)
 - Run `scripts/ingest_nkp.py --input output/nkp_cases.jsonl` (1022 NKP cases)
 - Run `make eval` + `make eval-gates` against live env (baseline Recall@5 + zero-tolerance gate check)
