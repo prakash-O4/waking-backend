@@ -110,6 +110,11 @@ CREATE TABLE IF NOT EXISTS chunks (
     )
 );
 
+COMMENT ON COLUMN chunks.keywords IS
+    'LLM-derived during ingestion, never human-reviewed, not authoritative, and must never be rendered as or substituted for statutory text or a citation.';
+COMMENT ON COLUMN chunks.relevant_questions IS
+    'LLM-derived during ingestion, never human-reviewed, not authoritative, and must never be rendered as or substituted for statutory text or a citation.';
+
 -- HNSW vector index (pgvector). m=16 / ef_construction=64 are the pgvector
 -- documented defaults; ef_search is set at query time, not here.
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw

@@ -162,11 +162,14 @@ def _apply_chunk_metadata(
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning(f"llm chunk metadata not parseable, columns left NULL: {exc}")
         return metadata
-    by_index = {
-        int(item["chunk_index"]): item
-        for item in parsed
-        if isinstance(item, dict) and "chunk_index" in item
-    }
+    by_index = {}
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        chunk_index = item.get("chunk_index")
+        if not isinstance(chunk_index, int):
+            continue
+        by_index[chunk_index] = item
     for entry in metadata:
         item = by_index.get(entry["chunk_index"])
         if not item:

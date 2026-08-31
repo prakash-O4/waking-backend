@@ -23,6 +23,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
     ("007_retrieval_indexes", "007_retrieval_indexes.sql"),
     ("008_work_relations", "008_work_relations.sql"),
     ("009_lifecycle_raw_clause", "009_lifecycle_raw_clause.sql"),
+    ("010_metadata_provenance_comments", "010_metadata_provenance_comments.sql"),
 ]
 
 
