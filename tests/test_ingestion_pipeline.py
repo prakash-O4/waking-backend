@@ -430,6 +430,36 @@ def test_ingest_law_persistence_failure_rejects_document(
     assert persist_output["error_type"] == "RuntimeError"
 
 
+def test_ingest_law_rejects_duplicate_component_uris(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    source = MagicMock()
+    component = MagicMock()
+    expression = MagicMock()
+    law = SimpleNamespace(
+        uri="/np/act/2080/dup",
+        components=[SimpleNamespace(uri="/u/1"), SimpleNamespace(uri="/u/1")],
+    )
+    monkeypatch.setattr(pipeline_mod, "parse_law", lambda record: law)
+    monkeypatch.setattr(pipeline_mod, "upsert_source", source)
+    monkeypatch.setattr(pipeline_mod, "upsert_component", component)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", expression)
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    assert (
+        pipeline.ingest_law(
+            {"_id": "dup-law", "name": "खराब_ऐन_२०८०", "content": "**१. दफा:** पाठ"}
+        )
+        is None
+    )
+    assert pipeline.last_outcome == "rejected"
+    source.assert_not_called()
+    component.assert_not_called()
+    expression.assert_not_called()
+
+
 def test_ingest_law_validate_failure_before_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,7 +5,10 @@ from collections import Counter
 from types import SimpleNamespace
 from typing import Any
 
-from scripts.cleanup_stale_authority_expressions import _cleanup_orphan_components
+from scripts.cleanup_stale_authority_expressions import (
+    _cleanup_orphan_components,
+    _missing_component_uris,
+)
 
 
 class FakeConn:
@@ -59,6 +62,23 @@ class FakeCursor:
 
 def law() -> SimpleNamespace:
     return SimpleNamespace(components=[SimpleNamespace(uri="/law/dafa/1")])
+
+
+def law_with_new_occurrence() -> SimpleNamespace:
+    return SimpleNamespace(
+        components=[
+            SimpleNamespace(uri="/law/dafa/1"),
+            SimpleNamespace(uri="/law/dafa/1/occurrence/2"),
+        ]
+    )
+
+
+def test_missing_component_uris_include_new_occurrences() -> None:
+    conn = FakeConn()
+
+    assert _missing_component_uris(conn, "work1", law_with_new_occurrence()) == [
+        "/law/dafa/1/occurrence/2"
+    ]
 
 
 def test_orphan_cleanup_counts_and_blocks_approved() -> None:
