@@ -44,13 +44,13 @@ None.
   structurally different, deeper problem than what this task's grounding
   or either rework round scoped (nested/recursive schedule numbering, not
   top-level दफा-vs-अनुसूची misclassification or one-level compound
-  numbering). **Accepted as-is, not sent for a third round** — the two
-  specific gaps this task actually found and scoped are both genuinely
-  fixed on their real evidenced examples; chasing arbitrarily-deep nested
-  schedule numbering belongs in a dedicated future task (candidate
-  **AGENT-19**, see below), the same way AGENT-9's TariffChunker needed
-  its own dedicated task for भन्सार_महसुल_ऐन's tabular structure rather
-  than being folded into general दफा parsing.
+  numbering). **Accepted as-is, not sent for a third round, and not given
+  a task number** — the two specific gaps this task actually found and
+  scoped are both genuinely fixed on their real evidenced examples; the
+  remainder is a citation-precision nice-to-have with no Core Invariant or
+  gate risk, doesn't clear the bar for a new AGENT-N task on its own
+  (logged as an informational finding below, not a planned task — only
+  becomes one if Prakash asks).
   Merged `agent/schedule-header-collision` → `dev` (`--no-ff`, matches
   AGENT-N merge-commit convention).
 
@@ -220,25 +220,19 @@ None.
   still derives eligibility from `documents`/`chunks` only, not from
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
+- Not a task — informational finding only (2026-08-31, surfaced during
+  AGENT-17's round-2 review, doesn't clear the bar for a numbered task: no
+  Core Invariant / gate risk, not blocking, not requested). A small set of
+  technical/tabular regulation schedules (weights & measures, customs
+  tariff, engineering/health/education/insurance नियमावली) have अनुसूची
+  schedules with their own internal sub-tables that each independently
+  restart numbering from 1 (e.g. `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` — 115
+  components, `भन्सार_महसुल_ऐन_२०८१` — 69, still relying on AGENT-17's
+  `/occurrence/N` disambiguation fallback rather than proper nested
+  classification). Data integrity holds today (0 duplicate URIs either
+  way) — this is a citation-precision nice-to-have for a narrow corpus
+  slice, not a correctness gap. Only becomes a task if Prakash asks.
 - Planned follow-on tasks (not yet branched):
-  - **AGENT-19** — nested/recursive schedule-numbering disambiguation for
-    technical/tabular regulation schedules. Surfaced during AGENT-17's
-    round-2 review (2026-08-31), not part of its original scope: a small
-    set of technical नियमावली (weights & measures, customs tariff,
-    engineering-service classification, health/education/insurance
-    regulations) have अनुसूची schedules containing their **own** internal
-    sub-tables that each independently restart numbering from 1 (e.g.
-    `स्टाण्डर्ड नाप र तौल नियमहरु २०२७` — 115 still-colliding components
-    even after AGENT-17's fix, `भन्सार_महसुल_ऐन_२०८१` — 69). AGENT-17's
-    disambiguation net (`/occurrence/N` suffix) already keeps every
-    provision uniquely addressable — Core Invariant #1 holds today, no
-    data-loss risk — this task would be a classification-precision
-    improvement (proper nested numbering instead of an occurrence-suffix
-    fallback), not a correctness fix. Likely wants the same kind of
-    dedicated, structure-aware treatment AGENT-9's TariffChunker gave
-    `भन्सार_महसुल_ऐन` rather than a general परser regex extension. Not
-    scoped further — grounding (which specific sub-table structures repeat
-    across which documents) still needs doing before writing anything.
   - **AGENT-18** — clause-level `<amend>` tag extraction: correlate each
     inline `<amend>...</amend>` marker with the enclosing दफा and with
     the document's own "संशोधन गर्ने ऐन"/"संशोधन" amendment-history
@@ -341,10 +335,9 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
   (0 duplicate URIs either way) — this is a citation-precision gap for a
   narrow technical-schedule corpus slice, not a correctness risk, and it's
   outside what this task's grounding scoped. Not sent for a third rework
-  round; split out as candidate **AGENT-19** (not yet scoped) rather than
-  chasing arbitrarily-deep nested numbering inside this task, matching the
-  same "don't bundle unrelated concerns" discipline as prior tasks (e.g.
-  AGENT-16→18).
+  round, and not given a task number — no Core Invariant/gate risk, not
+  requested — logged as an informational finding in the backlog section
+  above instead of a planned task.
 - Live-DB cleanup script (`--dry-run` then real run) could not be executed
   this session — local Postgres was not running in either engineer's
   environment. **Still pending on Prakash**, same operational-steps
