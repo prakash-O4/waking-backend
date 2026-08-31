@@ -1,11 +1,45 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-17 — Fix दफा component-URI collisions (schedule + compound numbering).
+Branch `agent/schedule-header-collision`, base `dev`, assigned to **Pi**.
 
 ## Status
-**IDLE** — AGENT-16 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, awaiting Pi's run.**
 
+- **AGENT-17 scoping (2026-08-31)**: session-start hygiene pass first — 13
+  fully-merged `agent/*` working branches deleted (all confirmed ancestors of
+  `dev`), stray `task.md.bak` deleted; `.agent/extract_meta_bottleneck.md` and
+  `docs/legal_rag_ingestion_best_practices.md` (both flagged untracked since
+  AGENT-15, origin unconfirmed) kept per Prakash's call, still untracked.
+  Then picked AGENT-17 (VALIDATE-stage hardening) off the backlog per
+  Prakash's direction, but corpus grounding found the backlog's framing
+  ("duplicate section numbering" as a VALIDATE-stage gap) undersold the real
+  bug: re-ran `parse_law()` against all 677 `laws.jsonl` records and found
+  **61 documents still produce duplicate `component.uri` values post-AGENT-14
+  — 857 excess/collided rows**, root cause is in `parser.py` itself, not
+  just a missing VALIDATE check. Diagnosed three distinct patterns by hand
+  (not just regex counts — traced raw content around each collision):
+  53/61 = अनुसूची (schedule) bold-numbered list items with no dedicated header
+  marker falling into the bold-दफा alternative and colliding with real दफा of
+  the same number (e.g. आयकर_ऐन_२०५८'s अनुसूची-२ item "१." collides with the
+  real दफा १ near the top); 1/61 = compound "N.M" चapter.section दफा
+  numbering (आयुर्वेद_चिकित्सा_परिषद्_ऐन_२०४५'s २.१–२.९) collapsing to just
+  "N" at the first `.`; 7/61 = genuine same-number-different-content दफा
+  collisions in the main body with no explaining pattern (कारागार_ऐन_२०७९'s
+  दफा ४१ appears twice with unrelated titles, likely a source-text numbering
+  error) — explicitly scoped as "disambiguate, don't guess which is correct"
+  per the Prime Directive. Also found and explicitly dropped two thin-evidence
+  items during the same pass: 2/677 docs with mismatched `<amend>` tag counts
+  (real but too rare to justify a check — noted for a future pass, not
+  carried forward) and doc-type support (corpus only has `act`/`regulation`,
+  zero evidence of a gap — dropped, matches the established pattern of not
+  carrying unevidenced items forward, e.g. AGENT-16's expiry/sunset drop).
+  Tariff-threshold magic constant (`tariff_chunker.py:38`) folded into
+  task.md as an optional 2-line addendum rather than its own task — trivial,
+  but a different file/subsystem, so marked skippable if it would dilute
+  review of the real fix (same "don't bundle unrelated concerns" discipline
+  AGENT-14 used when it split the *original* AGENT-14 scope into 14 + 17).
 - **AGENT-16 scoping (2026-08-31)**: the old plan's "AGENT-16" label
   ("amend/repeal/expiry lifecycle extraction") was one line covering
   three genuinely different-sized problems. Corpus-grounded before
