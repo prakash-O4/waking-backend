@@ -1,10 +1,46 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-18 — Correlate `<amend>` tags with the document's amendment table
+into `lifecycle_effect`. Branch `agent/amend-tag-correlation`, base `dev`,
+assigned to **Pi**.
 
 ## Status
-**IDLE** — AGENT-17 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, awaiting Pi's run.**
+
+- **AGENT-18 scoping (2026-08-31)**: assigned per Prakash's explicit
+  request (clears the task-creation bar — see [[feedback_task_creation_bar]]
+  memory going forward). Re-verified the old backlog note's grounding
+  before writing the brief rather than trusting it as-is — it materially
+  undersold the real shape: the note said "83% dominant named-act
+  pattern, ordinal position secondary." A precise per-tag classification
+  of all 15,748 `<amend>` instances (677 records) found the *opposite*
+  emphasis — named-act 31.3% (4,926), ordinal-position 55.9% (8,808, the
+  actual majority), gazette-date-only 0.2% (24, thin, abstain), and a
+  12.6% (1,990) "other" bucket that turned out to be mostly *not*
+  amendment records at all (commencement dates already covered by
+  AGENT-12, repeal asides already covered by AGENT-16, name changes,
+  unrelated constitutional cross-refs, pay-adjustment decisions) —
+  explicitly scoped out, don't guess. Also found and grounded a
+  previously-undocumented parsing surface both patterns depend on: an
+  ordered amendment table near the top of each document (`संशोधन गर्ने
+  ऐन` for acts, bare `संशोधन`/`संशोधन गर्ने नियम` for regulations —
+  different heading, same shape), covering 496/519 (96%) of amend-tag
+  documents once both heading variants are recognized; 23/519 (4%) have
+  no table at all — abstain, don't fabricate. Pointed the brief at two
+  direct reuse opportunities to keep this extend-existing per Ponytail:
+  `commencement_extractor.py::ORDINAL_DAYS` for the ordinal-word table
+  (same words, reused as position instead of day-offset) and
+  `enabling_extractor.py::_normalize_title()` for act-name matching
+  against the table (not `_resolve_work()` — matching against the
+  document's own table, not the `work` table). `effect_type='amend'` and
+  `EffectType.AMEND` already exist (migration 001, `models.py`) — no
+  schema change. Explicit honest-scope note baked into the brief: this
+  only records amendment *facts* (which दफा, by which act, when) — this
+  corpus has no pre-amendment text to version, so it doesn't achieve full
+  PS-17 compliance (closing a prior expression's valid_time), same
+  "don't fabricate what the corpus doesn't support" discipline as every
+  prior lifecycle-extraction task.
 
 - **AGENT-17 review round 2 (2026-08-31)**: Pi returned `461fcb9` addressing
   both round-1 findings. Independently re-verified rather than trusting the
@@ -232,20 +268,9 @@ None.
   classification). Data integrity holds today (0 duplicate URIs either
   way) — this is a citation-precision nice-to-have for a narrow corpus
   slice, not a correctness gap. Only becomes a task if Prakash asks.
-- Planned follow-on tasks (not yet branched):
-  - **AGENT-18** — clause-level `<amend>` tag extraction: correlate each
-    inline `<amend>...</amend>` marker with the enclosing दफा and with
-    the document's own "संशोधन गर्ने ऐन"/"संशोधन" amendment-history
-    table (by act name for the 83% dominant pattern, by Devanagari
-    ordinal-word position — "पहिलो", "दोस्रो", "आठौं" — for a real
-    secondary pattern where the tag references the table entry by
-    position instead of by name) to produce `amend`-type lifecycle
-    facts. Renumbered out of the old "AGENT-16" label during AGENT-16's
-    scoping (2026-08-31) — see that entry above for the corpus
-    grounding (15,748 tag instances / 519 documents / dominant-pattern
-    breakdown) and the 1% gazette-notification-only sub-pattern
-    (no named act, just a date, mirrors AGENT-12's gazette-dependent
-    commencement shape).
+- Planned follow-on tasks (not yet branched): none currently — AGENT-18
+  is now actively assigned (see Current task above, superseding the old
+  backlog description below it used to sit under).
 
 ---
 
