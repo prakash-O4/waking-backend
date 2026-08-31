@@ -30,6 +30,7 @@ from app.authority.writer import (
     upsert_work,
 )
 from app.ingestion import metadata_enricher
+from app.ingestion.amend_extractor import extract_amend_proposals
 from app.ingestion.commencement_extractor import extract_commencement_proposals
 from app.ingestion.enabling_extractor import extract_enabling_clause
 from app.ingestion.repeal_extractor import extract_repeal_proposals
@@ -336,6 +337,9 @@ class IngestionPipeline:
                 law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
             )
             extract_repeal_proposals(
+                law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
+            )
+            extract_amend_proposals(
                 law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
             )
             self._execute("RELEASE SAVEPOINT propose_lifecycle", ())
