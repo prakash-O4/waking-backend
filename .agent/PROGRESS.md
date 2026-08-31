@@ -6,7 +6,44 @@ into `lifecycle_effect`. Branch `agent/amend-tag-correlation`, base `dev`,
 assigned to **Pi**.
 
 ## Status
-**ASSIGNED, awaiting Pi's run.**
+**REWORK ROUND 1 SENT, awaiting Pi's run.**
+
+- **AGENT-18 review round 1 (2026-08-31)**: Pi returned `e73103a` — 438
+  docs with proposals, 6,424 proposals (1,854 named-act / 4,570 ordinal),
+  9,324 skipped. Independently re-verified rather than trusting the
+  report: re-ran the extractor against all 677 records via a stub `conn`
+  (exact match on every reported number), `make test` (159 passed, 3
+  skipped), `make lint`, manual ruff/mypy on the 3 ingestion-path files
+  (4 pre-existing pipeline.py errors, unchanged from base), `make
+  eval-gates` (all three zero-tolerance gates at 0). Hand-verified the
+  dedup design against a real document (सुशासन_(व्यवस्थापन_तथा_सञ्चालन)_
+  ऐन_२०६४'s दफा ३ — two tags at nearby offsets really are the same
+  amending act touching two different उपदफा within one दफा, correctly
+  collapsed to one दफा-level fact, not a bug) and the `unresolved_named-
+  act` abstention against another (महाभियोग_(कार्यविधि_नियमित_गर्ने)_ऐन_
+  २०५९ — the tag genuinely names an act absent from this document's own
+  table, correctly abstained, not fabricated).
+  But found two real, in-scope, fixable causes hiding inside two of the
+  skip buckets rather than genuine abstentions: (1) `_ROW_RE`'s name
+  group excludes newlines, silently dropping any amendment-table row
+  whose act name wraps onto a second line — confirmed directly against
+  `महान्यायाधिवक्ताको_पारिश्रमिक_सेवाको_शर्त_र_सुविधा_सम्बन्धी_ऐन_२०५२`
+  (5 real table rows, only 2 captured), quantified corpus-wide at 68/498
+  documents (13.7%) with at least one dropped row, 135/1,952 rows (6.9%)
+  missing — feeds both `unresolved_named-act` (667) and
+  `unresolved_ordinal` (225), indistinguishable today from a genuine
+  "not in this table" abstention; (2) 936 of ~5,731 ordinal-shaped tags
+  (16%) use a chandrabindु/anusvara or missing-trailing-nasal spelling
+  variant of an already-known `ORDINAL_DAYS` word (`पाँचौ` vs `पाँचौं`
+  alone is 254 instances) — a normalization gap, not a new-word problem;
+  55 distinct unknown tokens total. Both are quantified, bounded,
+  in-scope fixes (not new adjacent problems — this is the task's own
+  named mechanism under-delivering on its own grounding, same character
+  as AGENT-17 round 1, not a candidate for demotion under
+  [[feedback_task_creation_bar]] since it's about this task's own
+  deliverable, not a new one). Rework note appended to `task.md`
+  (`a07f22d`) with exact regex diagnosis and re-verification asks; same
+  branch, same engineer.
 
 - **AGENT-18 scoping (2026-08-31)**: assigned per Prakash's explicit
   request (clears the task-creation bar — see [[feedback_task_creation_bar]]

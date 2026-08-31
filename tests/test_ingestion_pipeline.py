@@ -220,6 +220,7 @@ def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
         "stage.LOAD",
         "stage.VALIDATE",
         "stage.PERSIST_AUTHORITY",
+        "stage.PROPOSE_LIFECYCLE",
         "stage.CHUNK",
         "stage.EXTRACT_METADATA",
         "stage.EMBED_AND_UPSERT",

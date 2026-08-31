@@ -160,6 +160,49 @@ def propose_lifecycle_commence(
         )
 
 
+def propose_lifecycle_amend(
+    conn: connection,
+    component_uri: str,
+    source_pub_id: str,
+    *,
+    effective_date: date | None,
+    amendment_dependency: str | None,
+    raw_clause_text: str,
+) -> None:
+    """Write a pending amendment proposal for one component."""
+    valid_time = f"[{effective_date.isoformat()},)" if effective_date else "empty"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM lifecycle_effect
+            WHERE component_uri=%s AND effect_type='amend'
+              AND approval_status='pending' AND raw_clause_text=%s
+            LIMIT 1
+            """,
+            (component_uri, raw_clause_text),
+        )
+        if cur.fetchone():
+            return
+        cur.execute(
+            """
+            INSERT INTO lifecycle_effect (
+                component_uri, effect_type, legal_valid_time, transaction_time,
+                effective_date, commencement_dependency, source_pub_id,
+                approval_status, raw_clause_text
+            ) VALUES (%s, 'amend', %s::tstzrange, tstzrange(now(), NULL),
+                      %s, %s, %s, 'pending', %s)
+            """,
+            (
+                component_uri,
+                valid_time,
+                effective_date,
+                amendment_dependency,
+                source_pub_id,
+                raw_clause_text,
+            ),
+        )
+
+
 def propose_lifecycle_repeal(
     conn: connection,
     repealed_work_id: str,
