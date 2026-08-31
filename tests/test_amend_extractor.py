@@ -41,6 +41,46 @@ def test_parse_amendment_table(monkeypatch):
     ]
 
 
+def test_parse_wrapped_amendment_table_rows(monkeypatch):
+    monkeypatch.setattr(ae, "lookup", lambda y, m, d: (date(y - 57, m, d), False))
+    content = """संशोधन गर्ने ऐन
+
+१. महान्यायाधिवक्ताको पारिश्रमिक, सेवाको शर्त र सुविधा
+सम्बन्धी (पहिलो संशोधन) ऐन, २०५४    २०५४।९।७
+२. केही नेपाल कानून संशोधन गर्ने ऐन, २०६३    २०६३।६।२८
+३. लैङ्गिक समानता कायम गर्ने केही नेपाल
+ऐन संशोधन गर्ने ऐन, २०६३    २०६३।७।१७
+४. गणतन्त्र सुदृढीकरण तथा केही नेपाल कानून
+संशोधन गर्ने ऐन, २०६६    २०६६।१०।७
+५. केही नेपाल ऐन संशोधन गर्ने ऐन, २०७२    २०७२।११।१३
+
+**१. दफा:** लामो पाठ ।
+"""
+    rows = ae.parse_amendment_table(content)
+    assert len(rows) == 5
+    assert rows[0].normalized_name == (
+        "महान्यायाधिवक्ताको पारिश्रमिक सेवाको शर्त र सुविधा " "सम्बन्धी (पहिलो संशोधन) ऐन २०५४"
+    )
+    assert (
+        rows[2].normalized_name == "लैङ्गिक समानता कायम गर्ने केही नेपाल ऐन संशोधन गर्ने ऐन २०६३"
+    )
+
+
+def test_ordinal_spelling_variants_resolve():
+    table = [
+        ae.AmendmentTableEntry(5, "x", "२०८१।१।१", None),
+        ae.AmendmentTableEntry(6, "y", "२०८१।१।२", None),
+    ]
+    for token in ["पाँचौ", "पाँचौँ"]:
+        assert (
+            ae.classify_amend_text(f"{token} संशोधनद्वारा संशोधित।", table)[1] == table[0]
+        )
+    for token in ["छैठौं", "छैटौँ"]:
+        assert (
+            ae.classify_amend_text(f"{token} संशोधनद्वारा संशोधित।", table)[1] == table[1]
+        )
+
+
 def test_ordinal_and_named_tags_write_component_proposals(monkeypatch):
     monkeypatch.setattr(ae, "lookup", lambda y, m, d: (date(y - 57, m, d), False))
     calls = []

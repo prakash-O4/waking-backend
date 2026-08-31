@@ -22,9 +22,11 @@ from app.ingestion.enabling_extractor import _normalize_title
 _DEVA_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _AMEND_RE = re.compile(r"<amend>(?P<text>.*?)</amend>", re.DOTALL)
 _TABLE_HEADING_RE = re.compile(r"(?m)^\s*(?:संशोधन\s+गर्ने\s+(?:ऐन|नियम)|संशोधन)\s*$")
-_ROW_RE = re.compile(
-    r"(?m)^\s*(?P<pos>[०-९0-9]+)[.)।]\s*(?P<name>[^\n।]{2,160}?,\s*[०-९]{4})\s+(?P<date>[०-९]{4}[।./-][०-९]{1,2}[।./-][०-९]{1,2})"
+_ROW_START_RE = re.compile(r"^\s*(?P<pos>[०-९0-9]+)[.)।]\s*(?P<rest>.*)")
+_ROW_BODY_RE = re.compile(
+    r"(?P<name>.{2,240}?,?\s*[०-९]{4})(?:\s+(?P<date>[०-९]{4}[।./-][०-९]{1,2}[।./-][०-९]{1,2}))?"
 )
+_DATE_IN_ROW_RE = re.compile(r"[०-९]{4}[।./-][०-९]{1,2}[।./-][०-९]{1,2}")
 _NAMED_RE = re.compile(
     r"^\s*(?P<name>[^।\n]{2,160}?(?:ऐन|नियमावली|नियम)),?\s*(?P<year>[०-९]{4})\s+द्वारा\s+(?:संशोधित|थप)"
 )
@@ -36,7 +38,7 @@ _DATE_RE = re.compile(r"^\s*[०-९]{4}[।./-][०-९]{1,2}[।./-][०-९]{
 class AmendmentTableEntry:
     position: int
     normalized_name: str
-    bs_date: str
+    bs_date: str | None
     effective_date: date | None
 
 
@@ -68,21 +70,56 @@ def _bs_to_ad(text: str) -> date | None:
     return cast(date, ad_date)
 
 
+def _parse_table_row(
+    position: int, text: str, *, require_date: bool = False
+) -> AmendmentTableEntry | None:
+    text = " ".join(text.split())
+    if require_date and not _DATE_IN_ROW_RE.search(text):
+        return None
+    match = _ROW_BODY_RE.search(text)
+    if not match:
+        return None
+    bs_date = match.group("date")
+    return AmendmentTableEntry(
+        position=position,
+        normalized_name=_normalize_title(match.group("name")),
+        bs_date=bs_date,
+        effective_date=_bs_to_ad(bs_date) if bs_date else None,
+    )
+
+
 def parse_amendment_table(content: str) -> list[AmendmentTableEntry]:
     heading = _TABLE_HEADING_RE.search(content[:5000])
     if not heading:
         return []
     first_header = _HEADER_RE.search(content, heading.end())
     table_text = content[heading.end() : first_header.start() if first_header else 5000]
-    return [
-        AmendmentTableEntry(
-            position=_to_int(match.group("pos")),
-            normalized_name=_normalize_title(match.group("name")),
-            bs_date=match.group("date"),
-            effective_date=_bs_to_ad(match.group("date")),
+    rows: list[AmendmentTableEntry] = []
+    position: int | None = None
+    body = ""
+    for line in table_text.splitlines():
+        start = _ROW_START_RE.match(line)
+        if start and len(start.group("pos").translate(_DEVA_DIGITS)) <= 2:
+            parsed = _parse_table_row(position, body) if position is not None else None
+            if parsed:
+                rows.append(parsed)
+            position = _to_int(start.group("pos"))
+            body = start.group("rest")
+        elif position is not None:
+            body += " " + line.strip()
+        parsed = (
+            _parse_table_row(position, body, require_date=True)
+            if position is not None
+            else None
         )
-        for match in _ROW_RE.finditer(table_text)
-    ]
+        if parsed:
+            rows.append(parsed)
+            position = None
+            body = ""
+    parsed = _parse_table_row(position, body) if position is not None else None
+    if parsed:
+        rows.append(parsed)
+    return rows
 
 
 def _component_spans(content: str, law: Any) -> list[tuple[int, int, str]]:
@@ -121,6 +158,38 @@ def _enclosing_uri(spans: list[tuple[int, int, str]], offset: int) -> str | None
     return None
 
 
+def _normalize_ordinal(text: str) -> str:
+    text = text.replace("ँ", "ं")
+    for old, new in {
+        "प्रथम": "पहिलो",
+        "पहिले": "पहिलो",
+        "दोश्रो": "दोस्रो",
+        "तेसो": "तेस्रो",
+        "चौथौं": "चौथो",
+        "चौथौ": "चौथो",
+        "चौथों": "चौथो",
+        "छैठ": "छैट",
+        "नौव": "नव",
+        "नह": "नव",
+        "नब": "नव",
+        "छब्बिस": "छब्बीस",
+        "छबिस": "छब्बीस",
+        "चौबिस": "चौबीस",
+        "पच्चिस": "पच्चीस",
+        "सात्त": "सात",
+        "पाच": "पांच",
+    }.items():
+        text = text.replace(old, new)
+    if text.endswith("ौ"):
+        text += "ं"
+    return text
+
+
+_NORMALIZED_ORDINAL_DAYS = {
+    _normalize_ordinal(word): value for word, value in ORDINAL_DAYS.items()
+}
+
+
 def classify_amend_text(
     text: str, table: list[AmendmentTableEntry]
 ) -> tuple[str, AmendmentTableEntry | None]:
@@ -133,7 +202,9 @@ def classify_amend_text(
 
     match = _ORDINAL_RE.search(text)
     if match:
-        ordinal = ORDINAL_DAYS.get(match.group("ordinal"))
+        ordinal = _NORMALIZED_ORDINAL_DAYS.get(
+            _normalize_ordinal(match.group("ordinal"))
+        )
         if ordinal is None:
             return "unknown-ordinal", None
         return "ordinal", next((row for row in table if row.position == ordinal), None)
@@ -185,7 +256,7 @@ def extract_amend_proposals(
             effective_date=entry.effective_date,
             amendment_dependency=None
             if entry.effective_date
-            else f"amendment_date_unresolved:{entry.bs_date}",
+            else f"amendment_date_unresolved:{entry.bs_date or entry.normalized_name}",
             raw_clause_text=proposal.raw_clause_text,
         )
 
