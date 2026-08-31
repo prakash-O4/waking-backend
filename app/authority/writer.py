@@ -160,6 +160,76 @@ def propose_lifecycle_commence(
         )
 
 
+def propose_lifecycle_repeal(
+    conn: connection,
+    repealed_work_id: str,
+    source_pub_id: str,
+    *,
+    repealing_work_uri: str,
+    raw_clause_text: str,
+) -> None:
+    """Write pending repeal proposals for every component in a repealed work.
+
+    The repeal date depends on the repealing work's commencement; until that is
+    approved/resolved, legal_valid_time stays empty (PS-2).
+    """
+    dependency: str | None = f"repealing_work_commencement:{repealing_work_uri}"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT MIN(effective_date) FROM lifecycle_effect
+            WHERE component_uri LIKE %s AND effect_type='commence'
+              AND approval_status='approved' AND effective_date IS NOT NULL
+            """,
+            (repealing_work_uri.rstrip("/") + "/%",),
+        )
+        date_row = cur.fetchone()
+        effective_date = date_row[0] if date_row and date_row[0] else None
+        valid_time = f"[{effective_date.isoformat()},)" if effective_date else "empty"
+        if effective_date:
+            dependency = None
+
+        cur.execute("SELECT uri FROM work WHERE id=%s LIMIT 1", (repealed_work_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+        cur.execute(
+            "SELECT uri FROM component WHERE uri LIKE %s ORDER BY uri",
+            (str(row[0]).rstrip("/") + "/%",),
+        )
+        component_uris = [str(component_row[0]) for component_row in cur.fetchall()]
+        for component_uri in component_uris:
+            cur.execute(
+                """
+                SELECT 1 FROM lifecycle_effect
+                WHERE component_uri=%s AND effect_type='repeal'
+                  AND approval_status='pending'
+                LIMIT 1
+                """,
+                (component_uri,),
+            )
+            if cur.fetchone():
+                continue
+            cur.execute(
+                """
+                INSERT INTO lifecycle_effect (
+                    component_uri, effect_type, legal_valid_time, transaction_time,
+                    effective_date, commencement_dependency, source_pub_id,
+                    approval_status, raw_clause_text
+                ) VALUES (%s, 'repeal', %s::tstzrange, tstzrange(now(), NULL),
+                          %s, %s, %s, 'pending', %s)
+                """,
+                (
+                    component_uri,
+                    valid_time,
+                    effective_date,
+                    dependency,
+                    source_pub_id,
+                    raw_clause_text,
+                ),
+            )
+
+
 def upsert_expression(
     conn: connection, component: ParsedComponent, as_of: date
 ) -> None:

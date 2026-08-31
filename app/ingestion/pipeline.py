@@ -31,6 +31,7 @@ from app.authority.writer import (
 from app.ingestion import metadata_enricher
 from app.ingestion.commencement_extractor import extract_commencement_proposals
 from app.ingestion.enabling_extractor import extract_enabling_clause
+from app.ingestion.repeal_extractor import extract_repeal_proposals
 from app.ingestion.laws_chunker import LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
 from app.ingestion.pgvector_indexer import PgvectorIndexer
@@ -306,11 +307,14 @@ class IngestionPipeline:
             extract_commencement_proposals(
                 law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
             )
+            extract_repeal_proposals(
+                law=law, content=content, source_pub_id=source_pub_id, conn=self._conn
+            )
             self._execute("RELEASE SAVEPOINT propose_lifecycle", ())
             outcome = "passed"
         except Exception as exc:  # noqa: BLE001 — proposals never block ingest
             self._execute("ROLLBACK TO SAVEPOINT propose_lifecycle", ())
-            logger.warning(f"{source_id}: commencement proposal failed: {exc}")
+            logger.warning(f"{source_id}: lifecycle proposal failed: {exc}")
             outcome = "failed"
         elapsed = time.monotonic() - t0
         _end_span(span, {"outcome": outcome})

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review pending lifecycle_effect commencement proposals."""
+"""Review pending lifecycle_effect proposals."""
 
 from __future__ import annotations
 
@@ -31,20 +31,25 @@ def _work_uri(component_uri: str) -> str:
     return component_uri.rsplit("/", 2)[0]
 
 
-def list_pending(conn: PgConnection, work_uri: str | None = None) -> None:
-    where = "approval_status='pending' AND effect_type='commence'"
+def list_pending(
+    conn: PgConnection, work_uri: str | None = None, effect_type: str | None = None
+) -> None:
+    where = "approval_status='pending'"
     params: tuple[Any, ...] = ()
+    if effect_type:
+        where += " AND effect_type=%s"
+        params = (effect_type,)
     if work_uri:
         where += " AND component_uri LIKE %s"
-        params = (work_uri.rstrip("/") + "/%",)
+        params += (work_uri.rstrip("/") + "/%",)
     with conn.cursor() as cur:
         cur.execute(
             f"""
             SELECT id, component_uri, effective_date, commencement_dependency,
-                   COALESCE(raw_clause_text, '')
+                   COALESCE(raw_clause_text, ''), effect_type
             FROM lifecycle_effect
             WHERE {where}
-            ORDER BY component_uri, raw_clause_text, id
+            ORDER BY effect_type, component_uri, raw_clause_text, id
             """,
             params,
         )
@@ -58,9 +63,9 @@ def list_pending(conn: PgConnection, work_uri: str | None = None) -> None:
             current = key
             clause = str(row[4]) or "<no_commencement_clause>"
             print(f"\n{row_work}\n  clause: {clause}")
-        print(f"  {row[0]}  {row[1]}  effective={row[2]} dependency={row[3]}")
+        print(f"  {row[0]}  {row[5]}  {row[1]}  effective={row[2]} dependency={row[3]}")
     if not rows:
-        print("no pending commencement proposals")
+        print("no pending lifecycle proposals")
 
 
 def _approve_one(conn: PgConnection, proposal_id: str, by: str) -> tuple[bool, str]:
@@ -144,31 +149,37 @@ def reject_one(conn: PgConnection, proposal_id: str, by: str) -> bool:
     return ok
 
 
-def _pending_for_work(conn: PgConnection, work_uri: str) -> list[str]:
+def _pending_for_work(
+    conn: PgConnection, work_uri: str, effect_type: str | None = None
+) -> list[str]:
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT id FROM lifecycle_effect
-            WHERE component_uri LIKE %s AND effect_type='commence'
+            WHERE component_uri LIKE %s AND (%s IS NULL OR effect_type=%s)
               AND approval_status='pending'
             ORDER BY component_uri, id
             """,
-            (work_uri.rstrip("/") + "/%",),
+            (work_uri.rstrip("/") + "/%", effect_type, effect_type),
         )
         return [str(row[0]) for row in cur.fetchall()]
 
 
-def approve_work(conn: PgConnection, work_uri: str, by: str) -> bool:
+def approve_work(
+    conn: PgConnection, work_uri: str, by: str, effect_type: str | None = None
+) -> bool:
     ok_all = True
-    for proposal_id in _pending_for_work(conn, work_uri):
+    for proposal_id in _pending_for_work(conn, work_uri, effect_type):
         print(f"{proposal_id}: ", end="")
         ok_all = approve_one(conn, proposal_id, by) and ok_all
     return ok_all
 
 
-def reject_work(conn: PgConnection, work_uri: str, by: str) -> bool:
+def reject_work(
+    conn: PgConnection, work_uri: str, by: str, effect_type: str | None = None
+) -> bool:
     ok_all = True
-    for proposal_id in _pending_for_work(conn, work_uri):
+    for proposal_id in _pending_for_work(conn, work_uri, effect_type):
         print(f"{proposal_id}: ", end="")
         ok_all = reject_one(conn, proposal_id, by) and ok_all
     return ok_all
@@ -184,6 +195,7 @@ def _parser() -> argparse.ArgumentParser:
     group.add_argument("--approve-work")
     group.add_argument("--reject-work")
     parser.add_argument("--by", help="reviewer UUID")
+    parser.add_argument("--effect-type", choices=("commence", "repeal"))
     return parser
 
 
@@ -198,17 +210,25 @@ def main() -> None:
     conn.autocommit = False
     try:
         if args.list:
-            list_pending(conn)
+            list_pending(conn, effect_type=args.effect_type)
         elif args.list_work:
-            list_pending(conn, args.list_work)
+            list_pending(conn, args.list_work, args.effect_type)
         elif args.approve:
             raise SystemExit(0 if approve_one(conn, args.approve, args.by) else 1)
         elif args.reject:
             raise SystemExit(0 if reject_one(conn, args.reject, args.by) else 1)
         elif args.approve_work:
-            raise SystemExit(0 if approve_work(conn, args.approve_work, args.by) else 1)
+            raise SystemExit(
+                0
+                if approve_work(conn, args.approve_work, args.by, args.effect_type)
+                else 1
+            )
         elif args.reject_work:
-            raise SystemExit(0 if reject_work(conn, args.reject_work, args.by) else 1)
+            raise SystemExit(
+                0
+                if reject_work(conn, args.reject_work, args.by, args.effect_type)
+                else 1
+            )
     finally:
         conn.close()
 

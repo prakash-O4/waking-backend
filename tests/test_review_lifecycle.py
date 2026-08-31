@@ -54,10 +54,28 @@ class Cursor:
             self.conn.rows[params[1]]["a1"] = params[0]
         elif sql1.startswith("SELECT id FROM lifecycle_effect"):
             prefix = params[0][:-1]
+            effect_type = params[1] if len(params) > 1 else None
             self.result = [
                 (k,)
                 for k, v in self.conn.rows.items()
-                if v["component_uri"].startswith(prefix) and v["status"] == "pending"
+                if v["component_uri"].startswith(prefix)
+                and v["status"] == "pending"
+                and (effect_type is None or v.get("effect_type") == effect_type)
+            ]
+        elif sql1.startswith("SELECT id, component_uri"):
+            effect_type = params[0] if params else None
+            self.result = [
+                (
+                    k,
+                    v["component_uri"],
+                    None,
+                    v.get("dependency"),
+                    v.get("raw", ""),
+                    v.get("effect_type", "commence"),
+                )
+                for k, v in self.conn.rows.items()
+                if v["status"] == "pending"
+                and (effect_type is None or v.get("effect_type") == effect_type)
             ]
         else:
             raise AssertionError(sql1)
@@ -76,6 +94,7 @@ def conn_with(row_status="pending", a1=None):
         "a1": a1,
         "a2": None,
         "component_uri": "/w/dafa/1",
+        "effect_type": "commence",
     }
     return conn
 
@@ -134,12 +153,14 @@ def test_work_bulk_uses_same_row_logic():
             "a1": None,
             "a2": None,
             "component_uri": "/w/dafa/1",
+            "effect_type": "commence",
         },
         "p2": {
             "status": "pending",
             "a1": None,
             "a2": None,
             "component_uri": "/w/dafa/2",
+            "effect_type": "commence",
         },
     }
     assert rl.approve_work(conn, "/w", A)
@@ -148,3 +169,32 @@ def test_work_bulk_uses_same_row_logic():
     )
     assert rl.reject_work(conn, "/w", B)
     assert all(row["status"] == "rejected" for row in conn.rows.values())
+
+
+def test_repeal_proposals_are_listable_and_bulk_approvable(capsys):
+    conn = Conn()
+    conn.rows = {
+        "c1": {
+            "status": "pending",
+            "a1": None,
+            "a2": None,
+            "component_uri": "/w/dafa/1",
+            "effect_type": "commence",
+        },
+        "r1": {
+            "status": "pending",
+            "a1": None,
+            "a2": None,
+            "component_uri": "/w/dafa/2",
+            "effect_type": "repeal",
+            "raw": "पुरानो ऐन, २०४८ खारेज गरिएको छ",
+        },
+    }
+    rl.list_pending(conn, effect_type="repeal")
+    out = capsys.readouterr().out
+    assert "r1  repeal" in out
+    assert "c1" not in out
+
+    assert rl.approve_work(conn, "/w", A, effect_type="repeal")
+    assert conn.rows["r1"]["a1"] == A
+    assert conn.rows["c1"]["a1"] is None

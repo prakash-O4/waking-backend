@@ -1,11 +1,39 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-16 — extract whole-act repeal declarations ("खारेजी र बचाउ" clauses)
+into `lifecycle_effect(effect_type='repeal')` proposals. Assigned to
+**Pi** on branch `agent/repeal-extraction`. Brief: `task.md` on that
+branch (and on `dev` at the assignment commit).
 
 ## Status
-**IDLE** — AGENT-15 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED, awaiting Pi's run** (2026-08-31).
 
+- **AGENT-16 scoping (2026-08-31)**: the old plan's "AGENT-16" label
+  ("amend/repeal/expiry lifecycle extraction") was one line covering
+  three genuinely different-sized problems. Corpus-grounded before
+  writing any regex: a precise operative-clause pattern (named act
+  directly followed by `खारेज गरिएको छ`, no `को दफा`/`को उपदफा` in
+  between) finds 157 documents with exactly one clean whole-act repeal
+  declaration each — almost always inside a standard "खारेजी र बचाउ"
+  दफा whose savings sub-clauses don't repeat the operative phrase, so
+  they don't false-positive. A looser sweep (219 matches) shows the
+  other 62 are a structurally different, harder pattern: partial repeal
+  of one specific दफा of another act, and list-style दफाs mixing
+  repeal with text-substitution consequential amendments — split out,
+  not attempted here. `lifecycle_effect.effect_type` already allows
+  `'repeal'` (migration 001, Phase 0) — **no schema change needed at
+  all**, this is a pure extend-existing task per Ponytail. Separately
+  grounded expiry/sunset-clause extraction: a broad `म्याद`/`कालावधि`
+  keyword sweep returned 354 hits, all false positives on spot-check
+  (generic "deadline" usage, not act-level sunset clauses) — **dropped,
+  no evidenced pattern in this corpus**, not carried forward as a task.
+  Clause-level `<amend>`-tag correlation against a document's own
+  amendment-history table (the other third of the old "AGENT-16") is
+  real and well-evidenced (15,748 tag instances across 519 documents,
+  83% following one dominant `<Act name>, <year> द्वारा <verb>` shape)
+  but comparably large on its own — renumbered **AGENT-18** below,
+  not bundled in.
 - **AGENT-15 scoping (2026-08-31)**: originally planned as "add a
   non-authoritative/unreviewed flag" on these three columns. Traced
   every downstream reader before implementing anything (per AGENTS.md
@@ -80,10 +108,6 @@ None.
   `component`/`lifecycle_effect`/`is_eligible()`. Rewiring the real gate to
   this bitemporal layer is a distinct future task.
 - Planned follow-on tasks (not yet branched):
-  - **AGENT-16** — amend/repeal/expiry lifecycle extraction, after a
-    dedicated corpus study of the amendment-history table structure and
-    its correlation to `<amend>` tags (split out of AGENT-12's original
-    scope, see note above).
   - **AGENT-17** — strengthen VALIDATE stage (structural checks beyond दफा
     anchor: duplicate/broken section numbering, malformed markup, doc-type
     support, chunk-size violations) + named tariff-threshold constant
@@ -92,6 +116,19 @@ None.
     (2026-08-30) — the concrete, evidenced part (header regex
     over-matching + hash canonicalization) became AGENT-14 on its own;
     this is the remaining open-ended hardening work.
+  - **AGENT-18** — clause-level `<amend>` tag extraction: correlate each
+    inline `<amend>...</amend>` marker with the enclosing दफा and with
+    the document's own "संशोधन गर्ने ऐन"/"संशोधन" amendment-history
+    table (by act name for the 83% dominant pattern, by Devanagari
+    ordinal-word position — "पहिलो", "दोस्रो", "आठौं" — for a real
+    secondary pattern where the tag references the table entry by
+    position instead of by name) to produce `amend`-type lifecycle
+    facts. Renumbered out of the old "AGENT-16" label during AGENT-16's
+    scoping (2026-08-31) — see that entry above for the corpus
+    grounding (15,748 tag instances / 519 documents / dominant-pattern
+    breakdown) and the 1% gazette-notification-only sub-pattern
+    (no named act, just a date, mirrors AGENT-12's gazette-dependent
+    commencement shape).
 
 ---
 
