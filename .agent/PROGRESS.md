@@ -1,12 +1,42 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-18 — Correlate `<amend>` tags with the document's amendment table
-into `lifecycle_effect`. Branch `agent/amend-tag-correlation`, base `dev`,
-assigned to **Pi**.
+None.
 
 ## Status
-**REWORK ROUND 1 SENT, awaiting Pi's run.**
+**IDLE** — AGENT-18 merged to dev. Awaiting Prakash's direction.
+
+- **AGENT-18 review round 2 (2026-08-31)**: Pi returned `d99712a` fixing
+  both round-1 findings. Independently re-verified rather than trusting
+  the report: re-ran the extractor against all 677 records (exact match
+  on every reported number — 451 docs, 7,358 proposals [1,941 named-act /
+  5,417 ordinal], 8,390 skipped, `unresolved_ordinal`/`unresolved_unknown-
+  ordinal` both absent/0), `make test` (161 passed, 3 skipped), `make
+  lint`, manual ruff/mypy on `amend_extractor.py` (zero issues, no
+  pre-existing baseline to compare against since the file is new this
+  task), `make eval-gates` (all three zero-tolerance gates at 0). Hand-
+  traced the line-wrap fix line-by-line against the exact real document
+  that surfaced the bug (महान्यायाधिवक्ताको_पारिश्रमिक_...ऐन_२०५२) —
+  confirmed all 5 real rows now parse correctly, including the boundary
+  logic that stops a continuation line from swallowing the *next* row
+  (a `<=2`-digit guard on row-start markers plus an immediate
+  require-date finalize check after every line). Checked the ordinal
+  normalization for the failure mode a spelling-unification pass risks —
+  two different ordinal numbers silently colliding onto the same
+  normalized key — by running `_normalize_ordinal` over all 41
+  `ORDINAL_DAYS` entries and confirming zero collisions (41 distinct
+  words → 41 distinct normalized keys, each with its original numeric
+  value intact). The corpus-count deltas all reconcile: `unresolved_named-
+  act` 667→570 and `no_table` 477→187 (the latter's large drop makes
+  sense once understood — a table whose *every* row happened to wrap
+  previously came back fully empty, misclassified as "no table" rather
+  than "table exists, rows recovered"), `duplicate`/`unresolved_other`
+  both rose slightly as a direct, explainable consequence of more tags
+  now reaching table lookup instead of being swept into `no_table` before
+  classification ever ran. New tests use the real document's content
+  (not a synthetic string) for the wrap case and 4 of the 55 real variant
+  tokens for the ordinal case. Merged `agent/amend-tag-correlation` →
+  `dev` (`--no-ff`).
 
 - **AGENT-18 review round 1 (2026-08-31)**: Pi returned `e73103a` — 438
   docs with proposals, 6,424 proposals (1,854 named-act / 4,570 ordinal),
@@ -333,6 +363,83 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 ---
 
 ## Completed tasks
+
+### AGENT-18 — Correlate `<amend>` tags with amendment table into `lifecycle_effect` (MERGED to dev, 2026-08-31)
+- `app/ingestion/amend_extractor.py` (new, deterministic, no LLM — same
+  shape as `commencement_extractor.py`/`repeal_extractor.py`):
+  `parse_amendment_table()` reads the ordered amendment table every
+  document carries near its top (`संशोधन गर्ने ऐन` for acts, bare
+  `संशोधन`/`संशोधन गर्ने नियम` for regulations) into `(position, name,
+  bs_date)` entries, tolerant of act names that wrap across a line break
+  (a `<=2`-digit guard on row-start markers distinguishes a new row from
+  a continuation line, with a require-date finalize check running after
+  every line so accumulation stops at the right boundary). `classify_
+  amend_text()` resolves each `<amend>...</amend>` tag by either exact
+  named-act match (reusing `enabling_extractor.py::_normalize_title()`
+  against the document's own table, not the `work` table) or ordinal
+  table-position (reusing `commencement_extractor.py::ORDINAL_DAYS`,
+  same word→number mapping used as a 1-based position instead of a
+  day-offset, with a `_normalize_ordinal()` pass unifying chandrabindু/
+  अनुस्वार and other spelling variants before lookup — verified
+  collision-free against all 41 dictionary entries). `_component_spans()`
+  resolves each tag's enclosing दफा by offset, reusing `parser.py`'s
+  `_HEADER_RE`/`_component_kind`/`_component`/`_disambiguate_component_
+  uris` primitives directly (duplicates only the orchestration loop, not
+  the matching logic — `parser.py` itself was off-limits this task).
+  Anything that doesn't cleanly resolve is skipped and counted, never
+  guessed at.
+- `app/authority/writer.py::propose_lifecycle_amend()`: mirrors
+  `propose_lifecycle_commence()` — always `approval_status='pending'`,
+  empty `legal_valid_time` + a documented `amendment_date_unresolved:`
+  dependency sentinel when the table's date doesn't resolve (no
+  fabricated date), dedup on `(component_uri, effect_type='amend',
+  approval_status='pending', raw_clause_text)`.
+- `app/ingestion/pipeline.py`: wired into the existing `PROPOSE_LIFECYCLE`
+  span (AGENT-12, extended by AGENT-16/this task), same
+  `SAVEPOINT`/`ROLLBACK TO SAVEPOINT` best-effort discipline — not a new
+  stage. `effect_type='amend'` and `EffectType.AMEND` already existed
+  (migration 001, `models.py`) — no schema change.
+- **Corrected grounding before implementation**: the backlog note carried
+  from AGENT-16's scoping claimed "83% dominant named-act pattern,
+  ordinal secondary" — a precise per-tag classification of all 15,748
+  instances found the opposite (named-act 31.3%, ordinal-position 55.9%,
+  the actual majority) before any code was written — see AGENT-18
+  scoping note above for full detail.
+- **Two-round review, both independently re-verified against the live
+  corpus** (Claude Review Gate) — see Status notes above for full detail.
+  Round 1 (`e73103a`) correctly resolved 6,424 tags with sound dedup and
+  abstention design (hand-verified against real documents), but two skip
+  buckets hid fixable causes: a table-row regex silently dropping any
+  row whose act name wrapped a line (68/498 docs), and an ordinal lookup
+  that didn't normalize spelling variants (936 tags, 55 distinct
+  tokens). Round 2 (`d99712a`) fixed both, hand-traced against the real
+  documents that surfaced them, zero cross-number collisions confirmed
+  in the normalization table.
+- **Final corpus dry-run**: 451/519 amend-tag-bearing documents produce
+  at least one proposal; 7,358 total proposals (1,941 named-act, 5,417
+  ordinal); 8,390 tags skipped and accounted for (4,492 duplicate — same
+  दफा + same table entry + identical tag text, verified by hand as
+  redundant markers of one edit event, not lost facts; 3,141
+  unresolved_other — explicitly out-of-scope content per the task's own
+  grounding; 570 unresolved_named-act — act genuinely absent from that
+  document's table, correctly abstained; 187 no_table — no discoverable
+  amendment table at all). 161 tests passing (3 skipped), lint clean,
+  eval-gates all at 0.
+- **Honest scope note (explicit per task brief, still true)**: this
+  records amendment *facts* only (which दफा, by which act, when) — this
+  corpus is a single current-snapshot with no pre-amendment text to
+  version, so it does not achieve full PS-17 compliance (closing a prior
+  `expression`'s `valid_time` at the retroactive date). Same lineage as
+  every other lifecycle-extraction task's "doesn't wire into retrieval
+  yet" caveat (AGENT-11/12/13/16): this populates the authority store
+  with real facts, it doesn't change what retrieval serves.
+- **Known minor gap (not blocking)**: `unresolved_other` (3,141 tags,
+  ~20% of the corpus total) was explicitly scoped out per the task
+  brief's own grounding — commencement dates, repeal asides, name
+  changes, and unrelated content already covered elsewhere or genuinely
+  out of scope. Not revisited this task; would need its own grounding
+  pass if ever pursued, and per [[feedback_task_creation_bar]] only
+  becomes a task if Prakash asks.
 
 ### AGENT-17 — Fix दफा component-URI collisions (schedule + compound numbering) (MERGED to dev, 2026-08-31)
 - `app/authority/parser.py`: `_HEADER_RE` gained an अनुसूची (schedule) boundary
