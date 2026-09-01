@@ -22,6 +22,7 @@ def eligible_chunk_ids(conn: connection, as_of: date) -> set[str]:
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE d.ingestion_status IN ('approved', 'pending')
+              AND c.source_type <> 'nkp_case'
               AND (
                   c.effective_date_ad IS NULL
                   OR c.effective_date_ad <= %(as_of)s

@@ -64,5 +64,12 @@ def test_eligible_chunk_ids_excludes_future_effective_date() -> None:
     assert "c.effective_date_ad <= %(as_of)s" in conn.cursor_obj.sql
 
 
+def test_eligible_chunk_ids_excludes_nkp_cases() -> None:
+    conn = Conn([])
+    out = eligible_chunk_ids(cast(Any, conn), date(2024, 1, 1))
+    assert out == set()
+    assert "c.source_type <> 'nkp_case'" in conn.cursor_obj.sql
+
+
 def test_eligible_chunk_ids_empty_result() -> None:
     assert eligible_chunk_ids(cast(Any, Conn([])), date(2024, 1, 1)) == set()
