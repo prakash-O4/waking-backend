@@ -46,7 +46,7 @@ def _approve_one(conn: PgConnection, document_id: str, by: str) -> tuple[bool, s
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT ingestion_status, approved_by, second_approved_by
+            SELECT ingestion_status, approved_by, second_approved_by, redaction_failed
             FROM documents WHERE id=%s FOR UPDATE
             """,
             (document_id,),
@@ -54,7 +54,9 @@ def _approve_one(conn: PgConnection, document_id: str, by: str) -> tuple[bool, s
         row = cur.fetchone()
         if not row:
             return False, "not found"
-        status, approver1, approver2 = row
+        status, approver1, approver2, redaction_failed = row
+        if redaction_failed:
+            return False, "redaction verification failed, cannot approve"
         if status != "pending":
             return False, f"already {status}"
         if approver1 is None:

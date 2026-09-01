@@ -38,7 +38,11 @@ class Cursor:
         sql1 = " ".join(sql.split())
         if sql1.startswith("SELECT ingestion_status, approved_by"):
             row = self.conn.rows.get(params[0])
-            self.result = None if row is None else (row["status"], row["a1"], row["a2"])
+            self.result = (
+                None
+                if row is None
+                else (row["status"], row["a1"], row["a2"], row["redaction_failed"])
+            )
         elif sql1.startswith("SELECT ingestion_status FROM documents"):
             row = self.conn.rows.get(params[0])
             self.result = None if row is None else (row["status"],)
@@ -72,7 +76,7 @@ class Cursor:
         return self.result or []
 
 
-def conn_with(row_status="pending", a1=None):
+def conn_with(row_status="pending", a1=None, redaction_failed=False):
     conn = Conn()
     conn.rows["d1"] = {
         "status": row_status,
@@ -81,7 +85,7 @@ def conn_with(row_status="pending", a1=None):
         "source_type": "act",
         "source_id": "law-1",
         "ingested_at": "now",
-        "redaction_failed": False,
+        "redaction_failed": redaction_failed,
     }
     return conn
 
@@ -103,6 +107,14 @@ def test_second_approve_different_person_approves():
 def test_second_approve_same_person_refused():
     conn = conn_with(a1=A)
     assert not rd.approve_one(conn, "d1", A)
+    assert conn.rows["d1"]["status"] == "pending"
+    assert conn.rollbacks == 1
+
+
+def test_redaction_failure_blocks_approval_before_update():
+    conn = conn_with(redaction_failed=True)
+    assert not rd.approve_one(conn, "d1", A)
+    assert conn.rows["d1"]["a1"] is None
     assert conn.rows["d1"]["status"] == "pending"
     assert conn.rollbacks == 1
 
