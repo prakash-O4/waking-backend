@@ -1,14 +1,59 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-20 — approved-only eligibility + document approval CLI.
-Branch: `agent/document-approval-gate`. Assigned to Pi.
-AGENT-21 (independent, no file overlap) also branched and ready:
-`agent/ingest-status-messaging`, task.md pushed.
+None.
 
 ## Status
-**ASSIGNED (AGENT-20, AGENT-21)** — both task.md briefs pushed, awaiting
-Prakash to run Pi on either/both.
+**IDLE** — AGENT-19/20/21 all merged to dev. Awaiting Prakash's direction.
+
+- **AGENT-21 (2026-09-01)**: relabeled `ingest_laws.py`'s `"processed"`
+  count/print to `"pending_review"`. This diff was written by Pi while
+  working on AGENT-20 (see below) — relocated to its correct branch by
+  Claude rather than sent back for a trivial trim, since the content was
+  already correct and already independently checked. Re-ran `make lint`/
+  `make test` on this branch alone after applying it (162 passed, matches
+  the branch's pre-AGENT-20 base) before merging.
+  Merged `agent/ingest-status-messaging` → `dev` (`--no-ff`).
+
+- **AGENT-20 (2026-09-01)**: Pi returned approved-only eligibility +
+  `scripts/review_documents.py` + the `derived_verified` relabel, again
+  sitting uncommitted in the working tree (third time this exact failure
+  mode has happened across AGENT-15/19/20 — worth a standing fix to how
+  engineers are told to finish a task, not just noting it each time).
+  **Scope violation found and corrected before merge**: the diff also
+  modified `scripts/ingest_laws.py` — AGENT-21's exclusive scope on a
+  separate branch, not in AGENT-20's allowed-file list. Content was
+  correct (the identical `"processed"`→`"pending_review"` rename AGENT-21's
+  brief asked for) but the wrong branch. Extracted that hunk out
+  (`git diff` → `git checkout --`), verified the remaining AGENT-20 diff
+  still passed all checks on its own, then applied the extracted hunk to
+  `agent/ingest-status-messaging` directly (see AGENT-21 entry above) —
+  mechanical relocation of an already-reviewed patch, not new engineer
+  work, so no second Pi round-trip.
+  Independently re-verified the corrected diff rather than trusting the
+  report: `make test` (169 passed, 3 skipped — matches), `make lint`
+  clean, `make eval-gates` all three zero-tolerance gates at 0. Manually
+  ruff/mypy'd `scripts/review_documents.py` + its test (not in the
+  Makefile's fixed lint list, same pre-existing gap as `review_lifecycle.py`)
+  — clean. Read `review_documents.py` end-to-end against
+  `review_lifecycle.py`'s proven dual-approval pattern (`FOR UPDATE` row
+  lock, distinct-approver enforcement, satisfies the
+  `documents_dual_approval` CHECK constraint by construction before the DB
+  ever has to reject anything) — faithfully mirrored, correctly adapted for
+  `documents`' TEXT approver columns vs. `lifecycle_effect`'s UUID ones.
+  `tests/test_eligibility_gate.py` gained a real behavioral harness
+  (`FilteringCursor`/`FilteringConn` that actually evaluates the predicate
+  against seeded rows) replacing the old string-only SQL-text assertions —
+  a genuine improvement over what the brief asked for, not just satisfying
+  it; the two tests that used to hard-assert `'pending'` inclusion were
+  correctly rewritten to assert exclusion, not left contradictory.
+  **Correction to a prior diagnostic-pass answer**: `no_commencement_clause`
+  turned out to already be a distinct, visible sentinel (see the note
+  above dated before this task was scoped) — dropped from this task before
+  it started, not discovered mid-review.
+  Merged `agent/document-approval-gate` → `dev` (`--no-ff`).
+
+- **AGENT-19 (2026-09-01)**: Pi returned a one-line fix — `eligibility_gate.py::eligible_chunk_ids()`
 
 - **Correction (2026-09-01, before AGENT-20 was scoped)**: the diagnostic
   pass's answer to "should `no_commencement_clause` be a distinct, visible
@@ -960,8 +1005,19 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Run Pi on `agent/document-approval-gate` per AGENT-20's `task.md`
-(branched off `dev` after AGENT-19 merged, so it already has the
-`nkp_case` exclusion). AGENT-21 (`agent/ingest-status-messaging`) has no
-file overlap with AGENT-20 and can be run independently, in parallel or
-whenever convenient.
+Awaiting Prakash's direction. The three live gate violations found in the
+2026-09-01 diagnostic pass (pending-retrievable, NKP-answered-from,
+no-document-approval-path) are now all closed. Two informational items
+from that pass are still open, neither yet a task (only become one if
+Prakash asks): (1) `_fetch_enabling_chunk` (`query_graph.py`) bypasses the
+eligibility gate entirely for co-retrieved enabling provisions — pre-existing,
+unrelated to `nkp_case`, found during AGENT-19's review; (2) citation
+rendering (`validation_gate.py::_citation()`) reads `chunks.source_type`
+and hardcodes `ocr_confidence: None` instead of the real
+`source_publication.kind`/`documents.ocr_confidence` — a PS-10 gap needing
+a schema decision (no FK today links a document/chunk to the specific
+`source_publication` row backing it), found while scoping AGENT-20.
+Operational: `documents`/`lifecycle_effect` rows in the live local DB have
+never had a document-level approval run against them now that the CLI
+exists — Prakash may want to run `scripts/review_documents.py --list`
+against it.
