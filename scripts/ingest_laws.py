@@ -5,7 +5,7 @@ Ingest laws.jsonl through the PE-A ingestion pipeline (PostgreSQL + pgvector).
 Usage:
     python scripts/ingest_laws.py --input laws.jsonl [--limit N] [--dry-run]
 
-Reports: processed / skipped / rejected / failed counts.
+Reports: pending_review / skipped / rejected / failed counts.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def main() -> None:
     from app.authority.writer import connect
     from app.ingestion.pipeline import IngestionPipeline
 
-    counts = {"processed": 0, "skipped": 0, "rejected": 0, "failed": 0}
+    counts = {"pending_review": 0, "skipped": 0, "rejected": 0, "failed": 0}
     total = len(records)
     print(f"starting ingestion of {total} records…")
     with get_openai_callback() as cb:
@@ -81,10 +81,12 @@ def main() -> None:
                     counts["failed"] += 1
                     print(f"  ✗ failed: {exc}", flush=True)
                     continue
-                outcome = pipeline.last_outcome if document_id is None else "ingested"
+                outcome = (
+                    pipeline.last_outcome if document_id is None else "pending_review"
+                )
                 print(f"  ✓ {outcome}", flush=True)
                 if document_id is not None:
-                    counts["processed"] += 1
+                    counts["pending_review"] += 1
                 elif pipeline.last_outcome == "skipped":
                     counts["skipped"] += 1
                 else:
@@ -92,7 +94,7 @@ def main() -> None:
 
     print(
         "done: "
-        f"processed={counts['processed']} skipped={counts['skipped']} "
+        f"pending_review={counts['pending_review']} skipped={counts['skipped']} "
         f"rejected={counts['rejected']} failed={counts['failed']}"
     )
     print(
