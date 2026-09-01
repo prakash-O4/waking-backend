@@ -1,10 +1,72 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-19 — hard-disable NKP/precedent retrieval until Phase D.
+Branch: `agent/nkp-precedent-lockout`. Assigned to Pi.
 
 ## Status
-**IDLE** — AGENT-18 merged to dev. Awaiting Prakash's direction.
+**ASSIGNED (AGENT-19)** — task.md pushed, awaiting Prakash to run Pi.
+
+- **Diagnostic pass (2026-09-01)**: Prakash asked 15 grounding questions
+  before rating/fixing an external review of the ingestion/gate design.
+  Answered each against `system-design.md` + the live code (not guessing),
+  citing file:line for every code claim. Found three **live** violations of
+  already-approved invariants, not "not built yet" gaps: (1) Core Invariant
+  #5 / PS-2 — `eligibility_gate.py::eligible_chunk_ids()` returns
+  `ingestion_status IN ('approved', 'pending')`, so unreviewed documents are
+  retrievable today (a test, `test_eligible_chunk_ids_includes_pending_valid_document`,
+  explicitly locks this in — not accidental drift); (2) §6/PS-1 — `nkp_case`
+  chunks are tiered and retrievable via the same gate with zero
+  `overruled-as-good-law` check anywhere in the query path, contradicting
+  §6's explicit "ingested but not answered from" rule for pre-Phase-D case
+  law; (3) no document-level dual-approval path exists anywhere in the
+  codebase (`review_lifecycle.py` only approves `lifecycle_effect` rows) —
+  `documents.ingestion_status` can never legitimately reach `'approved'`
+  today. Also found a PS-3 mislabel (`writer.py::upsert_source` hardcodes
+  `kind='official_copy_unverified'` for `laws.jsonl`, which
+  `docs/ingestion_design.md` §1.2 itself calls a third-party consolidation,
+  not an official/unverified-original copy) and confirmed the source PDF
+  URLs in `laws.jsonl` are never fetched by any code path — `content` is the
+  entire corpus this pipeline ingests from.
+  Prakash confirmed a fix plan across three tasks, reordered from his
+  original proposal once file-overlap was checked (both the pending-gate
+  fix and the NULL-effective-date fix land in the same function,
+  `eligible_chunk_ids()` — sequencing beats true parallelism here to avoid
+  two engineers colliding on one query):
+  - **AGENT-19** (this task, branched now) — exclude `nkp_case` at the gate.
+    Independent of the other two (different concern, and while it touches
+    the same function, it's a pure additive exclusion — branched and merged
+    first so AGENT-20 lands cleanly on top).
+  - **AGENT-20** (queued, branch cut after AGENT-19 merges to avoid
+    conflicting on the same query) — `eligible_chunk_ids()` to
+    `ingestion_status = 'approved'` only, NULL `effective_date_ad` excluded
+    unless an approved `commence` lifecycle_effect resolves it (join
+    directly, don't trust the denormalized cache column — §7.4 already
+    warns against that), plus a new `scripts/review_documents.py`
+    dual-approval CLI (mirrors `review_lifecycle.py`'s shape, doesn't
+    extend it — different table, different approver-identity shape, would
+    make the CLI's "approve X" ambiguous). Also folds in: `commencement_extractor`
+    surfacing `no_commencement_clause` as a distinct, visible outcome
+    (currently indistinguishable from "nothing to extract"), and
+    `source_publication.kind` → `derived_verified` for `laws.jsonl` sources
+    at approval time (not `verified_internal_consolidation` — this system
+    didn't produce the consolidation, a third party did).
+  - **AGENT-21** (queued, no file overlap with 19/20, can run anytime) —
+    `scripts/ingest_laws.py` CLI reporting currently calls a `pending`
+    document "processed"/"ingested" — cosmetic messaging fix, no gate risk,
+    lowest priority.
+  Two other findings from the diagnostic pass were surfaced but **not**
+  turned into tasks (don't clear the bar per [[feedback_task_creation_bar]]
+  on their own): `PERSIST_AUTHORITY` writes `work`/`component`/`expression`
+  before document approval, contrary to §5's stated ordering — acceptable
+  for now since nothing reads component/expression as proof of
+  searchability (only `documents`/`chunks`, confirmed by grep), *provided*
+  AGENT-20's approval-CLI task adds a regression test pinning that a
+  component on an unapproved document is never citable through
+  `validation_gate.py`; and lifecycle-proposal-extraction failure staying
+  non-blocking (confirmed still correct given AGENT-20's NULL-exclusion
+  fix makes a failed extraction equivalent in effect to "nothing to
+  extract" — no correctness gain from quarantining the whole document).
 
 - **AGENT-18 review round 2 (2026-08-31)**: Pi returned `d99712a` fixing
   both round-1 findings. Independently re-verified rather than trusting
@@ -853,4 +915,7 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction.
+Run Pi on `agent/nkp-precedent-lockout` per AGENT-19's `task.md`. After
+merge: cut `agent/document-approval-gate` off updated `dev` for AGENT-20.
+AGENT-21 (`scripts/ingest_laws.py` messaging) has no file overlap and can be
+branched/run independently whenever convenient.
