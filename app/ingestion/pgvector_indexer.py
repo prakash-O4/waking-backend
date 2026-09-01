@@ -32,7 +32,7 @@ DEFAULT_BATCH_SIZE = (
 _CHUNK_INSERT_SQL = """
 INSERT INTO chunks (
     id, document_id, source_type, chunk_index, chunk_text, span_sha256,
-    embedding, chunk_type,
+    embedding, chunk_type, component_uri,
     case_id, case_type, court, bench_type, decision_date_ad, year_bs,
     section_type, is_landmark, parties_redacted, cited_statutes, headnotes,
     work_id, act_name, english_name, document_type, section_number,
@@ -40,7 +40,7 @@ INSERT INTO chunks (
     co_retrieve_parent_id, keywords, relevant_questions
 ) VALUES (
     %(id)s, %(document_id)s, %(source_type)s, %(chunk_index)s, %(chunk_text)s,
-    %(span_sha256)s, %(embedding)s, %(chunk_type)s,
+    %(span_sha256)s, %(embedding)s, %(chunk_type)s, %(component_uri)s,
     %(case_id)s, %(case_type)s, %(court)s, %(bench_type)s, %(decision_date_ad)s,
     %(year_bs)s, %(section_type)s, %(is_landmark)s, %(parties_redacted)s,
     %(cited_statutes)s, %(headnotes)s,
@@ -148,13 +148,15 @@ class PgvectorIndexer:
                 """
                 INSERT INTO documents (
                     source_type, source_id, content_hash, raw_content,
-                    ocr_confidence, summary
+                    ocr_confidence, summary, source_pub_id
                 ) VALUES (%(source_type)s, %(source_id)s, %(content_hash)s,
-                          %(raw_content)s, %(ocr_confidence)s, %(summary)s)
+                          %(raw_content)s, %(ocr_confidence)s, %(summary)s,
+                          %(source_pub_id)s)
                 ON CONFLICT (source_type, source_id) DO UPDATE
                 SET content_hash = EXCLUDED.content_hash,
                     raw_content = EXCLUDED.raw_content,
-                    summary = EXCLUDED.summary
+                    summary = EXCLUDED.summary,
+                    source_pub_id = EXCLUDED.source_pub_id
                 RETURNING id
                 """,
                 {
@@ -164,6 +166,7 @@ class PgvectorIndexer:
                     "raw_content": document["raw_content"],
                     "ocr_confidence": document.get("ocr_confidence"),
                     "summary": document.get("summary"),
+                    "source_pub_id": document.get("source_pub_id"),
                 },
             )
             row = cur.fetchone()
@@ -223,6 +226,7 @@ class PgvectorIndexer:
             "embedding": embedding,
             "keywords": chunk.keywords,
             "relevant_questions": chunk.relevant_questions,
+            "component_uri": getattr(chunk, "component_uri", None),
             # NKP columns (NULL for law rows)
             "case_id": None,
             "case_type": None,

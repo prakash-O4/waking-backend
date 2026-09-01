@@ -50,6 +50,7 @@ class FakeCursor:
     def __init__(self, conn: FakeConn) -> None:
         self.conn = conn
         self.result: list[tuple[Any, ...]] = []
+        self.rowcount = 0
 
     def __enter__(self) -> "FakeCursor":
         return self
@@ -59,6 +60,7 @@ class FakeCursor:
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         squashed = " ".join(sql.split())
+        self.rowcount = 0
         if squashed.startswith("SELECT id, source_id"):
             self.result = self.conn.docs
         elif squashed.startswith("SELECT DISTINCT work_id"):
@@ -75,6 +77,14 @@ class FakeCursor:
                 1 for kind, _ in self.conn.inserted if kind == "lifecycle_effect"
             )
             self.result = [(None, "यो ऐन तुरुन्त प्रारम्भ हुनेछ", count)] if count else []
+        elif squashed.startswith("UPDATE documents SET source_pub_id"):
+            self.conn.ensure_txn()
+            self.conn.inserted.add(("document_source_link", str(params[0])))
+            self.rowcount = 1
+        elif squashed.startswith("UPDATE chunks SET component_uri"):
+            self.conn.ensure_txn()
+            self.conn.inserted.add(("chunk_component_link", str(params[0])))
+            self.rowcount = 1
         else:
             raise AssertionError(squashed)
 
@@ -142,6 +152,7 @@ def test_happy_path_calls_all_writers(monkeypatch) -> None:
         "expression",
         "commence",
     ]
+    assert summary.counts["chunk_links_written"] == 2
     assert conn.commits == 1
 
 
