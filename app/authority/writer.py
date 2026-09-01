@@ -52,7 +52,7 @@ def upsert_source(
         cur.execute(
             """
             INSERT INTO source_publication (work_id, kind, source_url, sha256, ocr_confidence)
-            VALUES (%s, 'official_copy_unverified', %s, %s, NULL)
+            VALUES (%s, 'derived_verified', %s, %s, NULL)
             RETURNING id
             """,
             (work_id, source_url, law.source_sha256),

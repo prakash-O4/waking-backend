@@ -21,12 +21,10 @@ def eligible_chunk_ids(conn: connection, as_of: date) -> set[str]:
             SELECT c.id::text
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
-            WHERE d.ingestion_status IN ('approved', 'pending')
+            WHERE d.ingestion_status = 'approved'
               AND c.source_type <> 'nkp_case'
-              AND (
-                  c.effective_date_ad IS NULL
-                  OR c.effective_date_ad <= %(as_of)s
-              )
+              AND c.effective_date_ad IS NOT NULL
+              AND c.effective_date_ad <= %(as_of)s
             """,
             {"as_of": as_of},
         )
