@@ -110,6 +110,61 @@ def test_terminated_before_false_for_future_or_absent_effect() -> None:
     assert "lower(legal_valid_time) <= %(as_of)s::timestamptz" in conn.cursor_obj.sql
 
 
+class TerminationCursor:
+    """Actually evaluates the lower(legal_valid_time) <= as_of predicate
+    against a seeded date, instead of returning a canned boolean — proves
+    the per-claim-as-of direction, not just the SQL shape."""
+
+    def __init__(self, conn: "TerminationConn") -> None:
+        self.conn = conn
+        self.result: tuple[Any, ...] | None = None
+
+    def __enter__(self) -> "TerminationCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def execute(self, sql: str, params: dict[str, Any]) -> None:
+        squashed = " ".join(sql.split())
+        if squashed.startswith("SELECT component_uri FROM chunks"):
+            self.result = (self.conn.component_uri,)
+        elif squashed.startswith("SELECT 1 FROM lifecycle_effect"):
+            effect_date = self.conn.terminating_effect_date
+            as_of = params["as_of"]
+            self.result = (
+                (1,) if effect_date is not None and effect_date <= as_of else None
+            )
+        else:
+            raise AssertionError(squashed)
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.result
+
+
+class TerminationConn:
+    def __init__(self, terminating_effect_date: date | None) -> None:
+        self.component_uri: str | None = "/law/dafa/1"
+        self.terminating_effect_date = terminating_effect_date
+        self.cursor_obj = TerminationCursor(self)
+
+    def cursor(self) -> TerminationCursor:
+        return self.cursor_obj
+
+
+def test_terminated_before_true_when_repeal_on_or_before_as_of() -> None:
+    conn = TerminationConn(terminating_effect_date=date(2023, 1, 1))
+    assert gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
+def test_terminated_before_false_when_repeal_strictly_after_as_of() -> None:
+    """A claim about 2070-equivalent law must not abstain over an as-yet
+    future (relative to the claim's as_of) repeal — Core Invariant #6,
+    per-claim as-of."""
+    conn = TerminationConn(terminating_effect_date=date(2025, 1, 1))
+    assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
 def test_terminated_before_true_for_approved_past_effect() -> None:
     conn = GateConn()
     conn.terminated = True

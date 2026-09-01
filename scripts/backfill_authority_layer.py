@@ -295,7 +295,9 @@ def print_summary(summary: Summary, *, dry_run: bool) -> None:
         print(f"  components would write:   {counts.get('components_seen', 0)}")
         print(f"  source pubs would write:  {counts.get('sources_seen', 0)}")
         print(f"  doc source links:         {counts.get('sources_seen', 0)}")
-        print(f"  chunk authority links:    {counts.get('components_seen', 0)} components scanned")
+        print(
+            f"  chunk authority links:    {counts.get('components_seen', 0)} components scanned"
+        )
         print(f"  expressions would write:  {counts.get('expressions_seen', 0)}")
     else:
         print(f"  components written:       {counts.get('components_written', 0)}")
