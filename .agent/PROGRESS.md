@@ -1,10 +1,58 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+AGENT-22 — wire citation rendering + temporal revalidation to real
+authority. Branch: `agent/authority-linked-citations`. Assigned to Pi.
+AGENT-23 — redaction-approval guard, source_publication backfill,
+canonical content_hash. Branch: `agent/small-safety-fixes`. Assigned to
+Pi. Both cut off the same `dev`, both dispatched together per Prakash's
+explicit "fix it in one go" — no per-task confirmation round-trip this
+time. Both touch `pipeline.py` but at non-adjacent functions; a merge
+conflict there is Claude's to resolve, not a reason either engineer should
+wait on the other.
 
 ## Status
-**IDLE** — AGENT-19/20/21 all merged to dev. Awaiting Prakash's direction.
+**ASSIGNED (AGENT-22, AGENT-23)** — both task.md briefs pushed, awaiting
+Prakash to run Pi on both.
+
+- **Follow-up review (2026-09-01)**: Prakash brought 6 more findings after
+  AGENT-19/20/21 merged. Verified all 6 against current code before
+  answering, not from memory (several touch things AGENT-20 deliberately
+  left alone): (1) `validation_gate.py` still resolves every claim purely
+  against `chunks`, never `component`/`source_publication`/
+  `lifecycle_effect` — confirmed the biggest remaining gap, root-caused to
+  chunks having no link back to the authority tables at all; (2)
+  `upsert_source()`'s early-return-on-existing-row means `derived_verified`
+  (AGENT-20) only applies to new rows — confirmed; (3)
+  `review_documents.py` doesn't check `redaction_failed` before approving
+  — confirmed, not live-exploitable today (NKP-only column, NKP locked
+  out) but a real hole in the tool; (4) `PERSIST_AUTHORITY` still runs
+  before document approval — confirmed, unchanged, and its risk is coupled
+  to (1): once citation rendering starts reading `component`/`expression`,
+  it must also re-check document-approval status or (4) becomes newly
+  exploitable; (5) `_citation()`'s `source_kind`/`ocr_confidence` are
+  wrong-column reads, not `source_publication.kind`/`documents
+  .ocr_confidence` — same root cause as (1); (6) `_content_hash()` only
+  NFC-normalizes, missing the digit-fold + whitespace canonicalization
+  `docs/ingestion_design.md` specifies — confirmed, found a reusable
+  `_digit_fold` pattern already in `pii_redactor.py`, and flagged that
+  fixing this changes the hash for the whole already-ingested corpus
+  (needs a recompute backfill, not a bare function change, or every
+  document reads as "amended" on the next ingest run).
+  Design decision made without a further round-trip, per Prakash's
+  explicit request to stop drip-feeding this: closing (1)/(5) needs two
+  small schema additions — `chunks.component_uri` and
+  `documents.source_pub_id` — both just persisting values the pipeline
+  already computes locally and discards today, not new extraction logic.
+  Scoped as AGENT-22 (the schema + citation-rendering + new live
+  repeal/expiry/suspend check — the actual "revalidate temporal validity
+  against authority" enforcement Core Invariant #6 requires and nothing
+  in the codebase does today) and AGENT-23 (the three small independent
+  fixes — (2)/(3)/(6) — bundled together only because each is too small
+  for its own branch, not because they share a theme). (4)'s coupling to
+  (1) is called out explicitly in AGENT-22's brief so the engineer keeps
+  the existing `eligible_chunk_ids()`-gated flow rather than
+  reintroducing a pre-approval leak while rewiring citation rendering.
 
 - **AGENT-21 (2026-09-01)**: relabeled `ingest_laws.py`'s `"processed"`
   count/print to `"pending_review"`. This diff was written by Pi while
@@ -1005,19 +1053,12 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Awaiting Prakash's direction. The three live gate violations found in the
-2026-09-01 diagnostic pass (pending-retrievable, NKP-answered-from,
-no-document-approval-path) are now all closed. Two informational items
-from that pass are still open, neither yet a task (only become one if
-Prakash asks): (1) `_fetch_enabling_chunk` (`query_graph.py`) bypasses the
-eligibility gate entirely for co-retrieved enabling provisions — pre-existing,
-unrelated to `nkp_case`, found during AGENT-19's review; (2) citation
-rendering (`validation_gate.py::_citation()`) reads `chunks.source_type`
-and hardcodes `ocr_confidence: None` instead of the real
-`source_publication.kind`/`documents.ocr_confidence` — a PS-10 gap needing
-a schema decision (no FK today links a document/chunk to the specific
-`source_publication` row backing it), found while scoping AGENT-20.
-Operational: `documents`/`lifecycle_effect` rows in the live local DB have
-never had a document-level approval run against them now that the CLI
-exists — Prakash may want to run `scripts/review_documents.py --list`
-against it.
+Run Pi on `agent/authority-linked-citations` (AGENT-22) and
+`agent/small-safety-fixes` (AGENT-23) — both ready now, dispatched
+together. `_fetch_enabling_chunk` (`query_graph.py`) bypassing the
+eligibility gate for co-retrieved enabling provisions is still open,
+still not a task (unrelated to both current tasks, only becomes one if
+Prakash asks). Operational, still pending: `documents`/`lifecycle_effect`
+rows in the live local DB have never had a document-level approval run
+against them — run `scripts/review_documents.py --list` against it once
+AGENT-22/23 land.
