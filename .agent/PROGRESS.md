@@ -3,9 +3,29 @@
 ## Current task
 AGENT-20 — approved-only eligibility + document approval CLI.
 Branch: `agent/document-approval-gate`. Assigned to Pi.
+AGENT-21 (independent, no file overlap) also branched and ready:
+`agent/ingest-status-messaging`, task.md pushed.
 
 ## Status
-**ASSIGNED (AGENT-20)** — task.md pushed, awaiting Prakash to run Pi.
+**ASSIGNED (AGENT-20, AGENT-21)** — both task.md briefs pushed, awaiting
+Prakash to run Pi on either/both.
+
+- **Correction (2026-09-01, before AGENT-20 was scoped)**: the diagnostic
+  pass's answer to "should `no_commencement_clause` be a distinct, visible
+  outcome" was wrong — re-reading `commencement_extractor.py` while
+  scoping AGENT-20 found it already is. The module docstring says so
+  outright (*"Unknown/no-match cases emit a sentinel proposal instead of
+  disappearing silently"*), `classify_commencement()` returns
+  `CommencementProposal(None, "no_commencement_clause", "")` as its
+  explicit fallback, and AGENT-13's live-DB backfill run confirms real
+  rows exist with this value (95 of them). Dropped from AGENT-20's scope
+  since there's nothing left to fix. Also dropped a second item that would
+  have been dead work without a schema change: making
+  `validation_gate.py::_citation()` read the real `source_publication.kind`
+  instead of `chunks.source_type` — there's no FK today linking a
+  document/chunk to the specific `source_publication` row backing it, so
+  this needs a schema decision, not a query fix. Flagged to Prakash below,
+  not built.
 
 - **AGENT-19 (2026-09-01)**: Pi returned a one-line fix — `eligibility_gate.py::eligible_chunk_ids()`
   gained `AND c.source_type <> 'nkp_case'` — plus a matching test. The diff
@@ -940,7 +960,8 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Run Pi on `agent/nkp-precedent-lockout` per AGENT-19's `task.md`. After
-merge: cut `agent/document-approval-gate` off updated `dev` for AGENT-20.
-AGENT-21 (`scripts/ingest_laws.py` messaging) has no file overlap and can be
-branched/run independently whenever convenient.
+Run Pi on `agent/document-approval-gate` per AGENT-20's `task.md`
+(branched off `dev` after AGENT-19 merged, so it already has the
+`nkp_case` exclusion). AGENT-21 (`agent/ingest-status-messaging`) has no
+file overlap with AGENT-20 and can be run independently, in parallel or
+whenever convenient.
