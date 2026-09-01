@@ -1,11 +1,38 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-19 — hard-disable NKP/precedent retrieval until Phase D.
-Branch: `agent/nkp-precedent-lockout`. Assigned to Pi.
+AGENT-20 — approved-only eligibility + document approval CLI.
+Branch: `agent/document-approval-gate`. Assigned to Pi.
 
 ## Status
-**ASSIGNED (AGENT-19)** — task.md pushed, awaiting Prakash to run Pi.
+**ASSIGNED (AGENT-20)** — task.md pushed, awaiting Prakash to run Pi.
+
+- **AGENT-19 (2026-09-01)**: Pi returned a one-line fix — `eligibility_gate.py::eligible_chunk_ids()`
+  gained `AND c.source_type <> 'nkp_case'` — plus a matching test. The diff
+  was sitting uncommitted in the working tree (same failure mode noted in
+  AGENT-15); verified the full diff content and all three checks
+  independently before committing it myself (author `Prakash Basnet`, per
+  policy): `make test` (162 passed, 3 skipped — matches), `make lint`
+  (ruff + mypy --strict clean), `make eval-gates` (all three zero-tolerance
+  gates at 0). Went further than the reported checks: traced every direct
+  `FROM chunks`/`JOIN chunks` query in the codebase (not just the ones the
+  brief named) to confirm the fix is actually complete, not just
+  plausible — `postgres_retriever.py`'s vector/lexical queries and
+  `gated_orchestrator.py::_resolve_cross_refs` both filter by the
+  `eligible_chunk_ids()` result set; `validation_gate.py::validate_and_render`
+  independently **recomputes** `eligible_chunk_ids()` itself rather than
+  trusting retrieval's set (real defense-in-depth, better than the brief
+  assumed); `query_graph.py::_fetch_enabling_chunk` can't structurally reach
+  an `nkp_case` chunk regardless (`nkp_case` rows always have `work_id IS
+  NULL`, and that path joins on a specific Act's `work_id`) — safe by
+  construction, not by an explicit filter. **Found but out of scope, not
+  blocking**: `_fetch_enabling_chunk`'s final chunk fetch has no
+  eligibility filter at all (no `ingestion_status`/`effective_date` check),
+  a pre-existing gap unrelated to `nkp_case` — co-retrieved enabling
+  provisions can bypass the gate entirely. Not touched here (AGENT-19 was
+  scoped to the `nkp_case` exclusion only); flagged for a future task, only
+  becomes one if Prakash asks.
+  Merged `agent/nkp-precedent-lockout` → `dev` (`--no-ff`).
 
 - **Diagnostic pass (2026-09-01)**: Prakash asked 15 grounding questions
   before rating/fixing an external review of the ingestion/gate design.
@@ -33,12 +60,10 @@ Branch: `agent/nkp-precedent-lockout`. Assigned to Pi.
   fix and the NULL-effective-date fix land in the same function,
   `eligible_chunk_ids()` — sequencing beats true parallelism here to avoid
   two engineers colliding on one query):
-  - **AGENT-19** (this task, branched now) — exclude `nkp_case` at the gate.
-    Independent of the other two (different concern, and while it touches
-    the same function, it's a pure additive exclusion — branched and merged
-    first so AGENT-20 lands cleanly on top).
-  - **AGENT-20** (queued, branch cut after AGENT-19 merges to avoid
-    conflicting on the same query) — `eligible_chunk_ids()` to
+  - **AGENT-19 (MERGED to dev, 2026-09-01)** — exclude `nkp_case` at the
+    gate. See entry above for full detail.
+  - **AGENT-20** (this task, branched now that AGENT-19 is merged, so it
+    lands cleanly on the same function without conflicting) — `eligible_chunk_ids()` to
     `ingestion_status = 'approved'` only, NULL `effective_date_ad` excluded
     unless an approved `commence` lifecycle_effect resolves it (join
     directly, don't trust the denormalized cache column — §7.4 already
