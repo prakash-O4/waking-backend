@@ -31,6 +31,8 @@ from app.ingestion.commencement_extractor import (  # noqa: E402
 )
 from app.ingestion.pipeline import _content_hash  # noqa: E402
 
+_ASCII_TO_DEVA = str.maketrans("0123456789", "०१२३४५६७८९")
+
 
 @dataclass
 class Summary:
@@ -117,6 +119,45 @@ def _bucket_from_row(dependency: str | None, raw_clause_text: str) -> str:
     return "immediate"
 
 
+def _section_values(number: str | None) -> tuple[str, str]:
+    value = str(number or "")
+    return value, value.translate(_ASCII_TO_DEVA)
+
+
+def _update_authority_links(
+    conn: PgConnection, *, document_id: str, source_pub_id: str, law: ParsedLaw
+) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE documents SET source_pub_id=%s WHERE id=%s",
+            (source_pub_id, document_id),
+        )
+    linked = 0
+    for component in law.components:
+        if component.component_type != "dafa" or not component.number:
+            continue
+        ascii_number, deva_number = _section_values(component.number)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE chunks
+                SET component_uri=%s
+                WHERE document_id=%s
+                  AND (section_number IN (%s, %s) OR parent_section IN (%s, %s))
+                """,
+                (
+                    component.uri,
+                    document_id,
+                    ascii_number,
+                    deva_number,
+                    ascii_number,
+                    deva_number,
+                ),
+            )
+            linked += int(getattr(cur, "rowcount", 0) or 0)
+    return linked
+
+
 def _lifecycle_bucket_counts(conn: PgConnection) -> Counter[str]:
     counts: Counter[str] = Counter()
     with conn.cursor() as cur:
@@ -167,13 +208,16 @@ def backfill_document(
         return "processed", law
 
     source_pub_id = upsert_source(conn, work_id, law, source_url=None)
+    chunk_links = _update_authority_links(
+        conn, document_id=document_id, source_pub_id=source_pub_id, law=law
+    )
     for component in law.components:
         upsert_component(conn, work_id, component)
         upsert_expression(conn, component, as_of=date.today())
     extract_commencement_proposals(
         law=law, content=content, source_pub_id=source_pub_id, conn=conn
     )
-    return "processed", law
+    return f"processed:{chunk_links}", law
 
 
 def run_backfill(
@@ -196,7 +240,11 @@ def run_backfill(
                 records=records,
                 dry_run=dry_run,
             )
-            summary.counts[status] += 1
+            if status.startswith("processed:"):
+                summary.counts["processed"] += 1
+                summary.counts["chunk_links_written"] += int(status.split(":", 1)[1])
+            else:
+                summary.counts[status] += 1
             if law:
                 record = records[source_id]
                 bucket, rows = _proposal_bucket(law, str(record.get("content") or ""))
@@ -246,12 +294,15 @@ def print_summary(summary: Summary, *, dry_run: bool) -> None:
     if dry_run:
         print(f"  components would write:   {counts.get('components_seen', 0)}")
         print(f"  source pubs would write:  {counts.get('sources_seen', 0)}")
+        print(f"  doc source links:         {counts.get('sources_seen', 0)}")
+        print(f"  chunk authority links:    {counts.get('components_seen', 0)} components scanned")
         print(f"  expressions would write:  {counts.get('expressions_seen', 0)}")
     else:
         print(f"  components written:       {counts.get('components_written', 0)}")
         print(f"  source pubs written:      {counts.get('sources_written', 0)}")
         print(f"  expressions written:      {counts.get('expressions_written', 0)}")
         print(f"  lifecycle rows written:   {counts.get('lifecycle_written', 0)}")
+        print(f"  chunk links written:      {counts.get('chunk_links_written', 0)}")
 
     print("  commencement proposals:")
     for key in sorted(summary.proposal_counts):

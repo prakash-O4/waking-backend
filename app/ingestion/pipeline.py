@@ -128,6 +128,10 @@ def _devanagari_to_int(s: str) -> int:
     return int("".join(str(ord(c) - ord("०")) for c in s))
 
 
+def _component_uri(work_uri: str, section_number: str) -> str:
+    return f"{work_uri}/dafa/{section_number.translate(_DEVANAGARI_DIGITS)}"
+
+
 def parse_decision_date(decision_date_bs: str) -> tuple[date | None, bool]:
     """
     Parses '२०८१/०१/०३' (Devanagari digits, BS) to AD date via the
@@ -292,6 +296,10 @@ class IngestionPipeline:
         source_pub_id = ""
         try:
             source_pub_id = upsert_source(self._conn, work_id, law, source_url=None)
+            self._execute(
+                "UPDATE documents SET source_pub_id = %s WHERE id = %s",
+                (source_pub_id, document_id),
+            )
             today = date.today()
             for component in law.components:
                 upsert_component(self._conn, work_id, component)
@@ -450,7 +458,11 @@ class IngestionPipeline:
         )
 
         for chunk in chunks:
-            chunk.effective_date_ad = self._commence_date(law.uri, chunk.section_number)
+            section_number = self._chunk_component_section(chunk)
+            chunk.component_uri = (
+                _component_uri(law.uri, section_number) if section_number else None
+            )
+            chunk.effective_date_ad = self._commence_date(law.uri, section_number)
 
         embed_span = _begin_span(
             trace, "EMBED_AND_UPSERT", {"chunk_count": len(chunks)}
@@ -470,6 +482,7 @@ class IngestionPipeline:
             "english_name": record.get("english_name"),
             "document_type": record.get("document_type"),
             "summary": summary,
+            "source_pub_id": source_pub_id,
         }
         document_id = self._indexer.upsert_document(document, chunks, embeddings)
         self._conn.commit()
@@ -836,14 +849,19 @@ class IngestionPipeline:
             (status, document_id),
         )
 
+    def _chunk_component_section(self, chunk: Any) -> str | None:
+        if chunk.level == "section":
+            return chunk.section_number
+        if chunk.level in {"subsection", "proviso"}:
+            return chunk.parent_section
+        return None
+
     def _commence_date(self, work_uri: str, section_number: str | None) -> date | None:
         """Approved commence effect for this दफा's component; None when
         unverified (PS-2) or on any lookup failure (cache, never authority)."""
         if not section_number:
             return None
-        component_uri = (
-            f"{work_uri}/dafa/{section_number.translate(_DEVANAGARI_DIGITS)}"
-        )
+        component_uri = _component_uri(work_uri, section_number)
         try:
             with self._conn.cursor() as cur:
                 cur.execute(

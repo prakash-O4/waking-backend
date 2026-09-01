@@ -25,6 +25,7 @@ def test_validation_gate_renders_citation(monkeypatch: Any) -> None:
         lambda conn, uri, as_of: (text, hashlib.sha256(text.encode()).hexdigest()),
     )
     monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
+    monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: False)
     monkeypatch.setattr(
         gate,
         "_citation",
@@ -35,6 +36,104 @@ def test_validation_gate_renders_citation(monkeypatch: Any) -> None:
     )
     assert out[0]["abstained"] is False
     assert out[0]["citation"]["component_uri"] == "/c/1"
+
+
+def test_validation_gate_abstains_when_component_terminated(monkeypatch: Any) -> None:
+    text = "वैध पाठ"
+    monkeypatch.setattr(
+        gate,
+        "_expression",
+        lambda conn, uri, as_of: (text, hashlib.sha256(text.encode()).hexdigest()),
+    )
+    monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
+    monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: True)
+    out = gate.validate_and_render(
+        [{"claim": "x", "evidence_id": "/c/1"}],
+        date(2024, 1, 1),
+        cast(Any, object()),
+    )
+    assert out[0]["abstained"] is True
+    assert out[0]["citation"] is None
+
+
+class GateCursor:
+    def __init__(self, conn: "GateConn") -> None:
+        self.conn = conn
+        self.sql = ""
+        self.params: dict[str, Any] = {}
+        self.result: tuple[Any, ...] | None = None
+
+    def __enter__(self) -> "GateCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def execute(self, sql: str, params: dict[str, Any]) -> None:
+        self.sql = sql
+        self.params = params
+        squashed = " ".join(sql.split())
+        if squashed.startswith("SELECT component_uri FROM chunks"):
+            self.result = (self.conn.component_uri,)
+        elif squashed.startswith("SELECT 1 FROM lifecycle_effect"):
+            self.result = (1,) if self.conn.terminated else None
+        elif squashed.startswith("SELECT c.act_name"):
+            self.result = self.conn.citation_row
+        else:
+            raise AssertionError(squashed)
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.result
+
+
+class GateConn:
+    def __init__(self) -> None:
+        self.component_uri: str | None = "/law/dafa/1"
+        self.terminated = False
+        self.citation_row: tuple[Any, ...] = (
+            "ऐन",
+            None,
+            "act",
+            "derived_verified",
+            0.91,
+        )
+        self.cursor_obj = GateCursor(self)
+
+    def cursor(self) -> GateCursor:
+        return self.cursor_obj
+
+
+def test_terminated_before_false_for_future_or_absent_effect() -> None:
+    conn = GateConn()
+    conn.terminated = False
+    assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+    assert "lower(legal_valid_time) <= %(as_of)s::timestamptz" in conn.cursor_obj.sql
+
+
+def test_terminated_before_true_for_approved_past_effect() -> None:
+    conn = GateConn()
+    conn.terminated = True
+    assert gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
+def test_terminated_before_skips_null_component_uri() -> None:
+    conn = GateConn()
+    conn.component_uri = None
+    assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
+def test_citation_reads_source_publication_with_fallback() -> None:
+    conn = GateConn()
+    citation = gate._citation(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+    assert citation is not None
+    assert citation["source_kind"] == "derived_verified"
+    assert citation["ocr_confidence"] == 0.91
+
+    conn.citation_row = ("ऐन", None, "act", None, None)
+    fallback = gate._citation(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+    assert fallback is not None
+    assert fallback["source_kind"] == "act"
+    assert fallback["ocr_confidence"] is None
 
 
 def test_expression_reads_chunks() -> None:

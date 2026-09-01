@@ -324,16 +324,15 @@ def test_ingest_law_persists_source(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.ingestion import pipeline as pipeline_mod
 
     source_calls: list[tuple[str, Any, Any]] = []
-    monkeypatch.setattr(
-        pipeline_mod,
-        "upsert_source",
-        lambda conn, work_id, law, source_url=None: source_calls.append(
-            (work_id, law, source_url)
-        ),
-    )
+
+    def source(conn: Any, work_id: str, law: Any, source_url: Any = None) -> str:
+        source_calls.append((work_id, law, source_url))
+        return "source-id"
+
+    monkeypatch.setattr(pipeline_mod, "upsert_source", source)
     monkeypatch.setattr(pipeline_mod, "upsert_component", lambda *a, **k: None)
     monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
-    pipeline, _ = _pipeline_for_law(monkeypatch)
+    pipeline, conn = _pipeline_for_law(monkeypatch)
 
     pipeline.ingest_law(
         {"_id": "law-s", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
@@ -343,6 +342,32 @@ def test_ingest_law_persists_source(monkeypatch: pytest.MonkeyPatch) -> None:
     assert source_calls[0][0] == "work-id"
     assert source_calls[0][1].uri.endswith("/law-s")
     assert source_calls[0][2] is None
+    conn.cursor.return_value.__enter__.return_value.execute.assert_any_call(
+        "UPDATE documents SET source_pub_id = %s WHERE id = %s",
+        ("source-id", "doc-id"),
+    )
+
+
+def test_ingest_law_sets_chunk_component_uris(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.ingestion import pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "upsert_source", lambda *a, **k: "source-id")
+    monkeypatch.setattr(pipeline_mod, "upsert_component", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline_mod, "upsert_expression", lambda *a, **k: None)
+    pipeline, _ = _pipeline_for_law(monkeypatch)
+
+    pipeline.ingest_law(
+        {"_id": "law-uri", "name": "परीक्षण_ऐन_२०८०", "content": LAW_FIXTURE}
+    )
+
+    document = pipeline._indexer.upsert_document.call_args.args[0]
+    chunks = pipeline._indexer.upsert_document.call_args.args[1]
+    assert document["source_pub_id"] == "source-id"
+    assert [getattr(c, "component_uri", None) for c in chunks[:3]] == [
+        None,
+        "/np/act/2080/law-uri/dafa/1",
+        "/np/act/2080/law-uri/dafa/2",
+    ]
 
 
 def test_ingest_law_persists_expression_with_todays_date(
