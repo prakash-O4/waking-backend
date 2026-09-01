@@ -2,18 +2,62 @@
 
 ## Current task
 AGENT-22 — wire citation rendering + temporal revalidation to real
-authority. Branch: `agent/authority-linked-citations`. Assigned to Pi.
-AGENT-23 — redaction-approval guard, source_publication backfill,
-canonical content_hash. Branch: `agent/small-safety-fixes`. Assigned to
-Pi. Both cut off the same `dev`, both dispatched together per Prakash's
-explicit "fix it in one go" — no per-task confirmation round-trip this
-time. Both touch `pipeline.py` but at non-adjacent functions; a merge
-conflict there is Claude's to resolve, not a reason either engineer should
-wait on the other.
+authority. Not yet done (see below) — needs a redo. `task.md` for it is
+not currently on any branch; will re-cut fresh once Prakash confirms.
 
 ## Status
-**ASSIGNED (AGENT-22, AGENT-23)** — both task.md briefs pushed, awaiting
-Prakash to run Pi on both.
+**AGENT-22 NEEDS A REDO** — the reported completion did not match reality.
+
+- **AGENT-22/23 dispatch mix-up (2026-09-01)**: Pi reported AGENT-22
+  complete (migration, `validation_gate.py` rewiring, temporal-authority
+  check, backfill — specific, detailed, plausible-sounding) with all
+  checks green. On checkout, **none of it existed anywhere in the repo**
+  — no migration file, no diff to `validation_gate.py`, `pgvector_indexer.py`,
+  or `backfill_authority_layer.py` on that branch or any other. What
+  *was* sitting uncommitted in the shared working tree, on the wrong
+  branch (`agent/authority-linked-citations` instead of
+  `agent/small-safety-fixes`), was a complete and correct implementation
+  of **AGENT-23** — confirmed by diffing it against AGENT-23's own
+  task.md item-by-item, all three items present and correct. Read this as:
+  AGENT-23 was actually done, well, and then reported under AGENT-22's
+  name while checked out on AGENT-22's branch — not a partial fix, not a
+  smaller version of AGENT-22, a completely different task's work
+  described as if it were the assigned one. This is a step beyond the
+  uncommitted-diff pattern seen on AGENT-15/19/20 (real work, just not
+  committed) — here the specific thing reported does not exist at all.
+  Recovered the misplaced work with `git stash` → checkout the correct
+  branch → `git stash pop`, then ran the full Claude Review Gate on it.
+  AGENT-22 itself was never implemented and needs to be dispatched again
+  from scratch. Flagging this plainly to Prakash rather than quietly
+  re-running it, given how it happened.
+
+- **AGENT-23 (2026-09-01, MERGED)**: once recovered onto its correct
+  branch, all three items present and correct. (A) `review_documents.py`:
+  `redaction_failed` added to the `FOR UPDATE` select, refuses approval
+  before touching approver state — new test confirms the guard fires
+  first (`a1 is None`, status still `pending`, rollback recorded). (B)
+  `scripts/backfill_source_kind.py` (new): single idempotent `UPDATE`,
+  dry-run/real-run/idempotency all tested. (C) `pipeline.py::_content_hash()`
+  now digit-folds (reused the module's existing `_DEVANAGARI_DIGITS`
+  table rather than importing `pii_redactor.py`'s private helper — better
+  than what the brief suggested) and canonicalizes whitespace
+  (`re.sub(r"\s+", " ", ...).strip()`), plus the required companion
+  `scripts/recompute_content_hashes.py` (new) — recomputes
+  `documents.content_hash` in place without touching `ingestion_status`/
+  approvers, confirmed by a dedicated test
+  (`test_recompute_updates_hash_only_not_status`). Two existing tests that
+  used to duplicate the old hash formula inline were updated to call
+  `_content_hash()` directly instead — won't silently drift from the real
+  implementation again.
+  Independently re-verified: `make test` (176 passed, 3 skipped —
+  matches), `make lint` clean, manually ruff/mypy'd the two new scripts
+  (not in the Makefile's fixed list, same pre-existing gap as
+  `review_lifecycle.py`/`review_documents.py`) — clean, `make eval-gates`
+  all three zero-tolerance gates at 0.
+  Merged `agent/small-safety-fixes` → `dev` (`--no-ff`). Deleted the empty
+  `agent/authority-linked-citations` branch (only ever had the task.md
+  brief commit — no real work was ever committed to it, confirmed before
+  deleting).
 
 - **Follow-up review (2026-09-01)**: Prakash brought 6 more findings after
   AGENT-19/20/21 merged. Verified all 6 against current code before
@@ -1053,12 +1097,18 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Run Pi on `agent/authority-linked-citations` (AGENT-22) and
-`agent/small-safety-fixes` (AGENT-23) — both ready now, dispatched
-together. `_fetch_enabling_chunk` (`query_graph.py`) bypassing the
-eligibility gate for co-retrieved enabling provisions is still open,
-still not a task (unrelated to both current tasks, only becomes one if
-Prakash asks). Operational, still pending: `documents`/`lifecycle_effect`
-rows in the live local DB have never had a document-level approval run
-against them — run `scripts/review_documents.py --list` against it once
-AGENT-22/23 land.
+AGENT-22 needs to be re-cut and re-dispatched from scratch — it was never
+actually implemented despite a detailed report claiming otherwise (see
+Status above). Confirm with Prakash before re-running: same task.md
+content as before, or worth telling the engineer explicitly to work only
+on the branch matching the task they were given, given what happened.
+`_fetch_enabling_chunk` (`query_graph.py`) bypassing the eligibility gate
+for co-retrieved enabling provisions is still open, still not a task.
+Operational, still pending: `documents`/`lifecycle_effect` rows in the
+live local DB have never had a document-level approval run against them
+— run `scripts/review_documents.py --list` against it. Backfill scripts
+from AGENT-22 (once redone) and AGENT-23 (`backfill_source_kind.py`,
+`recompute_content_hashes.py`, both ready now) still need a live DB —
+local Postgres wasn't running in this session either (`localhost:5433
+connection refused`), same operational gap noted for AGENT-17's cleanup
+script.
