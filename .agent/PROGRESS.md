@@ -1,14 +1,64 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-22 — wire citation rendering + temporal revalidation to real
-authority. Branch: `agent/authority-linked-citations` (re-cut fresh off
-`dev`, same scope as the original brief). Assigned to Pi.
+None.
 
 ## Status
-**ASSIGNED (AGENT-22, re-dispatched)** — task.md re-pushed with an added
-note asking the engineer to verify `git status` on this exact branch
-before reporting completion, given what happened last time.
+**IDLE** — AGENT-22/23 both merged to dev. Awaiting Prakash's direction.
+
+- **AGENT-22 re-dispatch (2026-09-01, MERGED)**: this time Pi's own
+  tooling stashed the leftover AGENT-23 dirt (`pi-save-small-safety-fixes`)
+  before checking out this branch instead of letting it ride along —
+  confirms the root cause really was a shared working directory across
+  the two dispatches, not something deeper. Real commit this time
+  (`a89234f`), correct branch, clean `git status`. Reviewed in full:
+  migration matches spec exactly (`chunks.component_uri`,
+  `documents.source_pub_id`); `pipeline.py` extracts a shared
+  `_component_uri()` helper used by both the new population code and the
+  existing `_commence_date()` (removes the duplicated URI-building this
+  brief asked to deduplicate); new `_chunk_component_section()` correctly
+  resolves `section`-level chunks via `section_number` and
+  `subsection`/`proviso`-level chunks via `parent_section`;
+  `pgvector_indexer.py` threads both new columns through, using
+  `getattr(chunk, "component_uri", None)` so NKP chunks (which never get
+  the attribute set) don't need their own dataclass touched.
+  `validation_gate.py::_citation()` joins `documents.source_pub_id →
+  source_publication.kind` with a correct NULL fallback to the old
+  `chunks.source_type` behavior (verified via a dedicated test with both
+  branches); new `_terminated_before()` correctly checks
+  `approval_status='approved' AND effect_type IN ('repeal','expiry',
+  'suspend') AND lower(legal_valid_time) <= as_of`, wired into
+  `validate_and_render` before `_citation()` is ever called, short-
+  circuiting cleanly when eligibility already failed. The
+  `backfill_authority_layer.py` extension went beyond the brief in a good
+  way — uses the parser's own canonical `component.uri` directly instead
+  of reconstructing it via the shared helper (avoids any chance of drift
+  between two URI-building code paths) and handles both ASCII- and
+  Devanagari-digit `section_number`/`parent_section` storage forms
+  defensively, a real-world subtlety the brief didn't spell out.
+  **One gap found and fixed directly rather than sent back**: the
+  `_terminated_before` tests named around "future effect" only mocked a
+  canned boolean, never actually exercising real date-comparison logic —
+  the exact per-claim-as-of direction (Core Invariant #6) the brief's
+  self-review section explicitly asked to verify wasn't actually proven.
+  Added `TerminationCursor`/`TerminationConn` (same
+  actually-evaluate-the-predicate pattern as AGENT-20's `FilteringCursor`)
+  seeding a real `legal_valid_time` and varying `as_of` across it —
+  proved both directions: repeal on/before `as_of` abstains, repeal
+  strictly after `as_of` does not. Also fixed a ruff-format violation in
+  `backfill_authority_layer.py`'s new print line (that file isn't in the
+  Makefile's fixed lint list, so `make lint` alone didn't catch it — same
+  pre-existing gap noted for `review_lifecycle.py`/`review_documents.py`).
+  Independently re-verified everything: `make test` (184 passed, 3
+  skipped), `make lint` clean, manually ruff/mypy'd
+  `backfill_authority_layer.py`, `make eval-gates` all three
+  zero-tolerance gates at 0.
+  Merged `agent/authority-linked-citations` → `dev` (`--no-ff`).
+  **Still pending on Prakash** (no live DB in either session): run
+  `scripts/backfill_authority_layer.py --dry-run` then for real, followed
+  by AGENT-23's `scripts/backfill_source_kind.py` and
+  `scripts/recompute_content_hashes.py` (both also still `--dry-run`
+  unverified against a live corpus).
 
 - **AGENT-22/23 dispatch mix-up (2026-09-01)**: Pi reported AGENT-22
   complete (migration, `validation_gate.py` rewiring, temporal-authority
@@ -1099,17 +1149,21 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-Run Pi on `agent/authority-linked-citations` (AGENT-22, re-dispatched
-2026-09-01) — branch cut fresh off `dev`, same scope, task.md carries an
-added note asking the engineer to verify `git status` on this exact
-branch before reporting completion.
-`_fetch_enabling_chunk` (`query_graph.py`) bypassing the eligibility gate
-for co-retrieved enabling provisions is still open, still not a task.
-Operational, still pending: `documents`/`lifecycle_effect` rows in the
-live local DB have never had a document-level approval run against them
-— run `scripts/review_documents.py --list` against it. Backfill scripts
-from AGENT-22 (once redone) and AGENT-23 (`backfill_source_kind.py`,
-`recompute_content_hashes.py`, both ready now) still need a live DB —
-local Postgres wasn't running in this session either (`localhost:5433
-connection refused`), same operational gap noted for AGENT-17's cleanup
-script.
+Awaiting Prakash's direction — all findings from the 2026-09-01 follow-up
+review are now closed (AGENT-19 through 23 all merged). Nothing code-side
+outstanding except two informational items, neither a task unless asked:
+(1) `_fetch_enabling_chunk` (`query_graph.py`) bypasses the eligibility
+gate for co-retrieved enabling provisions; (2) a document/chunk still has
+no per-version link to which exact `source_publication` row's content it
+reflects when a work has been re-ingested more than once with different
+content (today's `source_pub_id`/`component_uri` are correct for the
+common single-ingestion case).
+Operational, still pending — needs a live local DB, unavailable in every
+session so far (`localhost:5433 connection refused`): run, in order,
+`scripts/backfill_authority_layer.py --dry-run` then for real (AGENT-22 —
+populates `component_uri`/`source_pub_id` for the 345 already-ingested
+documents), `scripts/backfill_source_kind.py` (AGENT-23 — relabels
+pre-AGENT-20 `source_publication` rows), `scripts/recompute_content_hashes.py`
+(AGENT-23 — fixes `content_hash` for the canonicalization change without
+touching approval state), then `scripts/review_documents.py --list` (no
+document has ever been approved through the new dual-approval path).
