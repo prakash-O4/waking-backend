@@ -7,10 +7,8 @@ dual-approval test is skipped unless SUPABASE_DB_URL points at a Postgres.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
-import unicodedata
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +21,7 @@ from app.ingestion import metadata_enricher
 from app.ingestion.laws_chunker import LawChunk, LawsChunker
 from app.ingestion.nkp_chunker import NKPChunker
 from app.ingestion.pii_redactor import PIIRedactor, RedactionVerificationError
-from app.ingestion.pipeline import IngestionPipeline
+from app.ingestion.pipeline import IngestionPipeline, _content_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_005 = ROOT / "migrations" / "005_ingestion_pipeline.sql"
@@ -255,6 +253,10 @@ def test_enrich_law_llm_call_count(monkeypatch: pytest.MonkeyPatch) -> None:
     assert total_out == 5 * expected
 
 
+def test_content_hash_digit_folds_and_canonicalizes_whitespace() -> None:
+    assert _content_hash("दफा १\n\tपाठ") == _content_hash("दफा 1 पाठ")
+
+
 def test_pipeline_idempotency_skips_unchanged_document() -> None:
     record = {
         "_id": "law-1",
@@ -263,9 +265,7 @@ def test_pipeline_idempotency_skips_unchanged_document() -> None:
         "document_type": "act",
         "content": "**१. परीक्षण:** यो परीक्षण पाठ हो ।",
     }
-    content_hash = hashlib.sha256(
-        unicodedata.normalize("NFC", str(record["content"])).encode("utf-8")
-    ).hexdigest()
+    content_hash = _content_hash(str(record["content"]))
 
     conn = MagicMock()
     cursor = conn.cursor.return_value.__enter__.return_value
@@ -374,9 +374,7 @@ def test_ingest_law_skip_path_no_persistence_calls(
     from app.ingestion import pipeline as pipeline_mod
 
     record = {"_id": "law-skip", "name": "परीक्षण ऐन", "content": "**१. परीक्षण:** पाठ ।"}
-    content_hash = hashlib.sha256(
-        unicodedata.normalize("NFC", str(record["content"])).encode("utf-8")
-    ).hexdigest()
+    content_hash = _content_hash(str(record["content"]))
     source = MagicMock()
     component = MagicMock()
     expression = MagicMock()

@@ -119,9 +119,9 @@ def _flush(lf: Any) -> None:
 
 
 def _content_hash(content: str) -> str:
-    return hashlib.sha256(
-        unicodedata.normalize("NFC", content).encode("utf-8")
-    ).hexdigest()
+    normalized = unicodedata.normalize("NFC", content).translate(_DEVANAGARI_DIGITS)
+    canonical = re.sub(r"\s+", " ", normalized).strip()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _devanagari_to_int(s: str) -> int:
