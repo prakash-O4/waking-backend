@@ -277,11 +277,15 @@ def upsert_expression(
     conn: connection, component: ParsedComponent, as_of: date
 ) -> None:
     with conn.cursor() as cur:
+        # Dedup on text content, not `as_of`: callers (ingest, backfill,
+        # cleanup) pass whatever date they happen to run on, not the
+        # original ingestion date, so keying on as_of would insert a
+        # duplicate row every re-run even when nothing actually changed.
         cur.execute(
             """
-            SELECT 1 FROM expression WHERE component_uri=%s AND as_of=%s AND text_hash=%s LIMIT 1
+            SELECT 1 FROM expression WHERE component_uri=%s AND text_hash=%s LIMIT 1
             """,
-            (component.uri, as_of, component.text_hash),
+            (component.uri, component.text_hash),
         )
         if cur.fetchone():
             return
