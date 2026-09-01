@@ -2,11 +2,13 @@
 
 ## Current task
 AGENT-22 — wire citation rendering + temporal revalidation to real
-authority. Not yet done (see below) — needs a redo. `task.md` for it is
-not currently on any branch; will re-cut fresh once Prakash confirms.
+authority. Branch: `agent/authority-linked-citations` (re-cut fresh off
+`dev`, same scope as the original brief). Assigned to Pi.
 
 ## Status
-**AGENT-22 NEEDS A REDO** — the reported completion did not match reality.
+**ASSIGNED (AGENT-22, re-dispatched)** — task.md re-pushed with an added
+note asking the engineer to verify `git status` on this exact branch
+before reporting completion, given what happened last time.
 
 - **AGENT-22/23 dispatch mix-up (2026-09-01)**: Pi reported AGENT-22
   complete (migration, `validation_gate.py` rewiring, temporal-authority
@@ -1097,11 +1099,10 @@ Ref: `docs/adr-001-multi-agent-query-architecture.md` §Missing Facts.
 - docs/ingestion_design.md (PE-A design; approved by Prakash 2026-08-02)
 
 ## Next action
-AGENT-22 needs to be re-cut and re-dispatched from scratch — it was never
-actually implemented despite a detailed report claiming otherwise (see
-Status above). Confirm with Prakash before re-running: same task.md
-content as before, or worth telling the engineer explicitly to work only
-on the branch matching the task they were given, given what happened.
+Run Pi on `agent/authority-linked-citations` (AGENT-22, re-dispatched
+2026-09-01) — branch cut fresh off `dev`, same scope, task.md carries an
+added note asking the engineer to verify `git status` on this exact
+branch before reporting completion.
 `_fetch_enabling_chunk` (`query_graph.py`) bypassing the eligibility gate
 for co-retrieved enabling provisions is still open, still not a task.
 Operational, still pending: `documents`/`lifecycle_effect` rows in the
