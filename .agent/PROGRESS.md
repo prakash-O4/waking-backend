@@ -4,9 +4,11 @@
 None. AGENT-24 and AGENT-25 both merged to `dev`.
 
 ## Status
-**IDLE** — AGENT-24/25 both merged to dev. Awaiting Prakash's direction. One
-stray uncommitted hunk in the working tree still needs a decision (see
-below, unrelated to either task).
+**IDLE** — AGENT-24/25 both merged to dev. Awaiting Prakash's direction.
+The stray `scripts/ingest_laws.py` stash from session start (2026-09-02)
+was dropped on Prakash's call — confirmed functionally no-op (a blank line
+inside a multi-line `print()` f-string, no behavior change) and it no
+longer applied cleanly anyway, since AGENT-25 rewrote that exact section.
 
 - **AGENT-24 review round 2 (2026-09-02, MERGED)**: Pi returned `bf5535e`
   (reported hash had garbled trailing digits beyond the real 7-char prefix
