@@ -23,8 +23,14 @@ def eligible_chunk_ids(conn: connection, as_of: date) -> set[str]:
             JOIN documents d ON d.id = c.document_id
             WHERE d.ingestion_status = 'approved'
               AND c.source_type <> 'nkp_case'
-              AND c.effective_date_ad IS NOT NULL
-              AND c.effective_date_ad <= %(as_of)s
+              AND (
+                  (c.component_uri IS NOT NULL AND is_eligible(c.component_uri, %(as_of)s))
+                  OR (
+                      c.component_uri IS NULL
+                      AND c.effective_date_ad IS NOT NULL
+                      AND c.effective_date_ad <= %(as_of)s
+                  )
+              )
             """,
             {"as_of": as_of},
         )
