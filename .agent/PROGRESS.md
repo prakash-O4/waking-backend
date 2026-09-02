@@ -1,13 +1,67 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-26** — canonical eligibility predicate (pre-retrieval + validation).
-Branch `agent/canonical-eligibility-gate`, `task.md` committed
-(`c95ac30`), assigned to Pi. Awaiting Prakash to run it.
+None dispatched. AGENT-26 (task 1 of 6 in the retrieval-hardening program)
+is **MERGED**. AGENT-27 (claim-support verbatim-quote check) is next —
+scoping/task.md not yet written, queued.
 
 ## Status
-**IN PROGRESS** — AGENT-26 dispatched, first of a 6-task retrieval-hardening
-program (below). AGENT-24/25 remain merged to `dev`, unaffected.
+**IDLE, between waves** — AGENT-26 merged to `dev`. AGENT-27-31 queued per
+the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-27.
+
+- **AGENT-26 (2026-09-02, MERGED)**: Pi's diff was sitting **uncommitted** in
+  the working tree on the correct branch (same recurring failure mode as
+  AGENT-15/19/20/22 — worth a standing fix to how engineers are told to
+  finish, not just noting it again). Content was correct; committed it
+  myself (`51e2073`, author `Prakash Basnet`) after full review.
+  `eligible_chunk_ids()` now checks `(component_uri IS NOT NULL AND
+  is_eligible(c.component_uri, as_of)) OR (component_uri IS NULL AND
+  effective_date_ad <= as_of)` — canonical predicate for linked chunks,
+  documented fallback for unlinked ones, exactly matching `task.md`'s
+  acceptance criteria. `_terminated_before()` now literally calls
+  `is_eligible()` instead of re-deriving its own repeal/expiry/suspend list
+  — zero duplicated predicate logic left in Python.
+  **Went beyond what Pi reported to independently verify no regression**:
+  ran a live-DB query myself comparing the exact old-SQL eligible-chunk-id
+  count against the new predicate's count at `as_of=today` — **11,904 =
+  11,904, zero drift** — before trusting the change was safe. Also queried
+  `lifecycle_effect` directly and confirmed the corpus currently holds
+  **zero** approved `repeal`/`expiry`/`suspend`/`declared_invalid` rows of
+  any kind — meaning this fix has no live behavioral effect *today*, but
+  correctly closes the gap the moment AGENT-16/18-style repeal/amend
+  extraction produces an approved terminating effect. Also independently
+  confirmed zero linked, previously-eligible chunks lack an approved
+  `commence` effect (the specific regression risk `task.md` flagged as the
+  reason for its live-corpus-coverage grounding requirement — a component
+  with no `commence` row at all would flip from eligible to ineligible under
+  the new predicate; confirmed this doesn't happen for anything currently
+  served). Reported coverage matches and is sound: 20,977/21,504 (97.55%)
+  approved act-chunks carry `component_uri`; the entire `act`-level tier
+  (345 chunks, whole-document-level, not per-provision) is 0% linked by
+  design — reasonable, no per-provision lifecycle applies to it — while
+  `section`/`subsection`/`proviso` are all ~97-99% linked, with the small
+  unlinked remainder correctly falling back to `effective_date_ad`, not
+  silently dropped. Test rewrite is a genuine improvement, not just
+  satisfying the brief: `FilteringCursor._component_eligible` now actually
+  evaluates commence/termination/`commencement_dependency` against seeded
+  `effects` data (mirroring what Postgres would compute calling
+  `is_eligible()` per row) instead of string-only SQL assertions; new tests
+  directly prove each acceptance-criterion scenario (`declared_invalid`
+  pre-retrieval exclusion, `suspend` pre-retrieval exclusion, not-yet-
+  commenced exclusion, pending-`commencement_dependency` exclusion,
+  unlinked-chunk fallback with old/future/null dates). The two existing
+  `_terminated_before` per-claim-as-of-direction tests
+  (`test_terminated_before_true_when_repeal_on_or_before_as_of` /
+  `..._false_when_repeal_strictly_after_as_of`, Core Invariant #6) were
+  preserved intact through the rewrite, still exercising real predicate
+  evaluation via `TerminationCursor`, not weakened. File scope exactly
+  matched `task.md`'s allowed list — no `_citation()`, no migration, no
+  retrieval/composer/precedent touches. Independently re-ran everything
+  myself rather than trusting the report: `make test` (196 passed, 3
+  skipped — matches), `make lint` clean, `make eval-gates` against the
+  **live DB** (not the offline stub) — `repealed-as-current: 0`,
+  `not-yet-effective-as-current: 0`, `overruled-as-good-law: 0`. Merged
+  `agent/canonical-eligibility-gate` → `dev` (`--no-ff`, `66ad5e9`).
 
 - **Retrieval-quality review + 6-task program (2026-09-02)**: Prakash pasted
   an external review rating live retrieval 4/10 for production legal use,
