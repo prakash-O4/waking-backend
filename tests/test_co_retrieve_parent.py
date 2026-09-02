@@ -29,22 +29,28 @@ class CoRetrieveCursor:
     def execute(self, _sql: str, params: dict[str, Any]) -> None:
         self.queries += 1
         eligible = set(params["eligible"])
-        rows: list[tuple[Any, ...]] = []
-        for child_id in params["hit_ids"]:
-            parent_id = self.parent_by_child.get(child_id)
-            if parent_id and parent_id in eligible:
-                rows.append((child_id, parent_id, *self.parents[parent_id]))
-        self.rows = rows[: params["limit"]]
+        child_id = str(params["hit_id"])
+        parent_id = self.parent_by_child.get(child_id)
+        self.rows = (
+            [(child_id, parent_id, *self.parents[parent_id])]
+            if parent_id and parent_id in eligible
+            else []
+        )
 
-    def fetchall(self) -> list[tuple[Any, ...]]:
-        return self.rows
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.rows[0] if self.rows else None
 
 
 class CoRetrieveConn:
-    def __init__(self, parent_by_child: dict[str, str | None]) -> None:
+    def __init__(
+        self,
+        parent_by_child: dict[str, str | None],
+        parents: dict[str, tuple[Any, ...]] | None = None,
+    ) -> None:
         self.cursor_obj = CoRetrieveCursor(
             parent_by_child,
-            {
+            parents
+            or {
                 "parent-1": (
                     "parent text",
                     "sha256",
@@ -129,6 +135,43 @@ def test_co_retrieve_parent_ineligible_parent_does_not_drop_hit(
 
     assert result == {}
     assert state["all_hits"] == [hit]
+
+
+def test_co_retrieve_parent_respects_hit_order_when_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent_by_child: dict[str, str | None] = {
+        f"child-{i}": f"parent-{i}" for i in range(7)
+    }
+    parents = {
+        f"parent-{i}": (
+            f"parent text {i}",
+            f"sha256-{i}",
+            f"Parent Act {i}",
+            None,
+            f"दफा {i}",
+            str(i),
+            f"src-{i}",
+        )
+        for i in range(7)
+    }
+    monkeypatch.setattr(
+        orchestrator, "eligible_chunk_ids", lambda _conn, _as_of: set(parents)
+    )
+    hits = [_hit(component_uri=f"child-{i}", _issue_idx=i) for i in range(7)]
+
+    added = orchestrator._resolve_co_retrieve_parents(
+        hits, date(2025, 1, 1), CoRetrieveConn(parent_by_child, parents)
+    )
+
+    assert [h["component_uri"] for h in added] == [
+        "parent-0",
+        "parent-1",
+        "parent-2",
+        "parent-3",
+        "parent-4",
+    ]
+    assert [h["_issue_idx"] for h in added] == [0, 1, 2, 3, 4]
 
 
 def test_co_retrieve_parent_skips_already_coretrieved(

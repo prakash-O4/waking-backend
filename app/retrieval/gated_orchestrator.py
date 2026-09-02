@@ -400,29 +400,28 @@ def _resolve_co_retrieve_parents(
         if not eligible:
             return []
 
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT c.id::text, p.id::text, p.chunk_text, p.span_sha256,
-                       p.act_name, p.case_id, p.chunk_type, p.section_number,
-                       d.source_id
-                FROM chunks c
-                JOIN chunks p ON p.id = c.co_retrieve_parent_id
-                JOIN documents d ON d.id = p.document_id
-                WHERE c.id::text = ANY(%(hit_ids)s)
-                  AND p.id::text = ANY(%(eligible)s)
-                LIMIT %(limit)s
-                """,
-                {
-                    "hit_ids": list(origin_by_id),
-                    "eligible": eligible,
-                    "limit": max_additional,
-                },
-            )
-            rows = cur.fetchall()
-
         additional: list[dict[str, Any]] = []
-        for row in rows:
+        for hit in candidates:
+            if len(additional) >= max_additional:
+                break
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT c.id::text, p.id::text, p.chunk_text, p.span_sha256,
+                           p.act_name, p.case_id, p.chunk_type, p.section_number,
+                           d.source_id
+                    FROM chunks c
+                    JOIN chunks p ON p.id = c.co_retrieve_parent_id
+                    JOIN documents d ON d.id = p.document_id
+                    WHERE c.id::text = %(hit_id)s
+                      AND p.id::text = ANY(%(eligible)s)
+                    LIMIT 1
+                    """,
+                    {"hit_id": str(hit["component_uri"]), "eligible": eligible},
+                )
+                row = cur.fetchone()
+            if not row:
+                continue
             source_hit_id, parent_id = str(row[0]), str(row[1])
             if parent_id in existing_ids:
                 continue
