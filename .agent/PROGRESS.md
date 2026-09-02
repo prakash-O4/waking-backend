@@ -1,12 +1,76 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+Two tasks dispatched, both awaiting Pi's run:
+- **AGENT-24** — wire PS-16 co-retrieve chain into query-side context
+  assembly. Branch: `agent/co-retrieve-parent-context`. `task.md`
+  committed. No file overlap with AGENT-25.
+- **AGENT-25** — make the chunk parent-child invariant measurable and
+  corpus-proven (coverage audit + real-corpus tests + reconstruction-rule
+  doc). Branch: `agent/chunk-parent-coverage`. `task.md` committed. No
+  file overlap with AGENT-24.
 
 ## Status
-**IDLE** — AGENT-22/23 both merged to dev; pending-on-Prakash backfill work
-now done directly on `dev`. Awaiting Prakash's direction. One stray
-uncommitted hunk in the working tree needs a decision (see below).
+**DISPATCHED** — both assigned to **Pi** (narrow, correctness-heavy;
+neither is Kimi's broad-exploration profile). Since they touch disjoint
+files (`app/retrieval/*` vs. `app/ingestion/*`/`scripts/ingest_laws.py`/
+tests), Pi can run them in either order without collision. One stray
+uncommitted hunk in the working tree still needs Prakash's decision (see
+below, unrelated to either task).
+
+- **AGENT-24/25 scoping (2026-09-02)**: Pi rated the ingestion pipeline
+  7/10 and asked grounding questions about `chunks.parent_section` /
+  `co_retrieve_parent_id` coverage — first phrased in a way that read as
+  retrieval-ish, then Prakash re-asked as clean ingestion-only questions.
+  Answered both rounds against the actual code and a live-DB query (not
+  the design doc alone), which split the finding into two genuinely
+  independent problems on two different subsystems:
+  - **Ingestion (write side): already correct.** `co_retrieve_parent_id`
+    has been populated correctly since the very first ingestion commit
+    (`84f989a`, not a regression). Live-DB audit against the full ingested
+    corpus (677 docs, 53,673 chunks) confirms it: `subsection` chunks are
+    100% unlinked by design (17,501/17,501, matches the documented
+    invariant — they're metadata-only via `parent_section`, no दफा-level
+    parent row is ever created for a split दफा); `proviso` and
+    `tariff_row`/`tariff_note` are ~100% linked (51/51, 5,265/5,265,
+    3,807/3,807). No reingestion needed for anything in this scope.
+  - **Retrieval (read side): a real, live PS-16 gap.** Nothing in
+    `app/retrieval/*` ever reads `co_retrieve_parent_id` —
+    `grep -rn "co_retrieve_parent_id" --include="*.py" .` matches only
+    `app/ingestion/pgvector_indexer.py`. `system-design.md` PS-16 and
+    `docs/ingestion_design.md:56` explicitly require query-side context
+    assembly to fetch this chain ("eval-asserted"); no such eval or code
+    exists. → **AGENT-24**.
+  - Prakash then explicitly decided (asked directly, not assumed): keep
+    the metadata-only invariant for subsections, do **not** add दफा-level
+    parent chunk rows — the "complete tree" alternative would be new
+    ingestion structure (Ponytail-gated) for a linking anchor with no
+    other reader. Confirmed the remaining 7→8.5 gap is entirely about
+    measurability, not correctness: no automatic post-ingest coverage
+    audit exists anywhere (`ingest_laws.py`'s summary only reports
+    per-document outcome counts); the only chunker test touching this,
+    `test_laws_chunker_structure` (`tests/test_ingestion_pipeline.py:65-95`),
+    uses a synthetic `परीक्षण ऐन` fixture engineered to split cleanly —
+    zero real-corpus coverage; the दफा-reconstruction path
+    (`work_id`+`section_number` ORDER BY `chunk_index`) works today but is
+    undocumented and untested. Prakash's own minimal-path-to-8.5 list (audit
+    report, real-corpus regression tests, document the reconstruction rule)
+    became AGENT-25 verbatim — explicitly **not** adding parent rows, and
+    explicitly not touching `co_retrieve_parent_id`'s population logic or
+    considering a rename (flagged as a possible future follow-up only, not
+    folded in).
+  Both branches created off `dev`, `task.md` committed on each, zero file
+  overlap confirmed by construction (AGENT-24 scope is `app/retrieval/*`
+  only; AGENT-25 scope is `app/ingestion/*`/`scripts/ingest_laws.py`/tests/
+  docs only). AGENT-24's branch was pushed to `origin` before noticing no
+  prior `agent/*` branch ever was — flagged to Prakash as a possible
+  deviation from the established local-only pattern, left as-is pending his
+  call. **Process note for future scoping**: the AGENT-24 assignment update
+  to this file was mistakenly committed on the `agent/co-retrieve-parent-context`
+  branch instead of `dev` — caught and corrected (reverted there, reapplied
+  here) before any engineer work landed on either branch, per the standing
+  convention that `task.md` lives on the task branch but `PROGRESS.md`
+  updates land on `dev` directly.
 
 - **Backfill run + dedup bug fix (2026-09-01/02, direct commits on `dev`,
   authored by Prakash himself — not a Wakil-dispatched task)**: running the
