@@ -2,14 +2,48 @@
 
 ## Current task
 - **AGENT-24** — wire PS-16 co-retrieve chain into query-side context
-  assembly. Branch: `agent/co-retrieve-parent-context`. `task.md`
-  committed. Awaiting Pi's run.
+  assembly. Branch: `agent/co-retrieve-parent-context`. Round 1 reviewed,
+  one finding, rework note appended (`b911318`) — **awaiting Pi's fix**.
 - **AGENT-25** — MERGED (see entry below).
 
 ## Status
-AGENT-24 dispatched to **Pi**. One stray uncommitted hunk in the working
+AGENT-24 in rework, round 1. One stray uncommitted hunk in the working
 tree still needs Prakash's decision (see
 below, unrelated to either task).
+
+- **AGENT-24 review round 1 (2026-09-02)**: Pi returned `ac9465f` —
+  `_resolve_co_retrieve_parents` in `gated_orchestrator.py`, new
+  `co_retrieve_parent_resolver_node` wired into `query_graph.py` between
+  `authority_ranker` and `cross_ref_resolver`, `tests/test_co_retrieve_parent.py`.
+  Independently verified: file scope exactly matched `task.md` (3 files, no
+  chunker/schema/eligibility-gate/validation-gate touches); graph edges
+  correct; `make test` (191 passed, 3 skipped — matches), `make lint`
+  clean, `make eval-gates` 0/0/0 — all reproduced myself. Test quality is
+  genuinely good — all 5 required cases present, using a real behavioral
+  stub cursor (`CoRetrieveCursor` actually evaluates `hit_ids`/`eligible`/
+  `limit` against seeded data, not string-only SQL assertions), including
+  the "already `co_retrieved` → zero queries executed" case.
+  **One finding, sent back rather than merged**: `_resolve_co_retrieve_parents`'s
+  SQL (`gated_orchestrator.py:414`) has no `ORDER BY` before `LIMIT
+  %(limit)s`. Traced that `state["all_hits"]` is already sorted by
+  `(tier, -score)` at this point in the graph (`authority_ranker_node` runs
+  immediately before this resolver) — the single batched query joins all
+  candidate hit_ids at once and lets Postgres pick whichever 5 matching
+  rows it likes, discarding that priority ordering entirely. With
+  `MAX_SUBQUERIES=3` issues × `k=5` hits each, more than 5 co-retrieve-
+  eligible candidates in one query is a realistic case, not a hypothetical
+  — a high-tier proviso could silently lose its operative-clause context
+  to an arbitrary lower-tier one, non-deterministically, undermining PS-16's
+  "always fetch" language for the dropped ones. The sibling functions this
+  task was explicitly told to mirror (`_resolve_cross_refs`,
+  `_fetch_enabling_chunk`) avoid exactly this by iterating hits in their
+  existing rank order and stopping once the cap is hit — this
+  implementation diverges from that pattern in the one place the
+  divergence matters. Rework note appended to `task.md` (`b911318`) asking
+  for priority-preserving truncation plus a test proving it (seed >5
+  candidates in known priority order, assert the kept ones are the
+  highest-priority, not just "some 5 of them"). Same branch, same
+  engineer, per the Rework Loop — not re-scoped.
 
 - **AGENT-25 (2026-09-02, MERGED)**: Pi returned `a183188` — coverage
   report, two real-corpus tests, reconstruction-rule doc. Independently
