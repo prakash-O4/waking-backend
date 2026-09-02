@@ -1,14 +1,120 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None. AGENT-24 and AGENT-25 both merged to `dev`.
+**AGENT-26** — canonical eligibility predicate (pre-retrieval + validation).
+Branch `agent/canonical-eligibility-gate`, `task.md` committed
+(`c95ac30`), assigned to Pi. Awaiting Prakash to run it.
 
 ## Status
-**IDLE** — AGENT-24/25 both merged to dev. Awaiting Prakash's direction.
-The stray `scripts/ingest_laws.py` stash from session start (2026-09-02)
-was dropped on Prakash's call — confirmed functionally no-op (a blank line
-inside a multi-line `print()` f-string, no behavior change) and it no
-longer applied cleanly anyway, since AGENT-25 rewrote that exact section.
+**IN PROGRESS** — AGENT-26 dispatched, first of a 6-task retrieval-hardening
+program (below). AGENT-24/25 remain merged to `dev`, unaffected.
+
+- **Retrieval-quality review + 6-task program (2026-09-02)**: Prakash pasted
+  an external review rating live retrieval 4/10 for production legal use,
+  with 8 numbered blockers, asking to work toward 9/10. Independently
+  verified every claim against the actual code before accepting any of it
+  (not from the review's word) — file:line for each:
+  - **#1 eligibility gate too weak — CONFIRMED, but not the fix the review
+    proposed.** `eligible_chunk_ids()` (`eligibility_gate.py:16`) only checks
+    `ingestion_status='approved'` + `source_type<>'nkp_case'` +
+    `effective_date_ad<=as_of` (a denormalized cache column). But
+    `migrations/001_bitemporal_schema.sql:74` + `migrations/
+    002_gate_suspend_fix.sql` already define a **correct** canonical
+    `is_eligible(component_uri, as_of)` SQL function (commence-check +
+    excludes repeal/expiry/suspend/declared_invalid) — called **nowhere in
+    the live path**, only from `app/eval/gates.py:64` (the offline
+    zero-tolerance scorer, tested against synthetic insert/rollback data,
+    never against real retrieval traffic). The fix is "wire the existing
+    predicate in," not "write a new one."
+  - **#2 repeal/expiry checks happen only at validation, not pre-retrieval
+    — CONFIRMED**, direct consequence of #1.
+  - **New finding, not in the review**: `validate_and_render`'s
+    `_terminated_before()` (`validation_gate.py:67`) is a **second,
+    independently-drifted reimplementation** of the same predicate — checks
+    `repeal/expiry/suspend` but is missing `declared_invalid` entirely.
+    Concretely: **a court `declared_invalid` ruling is unenforceable
+    anywhere in the live query path today** — not pre-retrieval, not at
+    validation — despite the schema, the canonical SQL function, and the
+    eval gate all modeling it correctly. This means "eval-gates 0/0/0" has
+    been true and consistently reported across every merge in this file's
+    history, but never actually proved the live path enforces these
+    invariants — it proves the isolated SQL functions are correct, which is
+    a materially weaker claim.
+  - **#3 no claim-support check — CONFIRMED.** `validate_and_render`
+    (`validation_gate.py:87`) checks span-hash + eligibility +
+    `_terminated_before`, never that `claim.claim` text is actually
+    entailed by `chunk_text`. Biggest single remaining gap after #1/#2.
+  - **#4 citations are chunk metadata, not an authority chain — CONFIRMED.**
+    `_citation()` (`validation_gate.py:12`) reads `act_name`/`case_id`/
+    `source_publication.kind`/`ocr_confidence` off the chunk directly — no
+    `component`→`expression`→amending-`lifecycle_effect` resolution, no
+    `derived` labeling. PS-3 gap as described.
+  - **#5 composer output not re-validated — CONFIRMED.**
+    `answer_composer_node`→`_compose_answer()` (`gated_orchestrator.py:175`)
+    is a second independent Gemini call whose JSON becomes `_response`
+    directly (`query_graph.py:381`) with no check that its `citation` fields
+    still match what `validate_and_render` actually approved.
+  - **#6 no exact दफा/धारा/URI lookup path — CONFIRMED.**
+    `retrieve_postgres` (`postgres_retriever.py:133`) is purely
+    `vector_search` + `lexical_search` (`plainto_tsquery` bag-of-words) — no
+    structured Act-title+section parse-and-match.
+  - **#7 precedent not wired into `/ask` — CONFIRMED, and correct per
+    design, not a bug.** `retrieve_precedent()` is called only from
+    `app/eval/phase_d_slice.py:43`. `system-design.md:192`: "Case law
+    answers ship [at Phase D], not before." The `phase-d/precedent` branch
+    (schema/retriever/gate/eval) is already merged to `dev`, but Phase D was
+    never declared active. Asked Prakash explicitly — confirmed: leave
+    unwired, don't fold into this program.
+  - **#8 stress suite empty — CONFIRMED.** `make stress` → literal
+    `"no stress cases yet"` (Makefile:26-27).
+  - Two of the review's asks were **not** turned into tasks: jurisdiction
+    filtering (`work.jurisdiction` is `'NP'` on every row today — a no-op
+    filter until multi-jurisdiction is real) and ACL (no schema concept
+    exists anywhere — this is a public legal-QA product with no per-user
+    document permissions; treated as review scope creep unless Prakash says
+    otherwise later).
+  - Three design questions asked and answered before scoping (not assumed):
+    (a) does `suspend` terminate eligibility during its window — **yes**,
+    Prakash's call, matches `validation_gate.py`'s existing (partial)
+    behavior and migration 002's already-shipped fix; (b) claim-support
+    mechanism — **deterministic verbatim-quote substring check**, no NLI/new
+    dependency, per Prakash's call and AGENTS.md's skeleton-first
+    philosophy; (c) is Phase D active — **no**, per Prakash's call, precedent
+    stays unwired.
+  - **Program, priority-ordered, PS-mapped, sequenced by file overlap**:
+    - **AGENT-26** (dispatched now) — canonical predicate, wire
+      `eligible_chunk_ids()` + `_terminated_before()` to `is_eligible()`,
+      single source. Files: `eligibility_gate.py`,
+      `validation_gate.py::_terminated_before` only. CI #1/#2, PS-2/PS-4/
+      PS-15. Foundational, unblocks nothing else structurally but shares
+      `validation_gate.py` with AGENT-27/28 so those are sequenced after.
+    - **AGENT-27** (queued) — claim-support verbatim-quote check.
+      `validation_gate.py`, `gated_orchestrator.py::_structured_claims`
+      prompt, `query_graph.py` claim shape. Sequenced after AGENT-26 (same
+      file, avoid collision per the AGENT-19/20 lesson).
+    - **AGENT-28** (queued) — citation authority-chain rendering (PS-3).
+      `validation_gate.py::_citation`. Sequenced after AGENT-26/27.
+    - **AGENT-29** (queued, parallel-safe) — composer output
+      re-validation guardrail. `gated_orchestrator.py::_compose_answer`,
+      `query_graph.py::answer_composer_node`. Zero file overlap with 26-28.
+    - **AGENT-30** (queued, parallel-safe) — exact दफा/धारा/उपदफा/अनुसूची/
+      Act-title lookup merged into `retrieve_postgres` via existing `_rrf`.
+      `postgres_retriever.py` only. Zero file overlap with 26-29.
+    - **AGENT-31** (queued, run last) — real stress/red-team suite
+      (repealed/current, not-yet-effective, romanized, cross-ref, proviso,
+      enabling-power cells). `Makefile`, new `tests/stress/`. PS-12.
+      Deliberately last — should test the corpus against the *fixed*
+      invariants, not the current gaps.
+    Asked Prakash whether to run AGENT-29/30 in parallel via Kimi given zero
+    file overlap with AGENT-26 — declined, run everything sequentially
+    through Pi for now.
+  - The stray `scripts/ingest_laws.py` stash from session start (2026-09-02)
+    was dropped on Prakash's call — confirmed functionally no-op (a blank
+    line inside a multi-line `print()` f-string, no behavior change) and it
+    no longer applied cleanly anyway, since AGENT-25 rewrote that exact
+    section. Two stale local branches already merged into `dev`
+    (`agent/amend-tag-correlation`, `agent/schedule-header-collision`) were
+    also deleted as routine cleanup this session.
 
 - **AGENT-24 review round 2 (2026-09-02, MERGED)**: Pi returned `bf5535e`
   (reported hash had garbled trailing digits beyond the real 7-char prefix
