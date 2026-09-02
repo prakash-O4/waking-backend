@@ -9,6 +9,39 @@ scoping/task.md not yet written, queued.
 **IDLE, between waves** — AGENT-26 merged to `dev`. AGENT-27-31 queued per
 the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-27.
 
+## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
+
+Grounded against an external review, verified claim-by-claim against actual
+code before accepting any of it (full grounding + review-claim-by-claim
+verification in the dated entry below). Sequenced by file overlap — same
+file means same engineer, in order, not parallel (per the AGENT-19/20
+lesson: two engineers colliding on one file). Three design questions were
+already asked and answered by Prakash before this table was cut — do not
+re-ask them:
+- `suspend` **does** terminate eligibility during its window (matches
+  migration 002 + `validation_gate.py`'s prior behavior).
+- Claim-support check is a **deterministic verbatim-quote substring match**,
+  not an NLI/semantic-entailment model — no new dependency.
+- Phase D (precedent) is **not** active — leave `retrieve_precedent()`
+  unwired into `/ask` until Prakash explicitly says otherwise.
+
+Also explicitly out of scope, not tasks: jurisdiction filtering
+(`work.jurisdiction` is `'NP'` on every row today — no-op until
+multi-jurisdiction is real) and ACL (no schema concept exists — public
+legal-QA product, no per-user document permissions).
+
+| # | Status | Scope | Files | PS / Invariant | Depends on |
+|---|---|---|---|---|---|
+| AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
+| AGENT-27 | queued, next | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
+| AGENT-28 | queued | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
+| AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
+| AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
+| AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
+
+**Next action**: scope AGENT-27 (write `task.md`, create
+`agent/claim-support-verbatim-quote` off `dev`), dispatch to Pi.
+
 - **AGENT-26 (2026-09-02, MERGED)**: Pi's diff was sitting **uncommitted** in
   the working tree on the correct branch (same recurring failure mode as
   AGENT-15/19/20/22 — worth a standing fix to how engineers are told to
