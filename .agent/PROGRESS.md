@@ -1,15 +1,33 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-- **AGENT-24** — wire PS-16 co-retrieve chain into query-side context
-  assembly. Branch: `agent/co-retrieve-parent-context`. Round 1 reviewed,
-  one finding, rework note appended (`b911318`) — **awaiting Pi's fix**.
-- **AGENT-25** — MERGED (see entry below).
+None. AGENT-24 and AGENT-25 both merged to `dev`.
 
 ## Status
-AGENT-24 in rework, round 1. One stray uncommitted hunk in the working
-tree still needs Prakash's decision (see
+**IDLE** — AGENT-24/25 both merged to dev. Awaiting Prakash's direction. One
+stray uncommitted hunk in the working tree still needs a decision (see
 below, unrelated to either task).
+
+- **AGENT-24 review round 2 (2026-09-02, MERGED)**: Pi returned `bf5535e`
+  (reported hash had garbled trailing digits beyond the real 7-char prefix
+  `bf5535e` — the commit itself is real and matches the fix described, not
+  treated as a red flag, just noted). Fix is structurally correct, not a
+  superficial patch: `_resolve_co_retrieve_parents` now iterates
+  `candidates` (which preserves the authority-tier/score order already
+  established by `authority_ranker_node`) one hit at a time, `LIMIT 1`
+  per-hit query, breaking once `len(additional) >= max_additional` — the
+  exact shape of `_resolve_cross_refs`, the sibling pattern this was
+  supposed to mirror from round 1. New test
+  (`test_co_retrieve_parent_respects_hit_order_when_capped`) seeds 7
+  candidates with 7 distinct eligible parents and asserts the kept 5 are
+  exactly the first 5 in input order with correct `_issue_idx`
+  propagation — directly proves the fix, not just re-testing the old
+  cases. Independently re-verified rather than trusting the report:
+  `make test` (192 passed, 3 skipped — matches), `make lint` clean, `make
+  eval-gates` 0/0/0, all reproduced myself. File scope still exactly the
+  files that needed the fix (`gated_orchestrator.py`,
+  `test_co_retrieve_parent.py`). Merged `agent/co-retrieve-parent-context`
+  → `dev` (`--no-ff`).
 
 - **AGENT-24 review round 1 (2026-09-02)**: Pi returned `ac9465f` —
   `_resolve_co_retrieve_parents` in `gated_orchestrator.py`, new
