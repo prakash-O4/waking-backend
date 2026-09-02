@@ -381,6 +381,72 @@ def _authority_rank_hits(hits: list[dict[str, Any]], conn: Any) -> list[dict[str
         return hits
 
 
+def _resolve_co_retrieve_parents(
+    hits: list[dict[str, Any]],
+    as_of: date,
+    conn: Any,
+    max_additional: int = 5,
+) -> list[dict[str, Any]]:
+    """Fetch eligible co_retrieve_parent_id parents for current hits."""
+    candidates = [
+        h for h in hits if h.get("component_uri") and not h.get("co_retrieved")
+    ]
+    if not candidates:
+        return []
+    try:
+        existing_ids = {h["component_uri"] for h in hits}
+        origin_by_id = {str(h["component_uri"]): h for h in candidates}
+        eligible = list(eligible_chunk_ids(conn, as_of))
+        if not eligible:
+            return []
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id::text, p.id::text, p.chunk_text, p.span_sha256,
+                       p.act_name, p.case_id, p.chunk_type, p.section_number,
+                       d.source_id
+                FROM chunks c
+                JOIN chunks p ON p.id = c.co_retrieve_parent_id
+                JOIN documents d ON d.id = p.document_id
+                WHERE c.id::text = ANY(%(hit_ids)s)
+                  AND p.id::text = ANY(%(eligible)s)
+                LIMIT %(limit)s
+                """,
+                {
+                    "hit_ids": list(origin_by_id),
+                    "eligible": eligible,
+                    "limit": max_additional,
+                },
+            )
+            rows = cur.fetchall()
+
+        additional: list[dict[str, Any]] = []
+        for row in rows:
+            source_hit_id, parent_id = str(row[0]), str(row[1])
+            if parent_id in existing_ids:
+                continue
+            existing_ids.add(parent_id)
+            origin = origin_by_id[source_hit_id]
+            additional.append(
+                {
+                    "component_uri": parent_id,
+                    "text_ne": row[2],
+                    "text_hash": row[3],
+                    "score": 0.0,
+                    "work_title_ne": row[4] or row[5] or "",
+                    "chunk_type": row[6],
+                    "section_number": row[7] or "",
+                    "document_source_id": str(row[8]) if row[8] else "",
+                    "co_retrieved": True,
+                    "_issue_idx": origin.get("_issue_idx", 0),
+                }
+            )
+        return additional
+    except Exception:
+        return []
+
+
 def _resolve_cross_refs(
     hits: list[dict[str, Any]],
     as_of: date,

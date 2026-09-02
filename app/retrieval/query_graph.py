@@ -20,7 +20,9 @@ _ASCII_TO_DEVA = str.maketrans("0123456789", "०१२३४५६७८९")
 
 def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     lf_trace = config["configurable"].get("lf_trace")
-    result = _orch._fact_extract(state["raw_query"], state["session_as_of"], lf_trace=lf_trace)
+    result = _orch._fact_extract(
+        state["raw_query"], state["session_as_of"], lf_trace=lf_trace
+    )
     issue_queries = result["issue_queries"]
     missing_facts = result["missing_facts"]
 
@@ -58,7 +60,9 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     for idx, iq in enumerate(issue_queries):
         if _orch._wall_clock_expired(state["wall_clock_start"]):
             break
-        hits = _orch.retrieve_postgres(conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace)
+        hits = _orch.retrieve_postgres(
+            conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace
+        )
         for h in hits:
             all_hits.append({**h, "_issue_idx": idx})
 
@@ -119,6 +123,25 @@ def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str
         except Exception:
             pass
     return {"all_hits": ranked}
+
+
+def co_retrieve_parent_resolver_node(
+    state: QueryState, config: RunnableConfig
+) -> dict[str, Any]:
+    conn = config["configurable"]["conn"]
+    lf_trace = config["configurable"].get("lf_trace")
+    additional = _orch._resolve_co_retrieve_parents(
+        state["all_hits"], state["session_as_of"], conn
+    )
+    if lf_trace is not None:
+        try:
+            sp = lf_trace.span(name="co_retrieve_parent_resolution")
+            sp.end(metadata={"co_retrieve_parents_added": len(additional)})
+        except Exception:
+            pass
+    if not additional:
+        return {}
+    return {"all_hits": state["all_hits"] + additional}
 
 
 def cross_ref_resolver_node(
@@ -366,6 +389,7 @@ def build_graph() -> Any:
     builder.add_node("fact_extractor", fact_extractor_node)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("authority_ranker", authority_ranker_node)
+    builder.add_node("co_retrieve_parent_resolver", co_retrieve_parent_resolver_node)
     builder.add_node("cross_ref_resolver", cross_ref_resolver_node)
     builder.add_node("enabling_power_resolver", enabling_power_resolver_node)
     builder.add_node("reasoner", reasoner_node)
@@ -379,7 +403,8 @@ def build_graph() -> Any:
         {"answer_composer": "answer_composer", "retrieve": "retrieve"},
     )
     builder.add_edge("retrieve", "authority_ranker")
-    builder.add_edge("authority_ranker", "cross_ref_resolver")
+    builder.add_edge("authority_ranker", "co_retrieve_parent_resolver")
+    builder.add_edge("co_retrieve_parent_resolver", "cross_ref_resolver")
     builder.add_edge("cross_ref_resolver", "enabling_power_resolver")
     builder.add_edge("enabling_power_resolver", "reasoner")
     builder.add_edge("reasoner", "validate")
