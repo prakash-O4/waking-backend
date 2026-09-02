@@ -16,6 +16,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
+_PARENT_CHILD_LEVELS_EXPECT_LINKS = {"proviso", "tariff_row", "tariff_note"}
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -27,6 +30,42 @@ def _iter_records(path: Path, limit: int | None) -> list[dict[str, Any]]:
     if limit is not None:
         lines = lines[:limit]
     return [json.loads(line) for line in lines if line.strip()]
+
+
+def _print_parent_child_coverage(conn: Any) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT level::text,
+                   COUNT(*) FILTER (WHERE parent_section IS NOT NULL) AS total_children,
+                   COUNT(*) FILTER (
+                       WHERE parent_section IS NOT NULL
+                         AND co_retrieve_parent_id IS NOT NULL
+                   ) AS linked_children,
+                   COUNT(*) FILTER (
+                       WHERE parent_section IS NOT NULL
+                         AND co_retrieve_parent_id IS NULL
+                   ) AS orphan_children
+            FROM chunks
+            WHERE parent_section IS NOT NULL
+            GROUP BY level
+            ORDER BY level
+            """
+        )
+        rows = cur.fetchall()
+
+    print("\n=== chunk parent-child coverage ===")
+    if not rows:
+        print("  no child chunks found")
+        return
+    print("  level          total_children  linked_children  orphan_children")
+    for level, total, linked, orphan in rows:
+        warning = (
+            "  ⚠ expected linked"
+            if level in _PARENT_CHILD_LEVELS_EXPECT_LINKS and orphan
+            else ""
+        )
+        print(f"  {level:<14} {total:>14}  {linked:>15}  {orphan:>15}{warning}")
 
 
 def _dry_run(records: list[dict[str, Any]]) -> None:
@@ -92,11 +131,12 @@ def main() -> None:
                 else:
                     counts["rejected"] += 1
 
-    print(
-        "done: "
-        f"pending_review={counts['pending_review']} skipped={counts['skipped']} "
-        f"rejected={counts['rejected']} failed={counts['failed']}"
-    )
+            print(
+                "done: "
+                f"pending_review={counts['pending_review']} skipped={counts['skipped']} "
+                f"rejected={counts['rejected']} failed={counts['failed']}"
+            )
+            _print_parent_child_coverage(conn)
     print(
         f"\n=== ingestion cost ===\n"
         f"  llm tokens   : {cb.prompt_tokens:,} in + {cb.completion_tokens:,} out"

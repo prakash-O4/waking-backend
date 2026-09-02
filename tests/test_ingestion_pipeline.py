@@ -7,6 +7,7 @@ dual-approval test is skipped unless SUPABASE_DB_URL points at a Postgres.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from datetime import date
@@ -25,6 +26,7 @@ from app.ingestion.pipeline import IngestionPipeline, _content_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_005 = ROOT / "migrations" / "005_ingestion_pipeline.sql"
+LAWS_JSONL = ROOT / "laws.jsonl"
 
 FILLER = "यस ऐनको प्रयोजनको लागि परीक्षण पाठ हो जसले दफा लामो बनाउँछ । "
 
@@ -60,6 +62,14 @@ NKP_FIXTURE = """सर्वोच्च अदालत, संयुक्त
 
 इति संवत् २०८१ साल वैशाख ३ गते रोज २ शुभम्
 """
+
+
+def _real_law_record(source_id: str) -> dict[str, Any]:
+    for line in LAWS_JSONL.read_text(encoding="utf-8").splitlines():
+        record: dict[str, Any] = json.loads(line)
+        if record.get("_id") == source_id:
+            return record
+    raise AssertionError(f"missing laws.jsonl record {source_id}")
 
 
 def test_laws_chunker_structure() -> None:
@@ -103,6 +113,55 @@ def test_laws_chunker_structure() -> None:
     assert "<amend>" in chunks[1].chunk_text
     assert "<amend>" not in chunks[1].embed_text
     assert "[संशोधित]" in chunks[1].embed_text
+
+
+def test_laws_chunker_real_oversized_dafa_with_provisos() -> None:
+    record = _real_law_record("a0a287ee-559e-5ef9-8931-8871bf6d0c63")
+    chunks = LawsChunker().chunk_text(str(record["content"]))
+    section_18 = [c for c in chunks if c.section_number == "१८"]
+
+    assert record["name"] == "सुशासन_(व्यवस्थापन_तथा_सञ्चालन)_ऐन_२०६४"
+    assert [c.level for c in section_18] == [
+        "subsection",
+        "proviso",
+        "subsection",
+        "subsection",
+        "subsection",
+        "proviso",
+        "subsection",
+        "subsection",
+        "subsection",
+    ]
+    assert all(c.parent_section == "१८" for c in section_18)
+    assert all(
+        c.co_retrieve_parent_index is None
+        for c in section_18
+        if c.level == "subsection"
+    )
+
+    provisos = [c for c in section_18 if c.level == "proviso"]
+    assert [c.co_retrieve_parent_index for c in provisos] == [22, 26]
+    for proviso in provisos:
+        assert proviso.co_retrieve_parent_index is not None
+        parent = chunks[proviso.co_retrieve_parent_index]
+        assert parent.level == "subsection"
+        assert parent.section_number == proviso.section_number
+        assert "स्पष्टीकरण" in proviso.chunk_text
+
+
+def test_laws_chunker_real_paragraph_fallback_keeps_reconstruction_order() -> None:
+    record = _real_law_record("d222906c-a478-517a-9b6e-37ecba10dc1e")
+    content = str(record["content"])
+    chunks = LawsChunker().chunk_text(content)
+    section_8 = [c for c in chunks if c.section_number == "८"]
+
+    assert record["name"] == "लेखापरीक्षण_ऐन_२०७५"
+    assert [c.level for c in section_8] == ["subsection", "subsection"]
+    assert all(c.parent_section == "८" for c in section_8)
+    assert all(c.co_retrieve_parent_index is None for c in section_8)
+    assert "\n\n".join(c.chunk_text for c in section_8) in content
+    positions = [content.index(c.chunk_text) for c in section_8]
+    assert positions == sorted(positions)
 
 
 def test_nkp_chunker_sections() -> None:
