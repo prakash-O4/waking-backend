@@ -1,12 +1,52 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None.
+**AGENT-24** — wire PS-16 co-retrieve chain into query-side context
+assembly. Branch: `agent/co-retrieve-parent-context` (off `dev`). Assigned
+to **Pi** (narrow, correctness-heavy retrieval-path wiring — matches Pi's
+selection criteria, not Kimi's). `task.md` committed (`fdbf265`). Status:
+**dispatched, awaiting Pi's run.**
 
 ## Status
-**IDLE** — AGENT-22/23 both merged to dev; pending-on-Prakash backfill work
-now done directly on `dev`. Awaiting Prakash's direction. One stray
-uncommitted hunk in the working tree needs a decision (see below).
+Stashed a stray uncommitted `scripts/ingest_laws.py` hunk before branching
+(`git stash` — message: "stray ingest_laws.py blank-line hunk + untracked
+docs, pending Prakash decision") so it wouldn't bleed onto AGENT-24's branch,
+per the AGENT-20/21 shared-working-tree lesson. Still needs Prakash's call
+(revert vs. intentional) — not part of this task.
+
+- **AGENT-24 scoping (2026-09-02)**: Pi rated the ingestion pipeline 7/10
+  and raised 5 grounding questions about `chunks.parent_section` /
+  `co_retrieve_parent_id` coverage. Answered all 5 against the actual code
+  (`laws_chunker.py`, `tariff_chunker.py`, `pgvector_indexer.py`, migration
+  005) rather than the design doc alone: (1) no दफा-level "parent" chunk is
+  ever emitted when a दफा is split — pieces stand alone; (2)/(5)
+  `co_retrieve_parent_id` is null-by-design for every `subsection` chunk
+  (17,501/17,501 in the live DB, confirmed by direct query) — only
+  `proviso` (law) and `tariff_row`/`tariff_note` (tariff) ever populate it,
+  and for those it's ~100% linked (51/51 proviso; 5,265/5,265 + 3,807/3,807
+  tariff); (3) not canonical — exactly two scoped uses exist, no third.
+  This led to the real finding: `co_retrieve_parent_id` is written
+  correctly at ingest (has been since the very first ingestion commit,
+  `84f989a` — not a recent regression) but is **read nowhere** —
+  `grep -rn "co_retrieve_parent_id" --include="*.py" .` matches only the
+  indexer. `system-design.md` PS-16 and `docs/ingestion_design.md:56`
+  explicitly require query-side context assembly to fetch this chain
+  ("eval-asserted") and no such eval or retrieval code exists
+  (`app/retrieval/*` has an unrelated `"co_retrieved"` flag used for
+  cross-ref/enabling-power resolution only). Confirmed **no reingestion
+  needed** — live DB audit query proves the corpus already ingested (677
+  docs, 53,673 chunks) has fully correct linkage; this is retrieval-path
+  wiring only. Scoped as AGENT-24: new resolver in
+  `gated_orchestrator.py`/`query_graph.py` mirroring the existing
+  `_resolve_cross_refs`/`enabling_power_resolver_node` pattern (single-hop
+  by construction, eligibility-gated, additive-only), plus tests proving
+  real behavior. Confirmed PS-16 is not one of the three zero-tolerance
+  `make eval-gates` gates (`app/eval/gates.py` only covers
+  `repealed-as-current`/`not-yet-effective-as-current`/
+  `overruled-as-good-law`) — a regular test is the right enforcement
+  mechanism, not a gates.py addition. Assigned to Pi (precise,
+  correctness-heavy retrieval-path wiring — not Kimi's broad-exploration
+  profile). Branch `agent/co-retrieve-parent-context`, `task.md` committed.
 
 - **Backfill run + dedup bug fix (2026-09-01/02, direct commits on `dev`,
   authored by Prakash himself — not a Wakil-dispatched task)**: running the
