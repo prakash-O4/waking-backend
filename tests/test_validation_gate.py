@@ -77,6 +77,8 @@ class GateCursor:
             self.result = (self.conn.component_uri,)
         elif squashed.startswith("SELECT 1 FROM lifecycle_effect"):
             self.result = (1,) if self.conn.terminated else None
+        elif squashed.startswith("SELECT is_eligible"):
+            self.result = (not self.conn.terminated,)
         elif squashed.startswith("SELECT c.act_name"):
             self.result = self.conn.citation_row
         else:
@@ -103,17 +105,15 @@ class GateConn:
         return self.cursor_obj
 
 
-def test_terminated_before_false_for_future_or_absent_effect() -> None:
+def test_terminated_before_uses_canonical_is_eligible() -> None:
     conn = GateConn()
     conn.terminated = False
     assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
-    assert "lower(legal_valid_time) <= %(as_of)s::timestamptz" in conn.cursor_obj.sql
+    assert conn.cursor_obj.sql == "SELECT is_eligible(%s, %s)"
 
 
 class TerminationCursor:
-    """Actually evaluates the lower(legal_valid_time) <= as_of predicate
-    against a seeded date, instead of returning a canned boolean — proves
-    the per-claim-as-of direction, not just the SQL shape."""
+    """Actually evaluates the canonical is_eligible predicate."""
 
     def __init__(self, conn: "TerminationConn") -> None:
         self.conn = conn
@@ -125,16 +125,19 @@ class TerminationCursor:
     def __exit__(self, *args: object) -> None:
         pass
 
-    def execute(self, sql: str, params: dict[str, Any]) -> None:
+    def execute(self, sql: str, params: dict[str, Any] | tuple[Any, ...]) -> None:
         squashed = " ".join(sql.split())
         if squashed.startswith("SELECT component_uri FROM chunks"):
             self.result = (self.conn.component_uri,)
-        elif squashed.startswith("SELECT 1 FROM lifecycle_effect"):
-            effect_date = self.conn.terminating_effect_date
-            as_of = params["as_of"]
-            self.result = (
-                (1,) if effect_date is not None and effect_date <= as_of else None
+        elif squashed.startswith("SELECT is_eligible"):
+            _component_uri, raw_as_of = params
+            as_of = cast(date, raw_as_of)
+            commenced = self.conn.commence_date <= as_of
+            terminated = (
+                self.conn.terminating_effect_date is not None
+                and self.conn.terminating_effect_date <= as_of
             )
+            self.result = (commenced and not terminated,)
         else:
             raise AssertionError(squashed)
 
@@ -145,6 +148,7 @@ class TerminationCursor:
 class TerminationConn:
     def __init__(self, terminating_effect_date: date | None) -> None:
         self.component_uri: str | None = "/law/dafa/1"
+        self.commence_date = date(2020, 1, 1)
         self.terminating_effect_date = terminating_effect_date
         self.cursor_obj = TerminationCursor(self)
 

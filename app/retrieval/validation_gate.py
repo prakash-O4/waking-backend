@@ -6,7 +6,7 @@ from typing import Any
 
 from psycopg2.extensions import connection
 
-from app.retrieval.eligibility_gate import eligible_chunk_ids
+from app.retrieval.eligibility_gate import eligible_chunk_ids, is_eligible
 
 
 def _citation(
@@ -66,22 +66,7 @@ def _authority_component_uri(conn: connection, evidence_id: str) -> str | None:
 
 def _terminated_before(conn: connection, evidence_id: str, as_of: date) -> bool:
     component_uri = _authority_component_uri(conn, evidence_id)
-    if component_uri is None:
-        return False
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT 1
-            FROM lifecycle_effect
-            WHERE component_uri = %(component_uri)s
-              AND approval_status = 'approved'
-              AND effect_type IN ('repeal', 'expiry', 'suspend')
-              AND lower(legal_valid_time) <= %(as_of)s::timestamptz
-            LIMIT 1
-            """,
-            {"component_uri": component_uri, "as_of": as_of},
-        )
-        return cur.fetchone() is not None
+    return component_uri is not None and not is_eligible(conn, component_uri, as_of)
 
 
 def validate_and_render(
