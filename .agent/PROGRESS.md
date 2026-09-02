@@ -4,7 +4,40 @@
 None.
 
 ## Status
-**IDLE** — AGENT-22/23 both merged to dev. Awaiting Prakash's direction.
+**IDLE** — AGENT-22/23 both merged to dev; pending-on-Prakash backfill work
+now done directly on `dev`. Awaiting Prakash's direction. One stray
+uncommitted hunk in the working tree needs a decision (see below).
+
+- **Backfill run + dedup bug fix (2026-09-01/02, direct commits on `dev`,
+  authored by Prakash himself — not a Wakil-dispatched task)**: running the
+  AGENT-22 entry's pending backfills against the real 345-law corpus
+  surfaced a real bug: `upsert_expression`'s dedup key was
+  `(component_uri, as_of, text_hash)`, so identical text reprocessed on a
+  later run date looked "new" — 14,963 duplicate rows written across
+  14,560 components on this run alone. Fixed (`afea041`) by dropping
+  `as_of` from the dedup key — identical `text_hash` means nothing
+  changed, regardless of run date — with a new test file
+  (`tests/test_authority_writer.py`). Separately (`14c0479`), added
+  `scripts/refresh_chunk_effective_dates.py`: `chunks.effective_date_ad`
+  was only ever written once at ingest time from whatever `commence`
+  effects were approved *then*; approving effects afterward never
+  refreshed it, so a corpus ingested before any approvals existed stayed
+  permanently non-retrievable even after full sign-off. New script
+  recomputes it in bulk from current lifecycle-effect approval state.
+  This closes out the "still pending on Prakash" line from the AGENT-22
+  re-dispatch entry below (`backfill_authority_layer.py` dry-run then
+  real, plus AGENT-23's two backfill scripts) — not independently
+  re-verified by Claude since these are Prakash's own direct commits, not
+  an engineer dispatch under Wakil-G review.
+  **Not yet run**: `scripts/refresh_chunk_effective_dates.py` itself —
+  it's new, untested against the live corpus as of this session.
+
+- **Open item found at session-resume reconciliation (2026-09-02)**:
+  working tree has an unexplained unstaged hunk in `scripts/ingest_laws.py`
+  — a single blank line inserted mid-`print()` f-string concatenation,
+  no functional change, no attribution. Doesn't match any in-flight task.
+  Left as-is pending Prakash's call (revert vs. intentional edit-in-progress)
+  rather than assumed to be noise and discarded.
 
 - **AGENT-22 re-dispatch (2026-09-01, MERGED)**: this time Pi's own
   tooling stashed the leftover AGENT-23 dirt (`pi-save-small-safety-fixes`)
