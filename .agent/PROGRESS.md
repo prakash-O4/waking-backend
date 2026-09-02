@@ -1,22 +1,43 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-Two tasks dispatched, both awaiting Pi's run:
 - **AGENT-24** — wire PS-16 co-retrieve chain into query-side context
   assembly. Branch: `agent/co-retrieve-parent-context`. `task.md`
-  committed. No file overlap with AGENT-25.
-- **AGENT-25** — make the chunk parent-child invariant measurable and
-  corpus-proven (coverage audit + real-corpus tests + reconstruction-rule
-  doc). Branch: `agent/chunk-parent-coverage`. `task.md` committed. No
-  file overlap with AGENT-24.
+  committed. Awaiting Pi's run.
+- **AGENT-25** — MERGED (see entry below).
 
 ## Status
-**DISPATCHED** — both assigned to **Pi** (narrow, correctness-heavy;
-neither is Kimi's broad-exploration profile). Since they touch disjoint
-files (`app/retrieval/*` vs. `app/ingestion/*`/`scripts/ingest_laws.py`/
-tests), Pi can run them in either order without collision. One stray
-uncommitted hunk in the working tree still needs Prakash's decision (see
+AGENT-24 dispatched to **Pi**. One stray uncommitted hunk in the working
+tree still needs Prakash's decision (see
 below, unrelated to either task).
+
+- **AGENT-25 (2026-09-02, MERGED)**: Pi returned `a183188` — coverage
+  report, two real-corpus tests, reconstruction-rule doc. Independently
+  verified rather than trusting the report: file scope matched `task.md`
+  exactly (only `scripts/ingest_laws.py`, `docs/ingestion_design.md`,
+  `tests/test_ingestion_pipeline.py`, new `tests/test_ingest_laws.py`).
+  Traced `_print_parent_child_coverage`'s placement by hand — the diff's
+  indentation change looked alarming at a glance (looked like the "done:"
+  summary print moved inside the per-record loop) but is actually correct:
+  still dedented to run once after the loop, still inside the open
+  `connect()` context manager so `conn` is valid when the coverage query
+  runs. Re-ran the chunker myself against both real `laws.jsonl` records
+  independent of the diff, not just re-running the test file: every
+  asserted value matched exactly (सुशासन_ऐन_२०६४'s दफा १८ — 9 pieces,
+  proviso `co_retrieve_parent_index` `[22, 26]`, both parents correctly
+  `subsection`-level with स्पष्टीकरण text; लेखापरीक्षण_ऐन_२०७५'s दफा ८ — 2
+  subsection pieces, `co_retrieve_parent_index` both `None`, positions in
+  document order). Went one step further on the second record: confirmed
+  it's a genuine paragraph-fallback case, not a coincidence — दफा ८ is
+  enumerated with Devanagari letters (क, ख, ग…) rather than numerals, so
+  `_SUBSECTION_SPLIT_RE` (which requires `[०-९]+`) genuinely finds zero
+  उपदफा anchors on this real block (4,102 chars, over the 2,400 max),
+  correctly forcing `_split_oversized`'s paragraph-boundary path. `make
+  test` (189 passed, 3 skipped — matches), `make lint` clean (both changed
+  files are in the Makefile's fixed list this time, no manual mypy/ruff
+  gap). No दफा parent rows added, `co_retrieve_parent_id` population logic
+  untouched, zero overlap with AGENT-24's scope. Merged
+  `agent/chunk-parent-coverage` → `dev` (`--no-ff`).
 
 - **AGENT-24/25 scoping (2026-09-02)**: Pi rated the ingestion pipeline
   7/10 and asked grounding questions about `chunks.parent_section` /
