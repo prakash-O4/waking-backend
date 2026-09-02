@@ -127,3 +127,40 @@ tool. No `Co-Authored-By: Claude` trailer or similar.
 Commit and push to `agent/co-retrieve-parent-context`. Report: commit
 hash(es), changed files, checks run/results, assumptions made, remaining
 risks. No extra markdown handoff files — this `task.md` is the only one.
+
+## Rework note (2026-09-02, round 1)
+Everything else in `ac9465f` checked out clean on independent review — graph
+wiring matches spec exactly, all 5 required test cases present and using a
+real behavioral stub (not string-only SQL assertions), eligibility gating
+correct, `make test`/`make lint`/`make eval-gates` all reproduced. One real
+finding, not accepted as-is:
+
+**`_resolve_co_retrieve_parents`'s SQL (`gated_orchestrator.py:414`,
+`LIMIT %(limit)s`) has no `ORDER BY` before the limit.** By the time this
+resolver runs, `state["all_hits"]` is already sorted by `(tier, -score)` —
+`authority_ranker_node` runs immediately before it. The batched query joins
+every candidate hit_id in one shot and lets Postgres return whichever
+`max_additional` (5) matching rows it likes, discarding that ordering. If a
+single query produces more than 5 hits with a resolvable, eligible
+`co_retrieve_parent_id` (plausible: `MAX_SUBQUERIES=3` issues × `k=5` each),
+which hits actually get their operative-clause/tariff-heading context is
+arbitrary — a high-tier proviso can lose the race to a low-tier one,
+non-deterministically, with no signal beyond a Langfuse count. This is
+exactly the failure mode the sibling functions this task named as the
+pattern to mirror avoid: `_resolve_cross_refs` (line 467,
+`for hit in hits[:10]:`, per-hit `LIMIT 1`, breaking once the cap is hit)
+and `_fetch_enabling_chunk` both truncate by iterating hits in their
+existing rank order, so truncation always drops the lowest-priority
+candidates first, never an arbitrary one.
+
+**Fix:** make truncation respect the existing hit order — either iterate
+`candidates` in order and stop once `len(additional) >= max_additional`
+(closest to the sibling pattern, may mean one query per hit like
+`_resolve_cross_refs`, or a single query per iteration-batch — your call),
+or keep one batched query but preserve priority explicitly (e.g. order by
+each hit's position in the input list, not left to the database). Either
+way: **add a test proving it** — seed more than `max_additional` candidates
+with distinct `co_retrieve_parent_id` links in a known priority order, and
+assert the ones kept are the highest-priority ones, not just that some
+subset up to the cap is returned. Same branch, same file scope as before —
+this is the only outstanding item.
