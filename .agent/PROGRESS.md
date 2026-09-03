@@ -1,14 +1,129 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**Retrieval-hardening program (AGENT-26–31) is COMPLETE** — all 6 tasks
-merged to `dev`. AGENT-32 (new program: confirmed production gaps) is
-scoped next — see the second table below.
+AGENT-32 — confirmed production gaps bundle (6 items, one task, per
+Prakash's explicit instruction not to phase it). Scoped, `task.md`
+committed on `agent/confirmed-production-gaps` (`4da6016`, off `dev`, in
+sync). **Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between programs** — AGENT-31 merged to `dev`, closing out the
-6-task retrieval-hardening program. AGENT-32 scoping is in progress in
-this session (see the dated entry below and the new table further down).
+**DISPATCHED, awaiting engineer run** — the 6-task retrieval-hardening
+program (AGENT-26–31) is complete. AGENT-32 opens a new program; task
+brief written and committed; run prompt given to Prakash below.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/confirmed-production-gaps` — reason: precise, correctness-heavy
+work across several retrieval/gate functions plus one docs fix, matches
+Pi's selection criteria, not Kimi's. `task.md` on that branch has the full
+brief (six items, each independently verified before being accepted — see
+the dated grounding entry below).
+
+## Production-gaps program (started 2026-09-04)
+
+Six gaps confirmed by independently verifying a production-readiness
+review claim-by-claim against actual code and the ADR (not accepted on the
+review's word) — full verification recorded in the dated entry below.
+Bundled into one task per Prakash's explicit instruction. Two design
+questions were asked and answered by Prakash before this brief was
+written — do not re-ask them:
+- README's streaming/SSE claims get **corrected to match reality**, not
+  built — `/ask` stays a plain JSON response for now.
+- Parallel retrieval fan-out gets a **small, request-scoped connection
+  pool sized to the ADR's own already-approved fan-out cap (5)** — not an
+  unreviewed new mechanism.
+
+| # | Status | Scope | Files | Gap |
+|---|---|---|---|---|
+| AGENT-32 | **assigned to Pi** | Bundle: (1) per-claim as_of leak in co-retrieve/cross-ref/enabling-power resolvers, (2) eager fact-extractor interruption, (3) sequential retrieval → bounded parallel fan-out, (4) live-corpus zero-tolerance check, (5) silent reranker/reasoner fallback labeling, (6) README streaming-claim correction | `query_graph.py`, `postgres_retriever.py`, `reranker.py`, new `db_pool.py`, `writer.py` (DSN extraction only), `gates.py`, `README.md` | Core Invariant #6 (as-of), ADR Node 2/missing-facts routing, PS-12 |
+
+**Next action**: Prakash runs Pi on `agent/confirmed-production-gaps` per
+the run prompt above. Claude reviews the pushed diff on return.
+
+- **AGENT-32 scoping (2026-09-04)**: Prakash asked for a rigorous,
+  code-verified answer to a 12-point external production-readiness
+  critique, explicitly "don't edit any file, just answer the question."
+  Verified each of the 12 claims directly against code/ADR before
+  answering (not accepted on the review's word) — full per-point verdict
+  given inline in that turn, not repeated here in full, but the six
+  confirmed-real, previously-unflagged gaps became this task:
+  - **as_of leak (#2)**: confirmed `co_retrieve_parent_resolver_node`/
+    `cross_ref_resolver_node`/`enabling_power_resolver_node` all use
+    `state["session_as_of"]` instead of each hit's own issue-declared
+    as_of — a real Core Invariant #6 gap for diachronic queries.
+    Characterized precisely, not overstated: `validate_and_render`
+    independently re-derives eligibility per claim at its true as_of
+    regardless of what context fed the reasoner, and AGENT-27's
+    verbatim-quote check constrains claims to text that actually exists in
+    the cited chunk — so this is a real context-precision/hallucination-
+    risk bug, not a proven citation-safety hole given what AGENT-27-29
+    already hardened this session.
+  - **eager interruption (#5)**: found and read the actual ADR
+    (`docs/adr-001-multi-agent-query-architecture.md`), not just
+    system-design.md — confirmed `fact_extractor_node` drops the ADR's own
+    "AND no retrieved results cover it" clause entirely, and that by the
+    ADR's own node ordering (fact_extractor is Node 1, retriever is Node
+    2) this check isn't even reachable without a `fact_extractor_node`-
+    local coverage probe.
+  - **not parallel (#6)**: confirmed against the ADR's explicit "Fan-out
+    cap: 5 parallel branches maximum" and its own flagged pre-deploy risk
+    item ("connection pool size for parallel retrieval — needs measurement
+    before Stage 2 ships") — `retrieve_node` is a plain sequential loop,
+    and no connection pool exists anywhere (`connect()` returns one plain
+    `psycopg2.connection`). Broader than the review's own framing: even
+    the vector/lexical/exact searches *within* one `retrieve_postgres`
+    call are sequential, not just across issues — scoped the fix to
+    issue-level fan-out only, matching the ADR's literal "one per issue"
+    language, not method-level parallelism.
+  - **eval evidence thin (#10)**: read `app/eval/gates.py` in full —
+    confirmed precisely what "synthetic insert/rollback data" means: it
+    connects to the live DB but deletes real `lifecycle_effect` rows for
+    one arbitrary component, inserts a manufactured effect, checks the
+    isolated predicate, then rolls back via savepoint — proving the
+    function works on a manufactured case, never that the corpus's actual
+    approved data has zero real violations. Golden sets confirmed tiny
+    (10/10/5/10 entries). Explicit design decision: scope this to an
+    engineering live-corpus regression check, not new legal golden-data
+    labeling — expanding golden sets responsibly needs Prakash's own
+    verification, not something to hand an engineer unsupervised.
+  - **silent fallbacks (#11)**: confirmed `reranker.py::rerank()` has no
+    return signal for which of its three tiers ran, and that the existing
+    Langfuse span (`ran=bool(get_settings().COHERE_API_KEY)`) reports
+    config presence, not actual success — even the trace lies. Traced
+    every caller of `rerank()`/`retrieve_postgres()` via `grep` before
+    designing the fix, to guarantee an additive-only change (tag hit
+    dicts with `reranker_tier`, no signature changes) that doesn't ripple
+    through the five separate callers of `retrieve_postgres` across
+    `app/eval/*`.
+  - **README (#12)**: confirmed via `grep` — zero `StreamingResponse`/SSE
+    usage anywhere in `app/`, `/ask` returns a plain dict/`JSONResponse`.
+    `token_buffer.py` exists on disk but isn't imported by `main.py` —
+    dead code the README describes as live infrastructure.
+  Three findings from the same review were confirmed accurate but
+  correctly **not** turned into tasks — already deliberate, previously
+  recorded decisions, not oversights: jurisdiction/ACL absence (no-op
+  filter until multi-jurisdiction is real; no per-user-permission schema
+  concept for this public product), verbatim-quote-not-NLI claim support
+  (Prakash's own AGENT-27 design call), and precedent not integrated
+  (Phase D deliberately not active). Authority-chain citation (#8) was
+  found half-right, not fully confirmed: AGENT-28 renders the amendment
+  *provenance* chain correctly but not each amendment's `replacement_text`
+  content — noted precisely, not folded into this task's scope.
+  Two real design decisions surfaced while scoping the fix (not
+  pre-existing SYSTEM_DESIGN.md answers) were put to Prakash directly
+  before writing `task.md`, per the Design Gate, rather than assumed:
+  streaming build-vs-docs-fix, and connection-pool approach for parallel
+  retrieval. Both resolved (see program header above) before scoping
+  continued.
+  **Process note**: found AGENT-31's work sitting uncommitted in the
+  shared working tree while scoping this task (same recurring failure
+  mode noted many times before) — held off creating this branch until
+  Prakash confirmed it was safe, per this session's git-safety discipline,
+  rather than risk clobbering Pi's in-progress state. Reviewed and
+  committed AGENT-31 first (see its own entry below), then created this
+  branch from the now-clean `dev`.
+  Branch `agent/confirmed-production-gaps` created off `dev`. `task.md`
+  committed there (`4da6016`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -41,10 +156,8 @@ legal-QA product, no per-user document permissions).
 | AGENT-31 | **MERGED** (`e03d82f`) | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
 **Retrieval-hardening program status: all 6 tasks (AGENT-26–31) MERGED.
-Program complete.**
-
-**Next action**: create `agent/confirmed-production-gaps` off `dev` and
-dispatch AGENT-32 — see the new program section below for the full brief.
+Program complete.** Successor program (production-gaps, AGENT-32+) is
+tracked in the section above this one.
 
 - **AGENT-31 (2026-09-03, MERGED — final task in the retrieval-hardening
   program)**: Pi's work (`3cc89f1`, authored by Claude after review — see
