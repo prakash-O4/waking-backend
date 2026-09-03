@@ -1,21 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-29 (task 4 of 6 in the retrieval-hardening program) — composer output
-re-validation. Scoped, `task.md` committed on
-`agent/composer-output-revalidation` (`199420d`, off `dev`, in sync).
-**Assigned to Pi, awaiting dispatch by Prakash.**
+None dispatched. AGENT-29 (task 4 of 6 in the retrieval-hardening program)
+is **MERGED**. AGENT-30 (exact दफा/धारा lookup) is next — scoping/task.md
+not yet written, queued.
 
 ## Status
-**DISPATCHED, awaiting engineer run** — AGENT-28 merged to `dev`. AGENT-29
-task brief written and committed; run prompt given to Prakash below.
-AGENT-30/31 remain queued per the program below.
-
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/composer-output-revalidation` — reason: precise, correctness-heavy
-change to the last-mile answer-rendering path (`gated_orchestrator.py`/
-`query_graph.py::answer_composer_node`), matches Pi's selection criteria,
-not Kimi's. `task.md` on that branch has the full brief.
+**IDLE, between waves** — AGENT-29 merged to `dev`. AGENT-30/31 queued per
+the program below. Awaiting Prakash's go-ahead to scope and dispatch
+AGENT-30.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -43,12 +36,53 @@ legal-QA product, no per-user document permissions).
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
-| AGENT-29 | **assigned to Pi** | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
+| AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash runs Pi on `agent/composer-output-revalidation`
-per the run prompt above. Claude reviews the pushed diff on return.
+**Next action**: scope AGENT-30 (exact दफा/धारा/उपदफा/अनुसूची/Act-title
+lookup — write `task.md`, create `agent/exact-citation-lookup` off `dev`),
+dispatch to Pi.
+
+- **AGENT-29 (2026-09-03, MERGED)**: Pi returned `bb6c7d2` — real commit,
+  correct branch, clean tree. File scope matched `task.md` exactly
+  (`gated_orchestrator.py`, `query_graph.py`, `tests/test_orchestrator.py`
+  — the existing test file, not a new one, per the brief's pointer).
+  Prompt correctly rewritten to ask for `evidence_id`/`as_of` instead of a
+  model-authored `"citation": {}`. New `_revalidate_composed()` builds its
+  lookup keyed by `(evidence_id, as_of)` from `all_results`, filtering to
+  non-abstained entries only — verified the compound-key requirement is
+  real, not just present in a comment, via the diff and a dedicated test
+  that seeds the *same* `evidence_id` under two different `as_of` values
+  with genuinely different citations and proves the correct one is picked
+  by identity (`is new`, not just `==`). Every matched section's
+  `citation` is unconditionally overwritten with the canonical dict —
+  confirmed the model's own citation content is never trusted even when
+  present, via a test that seeds a `{"source": "model"}` citation on a
+  matching section and asserts the final result `is` the distinct
+  server-side object. `abstained` is always recomputed from the
+  post-filter section count (never trusted from the composer's JSON) and
+  `plain_language` blanks only on total strip, left alone on partial
+  strip — both proven with dedicated tests, matching the design decisions
+  in `task.md` exactly. Malformed input handled defensively and tested: a
+  non-list `relevant_sections`, and a non-dict item inside a list, are
+  both treated as empty/skipped rather than raising. The adjacent
+  one-line fallback-abstention bug (`query_graph.py:375`, `not
+  all_results` → `not any(not r.get("abstained") for r in all_results)`)
+  is fixed exactly as specified and covered by its own test (non-empty
+  all-abstained list correctly reports `abstained: True` now). A
+  full node-level test (`test_answer_composer_node_revalidates_composed_output`)
+  proves the wiring itself, not just the helper function in isolation —
+  drives `answer_composer_node` end-to-end with a monkeypatched
+  `_compose_answer` returning a bogus model citation and confirms the
+  final `_response`'s citation is the canonical server object.
+  Independently re-verified rather than trusting the report: `make test`
+  (211 passed, 3 skipped — matches), `make lint` clean, `make eval-gates`
+  against the live DB (back up this session after being unreachable during
+  AGENT-28's review) — `repealed-as-current: 0`,
+  `not-yet-effective-as-current: 0`, `overruled-as-good-law: 0`, all
+  matching. No findings — nothing sent back. Merged
+  `agent/composer-output-revalidation` → `dev` (`--no-ff`, `4092fcb`).
 
 - **AGENT-29 scoping (2026-09-03)**: traced `answer_composer_node`
   (`query_graph.py:381`) end-to-end — its returned `_response` **is** the
