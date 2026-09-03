@@ -2,20 +2,22 @@
 
 ## Current task
 AGENT-30 (task 5 of 6 in the retrieval-hardening program) — exact
-दफा/धारा/उपदफा/अनुसूची/Act-title lookup. Scoped, `task.md` committed on
-`agent/exact-citation-lookup` (`d3426e8`, off `dev`, in sync).
-**Assigned to Pi, awaiting dispatch by Prakash.**
+दफा/धारा/उपदफा/अनुसूची/Act-title lookup. Pi's first pass (`bf17e64`)
+reviewed; one correctness finding sent back as a rework note
+(`a2354cb`, same branch `agent/exact-citation-lookup`).
+**Awaiting Pi's rework, same branch.**
 
 ## Status
-**DISPATCHED, awaiting engineer run** — AGENT-29 merged to `dev`. AGENT-30
-task brief written and committed; run prompt given to Prakash below.
-AGENT-31 remains queued, run last.
+**REWORK REQUESTED** — see the dated entry below for the full finding
+(उपदफा number leaking into the दफा/धारा filter value). Everything else in
+the first pass was correct and well-tested. AGENT-31 remains queued, run
+last, after AGENT-30 actually lands.
 
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/exact-citation-lookup` — reason: precise, correctness-heavy SQL/gate
-work on one retrieval function (`postgres_retriever.py::retrieve_postgres`),
-matches Pi's selection criteria, not Kimi's. `task.md` on that branch has
-the full brief.
+**Run prompt for Prakash**: re-run **Pi** on the same branch
+`agent/exact-citation-lookup` — the rework note is appended to `task.md`
+there (a `## Rework note` section at the end, dated 2026-09-03) with the
+exact bug, two reproduction cases, the required fix, and the required new
+tests.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -44,11 +46,59 @@ legal-QA product, no per-user document permissions).
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
-| AGENT-30 | **assigned to Pi** | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
+| AGENT-30 | **rework requested** | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash runs Pi on `agent/exact-citation-lookup` per the
-run prompt above. Claude reviews the pushed diff on return.
+**Next action**: Prakash re-runs Pi on `agent/exact-citation-lookup` (same
+branch) to address the rework note. Claude reviews the resulting diff.
+
+- **AGENT-30 review round 1 (2026-09-03, rework requested)**: Pi returned
+  `bf17e64` — real commit, correct branch, clean tree, file scope exactly
+  matched `task.md` (`postgres_retriever.py` + `tests/test_retrieval.py`
+  only). Independently re-verified rather than trusting the report:
+  `make test` (216 passed, 3 skipped — matches), `make lint` clean, `make
+  eval-gates` 0/0/0 (live DB, all reproduced myself). Most of the diff is
+  genuinely correct: `exact_lookup_search()`'s SQL matches `task.md`'s
+  8-column shape exactly (no `_hit()` changes needed); the `rows`/
+  `ranked_lists` KeyError trap the brief specifically warned about was
+  correctly avoided (`exact_rows` folded into both, with a dedicated test
+  — `test_exact_lookup_only_result_survives` — proving an exact-only hit
+  with empty vector/lexical arms survives to the final output); `strpos()`
+  used correctly for Act-title matching, longest-match-wins proven by a
+  real test with two overlapping titles; Pi independently made a correct
+  judgment call I hadn't fully specified — Act-title resolution runs on an
+  NFC-only (not digit-folded) copy of the query, since `work.title_ne`
+  values in the DB retain their original Devanagari-digit years and a
+  digit-folded query would fail to substring-match them; eligibility gate
+  correctly applied to the new query branch (Core Invariant #2 intact);
+  the same RRF/relevance-threshold/rerank pipeline is used, no bypass lane
+  added.
+  **One real finding, sent back rather than merged**: `_parse_section_reference`
+  matches `(?:दफा|धारा|उपदफा)\s*\(?(\d+)\)?` — all three words share one
+  capture group, so a bare उपदफा's own number can be returned as
+  `section_num` and fed into the दफा/धारा filter as if it were a दफा
+  number. उपदफा numbers are enumerated per-दफा (दफा 5 and दफा 9 each have
+  their own उपदफा (1),(2),(3)...) — reusing one as the other is not an
+  approximation, it's a category error, exactly what `task.md`'s
+  schema-grounding section had explicitly warned against before this was
+  dispatched. Reproduced live myself before writing the finding, not just
+  reasoning about the regex: `_parse_section_reference("उपदफा (2) मा के
+  छ?")` → `"2"` (should be `None` — no दफा/धारा number was ever stated);
+  `_parse_section_reference("उपदफा (2), दफा 9 अनुसार")` → `"2"` (should be
+  `"9"` — `re.search` takes the leftmost match, and उपदफा appearing first
+  in the sentence silently wins over the actual दफा number). This currently
+  ships **locked in by a passing test**
+  (`test_parse_section_reference`'s `_parse_section_reference("उपदफा (2)")
+  == "2"` assertion actively asserts the wrong behavior) — not an
+  oversight, a confirmed design choice that deviates from the brief.
+  Rework note appended to `task.md` (`a2354cb`) — required fix: drop
+  उपदफा from `_parse_section_reference`'s regex entirely (match only
+  `(?:दफा|धारा)\s*(\d+)`), parse उपदफा separately as a non-filtering
+  signal per the original brief's letter, fix the now-wrong test
+  assertion, and add tests proving both the word-order case and the
+  bare-उपदफा-only case resolve `section_num` correctly (`"9"` and `None`
+  respectively, not `"2"`). Same branch, same engineer, per the Rework
+  Loop — not re-scoped.
 
 - **AGENT-30 scoping (2026-09-03)**: grounded in the actual chunk schema
   before writing the brief, not just the design doc's one-liner. Traced
