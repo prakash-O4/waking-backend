@@ -1,14 +1,21 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-29 (task 4 of 6 in the retrieval-hardening program)
-is **MERGED**. AGENT-30 (exact दफा/धारा lookup) is next — scoping/task.md
-not yet written, queued.
+AGENT-30 (task 5 of 6 in the retrieval-hardening program) — exact
+दफा/धारा/उपदफा/अनुसूची/Act-title lookup. Scoped, `task.md` committed on
+`agent/exact-citation-lookup` (`d3426e8`, off `dev`, in sync).
+**Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between waves** — AGENT-29 merged to `dev`. AGENT-30/31 queued per
-the program below. Awaiting Prakash's go-ahead to scope and dispatch
-AGENT-30.
+**DISPATCHED, awaiting engineer run** — AGENT-29 merged to `dev`. AGENT-30
+task brief written and committed; run prompt given to Prakash below.
+AGENT-31 remains queued, run last.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/exact-citation-lookup` — reason: precise, correctness-heavy SQL/gate
+work on one retrieval function (`postgres_retriever.py::retrieve_postgres`),
+matches Pi's selection criteria, not Kimi's. `task.md` on that branch has
+the full brief.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -37,12 +44,61 @@ legal-QA product, no per-user document permissions).
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
-| AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
+| AGENT-30 | **assigned to Pi** | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: scope AGENT-30 (exact दफा/धारा/उपदफा/अनुसूची/Act-title
-lookup — write `task.md`, create `agent/exact-citation-lookup` off `dev`),
-dispatch to Pi.
+**Next action**: Prakash runs Pi on `agent/exact-citation-lookup` per the
+run prompt above. Claude reviews the pushed diff on return.
+
+- **AGENT-30 scoping (2026-09-03)**: grounded in the actual chunk schema
+  before writing the brief, not just the design doc's one-liner. Traced
+  `laws_chunker.py`'s `LawChunk.parent_section` docstring ("दफा number when
+  level='subsection'/'proviso'") to confirm `chunks.section_number` +
+  `chunks.parent_section` together cover दफा/धारा exact matching (both
+  words store their number the same way — the distinction is which
+  document uses which term, not a schema field) — but there is **no
+  separate उपदफा-number column**, a real, honest schema limitation stated
+  plainly in `task.md` rather than papered over: उपदफा is parsed from the
+  query for completeness but doesn't add filter precision beyond the दफा
+  number it's nested under. Checked `tariff_chunker.py` before scoping
+  अनुसूची matching — confirmed ordinary Acts have **no structured schedule
+  column at all**; only tariff-schedule Acts model schedules, via a
+  completely separate `TariffChunk` system this task must not touch.
+  Scoped अनुसूची matching down to what the schema can actually back: a
+  literal `strpos()` containment check for "अनुसूची <N>" against
+  `chunk_text`, explicitly flagged in `task.md` as lower-precision than the
+  दफा/धारा path, not pretended otherwise. Confirmed `chunks.work_id`
+  already exists directly on the chunk row (no need to route Act-title
+  filtering through `component`/`component_uri`). Specified `strpos()`
+  over `ILIKE`-with-concatenated-wildcards for the Act-title lookup
+  specifically to avoid LIKE-pattern-injection risk from title text
+  flowing into a pattern position — a real, if low-probability, class of
+  bug, sidestepped entirely rather than patched with `ESCAPE`.
+  Read `tests/test_retrieval.py` before writing the allowed-scope/test
+  section — its `Cursor` mock dispatches on SQL substrings (`"embedding
+  <=>"` vs `"ts_rank_cd"`); pointed Pi at extending that same dispatch
+  pattern with a third branch rather than building a parallel mock, and
+  explicitly required proving the existing vector/lexical dispatch still
+  works unchanged.
+  Central design constraint carried over from the review's own program
+  table (not reinvented here): exact matches join the **same** `_rrf()`
+  fusion as vector/lexical, no bypass lane, no skipped relevance threshold,
+  no skipped rerank — verified the math holds on its own (an exact match
+  ranked #1 in its own one-item list already scores `1/(60+1) ≈ 0.0164`,
+  comfortably above the existing `0.005` relevance threshold) so no
+  special-casing is needed for a lone exact match to survive the existing
+  gate.
+  One correctness trap flagged explicitly in `task.md`: `rows` (the dict
+  `_hit()` reads from) is currently built only from `vector_rows`/
+  `lexical_rows`/their translated variants
+  (`postgres_retriever.py:238-241`) — a chunk id found only via exact
+  lookup and folded into `ranked_lists` without also being added to `rows`
+  would `KeyError` at the candidate-building step. Required a dedicated
+  test seeding exactly this case (exact-only hit, empty vector/lexical
+  arms) survives to the final output.
+  Branch `agent/exact-citation-lookup` created off `dev`. `task.md`
+  committed there (`d3426e8`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch.
 
 - **AGENT-29 (2026-09-03, MERGED)**: Pi returned `bb6c7d2` — real commit,
   correct branch, clean tree. File scope matched `task.md` exactly
