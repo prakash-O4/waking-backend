@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from datetime import date
 from typing import Any
 
 from psycopg2.extensions import connection
 
 from app.retrieval.eligibility_gate import eligible_chunk_ids, is_eligible
+
+_DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
+# ponytail: tunable floor against degenerate short-quote matches; revisit with eval data
+_MIN_QUOTE_CHARS = 15
+
+
+def _normalize(text: str) -> str:
+    return " ".join(
+        unicodedata.normalize("NFC", text).translate(_DEVANAGARI_DIGITS).split()
+    )
+
+
+def _claim_supported(quote: str, chunk_text: str) -> bool:
+    q = _normalize(quote)
+    return len(q) >= _MIN_QUOTE_CHARS and q in _normalize(chunk_text)
 
 
 def _citation(
@@ -82,6 +98,7 @@ def validate_and_render(
             ok = hashlib.sha256(expr[0].encode("utf-8")).hexdigest() == expr[1]
         ok = ok and component_uri in eligible
         ok = ok and not _terminated_before(conn, component_uri, as_of)
+        ok = ok and _claim_supported(claim.get("quote", ""), expr[0] if expr else "")
         citation = _citation(conn, component_uri, as_of) if ok else None
         rendered.append(
             {

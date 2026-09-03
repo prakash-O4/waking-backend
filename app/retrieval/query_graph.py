@@ -285,7 +285,7 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         for i, result in enumerate(validated):
             result["as_of"] = pending["as_of"].isoformat()
             if i < len(orig_claims):
-                for field in ("issue", "applicability", "condition"):
+                for field in ("issue", "applicability", "condition", "quote"):
                     if field in orig_claims[i]:
                         result[field] = orig_claims[i][field]
         all_results.extend(validated)

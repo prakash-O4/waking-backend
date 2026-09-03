@@ -95,6 +95,7 @@ def _extractive_claim(hits: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [
         {
             "claim": hit["text_ne"][:EXTRACTIVE_CHARS],
+            "quote": hit["text_ne"][:EXTRACTIVE_CHARS],
             "evidence_id": hit["component_uri"],
         }
     ]
@@ -138,6 +139,9 @@ def _structured_claims(
         "Prefer higher-authority tiers (lower tier number = higher authority). "
         "Output JSON only:\n"
         '{"claims": [{"claim": "<answer in Nepali>", "evidence_id": "<chunk id from [id: ...]>", '
+        '"quote": "<short exact contiguous substring copied verbatim from the CONTEXT chunk '
+        "you cite in evidence_id — not a paraphrase, not a translation, not assembled from "
+        'multiple places — that supports the claim>", '
         '"issue": "<issue label>", "applicability": "high|medium|low", '
         '"condition": "<condition or null>"}], "abstain": false}\n'
         'If context is insufficient to answer: {"claims": [], "abstain": true}'
