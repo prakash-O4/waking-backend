@@ -651,6 +651,167 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
     assert "plain_language" in result
 
 
+def test_revalidate_composed_replaces_model_citation_and_drops_bad_sections() -> None:
+    good_citation = {"source": "server"}
+    composed = {
+        "relevant_sections": [
+            {
+                "section": "good",
+                "evidence_id": "e1",
+                "as_of": "2024-01-01",
+                "citation": {"source": "model"},
+            },
+            {"section": "fabricated", "evidence_id": "nope", "as_of": "2024-01-01"},
+            {"section": "abstained", "evidence_id": "e2", "as_of": "2024-01-01"},
+            "junk",
+        ],
+        "plain_language": "keep on partial strip",
+        "abstained": True,
+    }
+    all_results = [
+        {
+            "evidence_id": "e1",
+            "as_of": "2024-01-01",
+            "abstained": False,
+            "citation": good_citation,
+        },
+        {
+            "evidence_id": "e2",
+            "as_of": "2024-01-01",
+            "abstained": True,
+            "citation": {"source": "should-not-render"},
+        },
+    ]
+
+    result = orchestrator._revalidate_composed(composed, all_results)
+
+    assert result["abstained"] is False
+    assert result["plain_language"] == "keep on partial strip"
+    assert [s["section"] for s in result["relevant_sections"]] == ["good"]
+    assert result["relevant_sections"][0]["citation"] is good_citation
+
+
+def test_revalidate_composed_keys_by_evidence_id_and_as_of() -> None:
+    old = {"source": "old"}
+    new = {"source": "new"}
+
+    result = orchestrator._revalidate_composed(
+        {
+            "relevant_sections": [
+                {"section": "new", "evidence_id": "same", "as_of": "2024-01-01"}
+            ],
+            "plain_language": "ok",
+        },
+        [
+            {
+                "evidence_id": "same",
+                "as_of": "2020-01-01",
+                "abstained": False,
+                "citation": old,
+            },
+            {
+                "evidence_id": "same",
+                "as_of": "2024-01-01",
+                "abstained": False,
+                "citation": new,
+            },
+        ],
+    )
+
+    assert result["relevant_sections"][0]["citation"] is new
+
+
+def test_revalidate_composed_abstains_and_blanks_when_no_sections_survive() -> None:
+    result = orchestrator._revalidate_composed(
+        {
+            "relevant_sections": {"not": "a list"},
+            "plain_language": "unsafe prose",
+            "abstained": False,
+        },
+        [],
+    )
+
+    assert result["relevant_sections"] == []
+    assert result["abstained"] is True
+    assert result["plain_language"] == ""
+
+
+def test_answer_composer_node_revalidates_composed_output(monkeypatch: Any) -> None:
+    from app.retrieval import query_graph
+
+    citation = {"source": "server"}
+    monkeypatch.setattr(
+        query_graph._orch,
+        "_compose_answer",
+        lambda *args, **kw: {
+            "relevant_sections": [
+                {
+                    "section": "ok",
+                    "evidence_id": "e1",
+                    "as_of": "2024-01-01",
+                    "citation": {"source": "model"},
+                }
+            ],
+            "plain_language": "ok",
+            "abstained": True,
+        },
+    )
+    monkeypatch.setattr(
+        query_graph._orch, "_emit_answer_trace_from_state", lambda *a: None
+    )
+
+    response = query_graph.answer_composer_node(
+        {
+            "facts": None,
+            "missing_facts": [],
+            "all_results": [
+                {
+                    "evidence_id": "e1",
+                    "as_of": "2024-01-01",
+                    "abstained": False,
+                    "citation": citation,
+                }
+            ],
+            "all_hits": [],
+            "raw_query": "q",
+            "session_as_of": date(2024, 1, 1),
+            "query_type": "simple",
+            "wall_clock_start": 0.0,
+        },
+        {"configurable": {}},
+    )["_response"]
+
+    assert response["abstained"] is False
+    assert response["relevant_sections"][0]["citation"] is citation
+
+
+def test_answer_composer_node_fallback_abstains_when_all_results_abstain(
+    monkeypatch: Any,
+) -> None:
+    from app.retrieval import query_graph
+
+    monkeypatch.setattr(query_graph._orch, "_compose_answer", lambda *args, **kw: None)
+    monkeypatch.setattr(
+        query_graph._orch, "_emit_answer_trace_from_state", lambda *a: None
+    )
+
+    response = query_graph.answer_composer_node(
+        {
+            "facts": None,
+            "missing_facts": [],
+            "all_results": [{"abstained": True}],
+            "all_hits": [],
+            "raw_query": "q",
+            "session_as_of": date(2024, 1, 1),
+            "query_type": "simple",
+            "wall_clock_start": 0.0,
+        },
+        {"configurable": {}},
+    )["_response"]
+
+    assert response["abstained"] is True
+
+
 def test_compose_answer_no_key_returns_none(monkeypatch: Any) -> None:
     """_compose_answer returns None immediately when GEMINI_API_KEY is unset."""
     monkeypatch.setattr(
