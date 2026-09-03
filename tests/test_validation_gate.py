@@ -6,23 +6,20 @@ from typing import Any, cast
 
 import app.retrieval.validation_gate as gate
 
-
-def test_validation_gate_abstains_bad_hash(monkeypatch: Any) -> None:
-    monkeypatch.setattr(gate, "_expression", lambda conn, uri, as_of: ("पाठ", "0" * 64))
-    monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
-    out = gate.validate_and_render(
-        [{"claim": "x", "evidence_id": "/c/1"}], date(2024, 1, 1), cast(Any, object())
-    )
-    assert out[0]["abstained"] is True
-    assert out[0]["citation"] is None
+_CHUNK_TEXT = (
+    "दफा २९४ अनुसार करदाताले आयकर स्वीकार गर्नुपर्ने हुन्छ " "र तोकिएको म्यादभित्र बुझाउनुपर्छ।"
+)
+_QUOTE = "करदाताले आयकर स्वीकार गर्नुपर्ने हुन्छ"
 
 
-def test_validation_gate_renders_citation(monkeypatch: Any) -> None:
-    text = "वैध पाठ"
+def _passing_stubs(monkeypatch: Any, chunk_text: str = _CHUNK_TEXT) -> None:
     monkeypatch.setattr(
         gate,
         "_expression",
-        lambda conn, uri, as_of: (text, hashlib.sha256(text.encode()).hexdigest()),
+        lambda conn, uri, as_of: (
+            chunk_text,
+            hashlib.sha256(chunk_text.encode()).hexdigest(),
+        ),
     )
     monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
     monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: False)
@@ -31,29 +28,93 @@ def test_validation_gate_renders_citation(monkeypatch: Any) -> None:
         "_citation",
         lambda conn, uri, as_of: {"component_uri": uri, "as_of": as_of.isoformat()},
     )
-    out = gate.validate_and_render(
-        [{"claim": "x", "evidence_id": "/c/1"}], date(2024, 1, 1), cast(Any, object())
+
+
+def _render(claims: list[dict[str, str]]) -> list[dict[str, Any]]:
+    return gate.validate_and_render(claims, date(2024, 1, 1), cast(Any, object()))
+
+
+def test_validation_gate_abstains_bad_hash(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        gate, "_expression", lambda conn, uri, as_of: (_CHUNK_TEXT, "0" * 64)
     )
+    monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
+    monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: False)
+    # Quote is a genuine substring: if abstention still happens, it must be the
+    # hash check, not claim support, that stopped this claim.
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
+    assert out[0]["abstained"] is True
+    assert out[0]["citation"] is None
+
+
+def test_validation_gate_renders_citation(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
     assert out[0]["abstained"] is False
     assert out[0]["citation"]["component_uri"] == "/c/1"
 
 
 def test_validation_gate_abstains_when_component_terminated(monkeypatch: Any) -> None:
-    text = "वैध पाठ"
-    monkeypatch.setattr(
-        gate,
-        "_expression",
-        lambda conn, uri, as_of: (text, hashlib.sha256(text.encode()).hexdigest()),
-    )
-    monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
+    _passing_stubs(monkeypatch)
     monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: True)
-    out = gate.validate_and_render(
-        [{"claim": "x", "evidence_id": "/c/1"}],
-        date(2024, 1, 1),
-        cast(Any, object()),
+    # Quote is a genuine substring: abstention must come from termination.
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
+    assert out[0]["abstained"] is True
+    assert out[0]["citation"] is None
+
+
+def test_claim_support_quote_not_in_chunk_abstains(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    out = _render(
+        [
+            {
+                "claim": "x",
+                "evidence_id": "/c/1",
+                "quote": "यो वाक्य चंकमा कतै पनि छैन र मेल खाँदैन",
+            }
+        ]
     )
     assert out[0]["abstained"] is True
     assert out[0]["citation"] is None
+
+
+def test_claim_support_normalizes_digits_and_whitespace(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    # ASCII digits + collapsed newlines/spaces vs. Devanagari digits in the chunk.
+    quote = "दफा 294 अनुसार\nकरदाताले   आयकर"
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": quote}])
+    assert out[0]["abstained"] is False
+    assert out[0]["citation"] is not None
+
+
+def test_claim_support_empty_or_missing_quote_abstains(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    for quote in ({}, {"quote": ""}, {"quote": "   \n  "}):
+        claim = {"claim": "x", "evidence_id": "/c/1", **quote}
+        out = _render([claim])
+        assert out[0]["abstained"] is True
+        assert out[0]["citation"] is None
+
+
+def test_claim_support_short_quote_abstains_despite_substring_match(
+    monkeypatch: Any,
+) -> None:
+    _passing_stubs(monkeypatch)
+    # "करदाताले आयकर" is a genuine substring but under the 15-char floor.
+    quote = "करदाताले आयकर"
+    assert quote in _CHUNK_TEXT
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": quote}])
+    assert out[0]["abstained"] is True
+    assert out[0]["citation"] is None
+
+
+def test_claim_support_exact_substring_passes(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    assert _QUOTE in _CHUNK_TEXT
+    assert len(_QUOTE) >= gate._MIN_QUOTE_CHARS
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
+    assert out[0]["abstained"] is False
+    assert out[0]["citation"] is not None
 
 
 class GateCursor:
