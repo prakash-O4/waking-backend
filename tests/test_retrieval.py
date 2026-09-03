@@ -13,17 +13,26 @@ from app.retrieval.reranker import rerank
 
 ROW1 = ("c1", "text one", "h1", "Act", None, "section", "1", 0.9)
 ROW2 = ("c2", "text two", "h2", "Act", None, "section", "2", 0.8)
+EXACT_ROW = ("c3", "दफा 94 text", "h3", "Act", None, "section", "94", "doc3")
 
 
 class Cursor:
     def __init__(
-        self, vector: list[tuple[Any, ...]], lexical: list[tuple[Any, ...]]
+        self,
+        vector: list[tuple[Any, ...]],
+        lexical: list[tuple[Any, ...]],
+        exact: list[tuple[Any, ...]] | None = None,
+        works: list[tuple[str, str]] | None = None,
     ) -> None:
         self.vector = vector
         self.lexical = lexical
+        self.exact = exact or []
+        self.works = works or []
         self.calls = 0
         self.sql = ""
         self.params: dict[str, Any] = {}
+        self.sqls: list[str] = []
+        self.params_history: list[dict[str, Any]] = []
 
     def __enter__(self) -> "Cursor":
         return self
@@ -35,20 +44,42 @@ class Cursor:
         self.calls += 1
         self.sql = sql
         self.params = params
+        self.sqls.append(sql)
+        self.params_history.append(params)
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         if "embedding <=>" in self.sql:
             return self.vector
         if "ts_rank_cd" in self.sql:
             return self.lexical
-        return [row[:7] for row in [*self.vector, *self.lexical]]
+        if (
+            "c.work_id" in self.sql
+            or "parent_section" in self.sql
+            or "अनुसूची" in self.sql
+        ):
+            eligible = set(self.params.get("eligible", []))
+            return [row for row in self.exact if row[0] in eligible]
+        return [
+            row[:8] if len(row) == 8 and isinstance(row[7], str) else row[:7]
+            for row in [*self.vector, *self.lexical, *self.exact]
+        ]
+
+    def fetchone(self) -> tuple[str, str] | None:
+        matches = [row for row in self.works if row[1] in self.params["query"]]
+        if not matches:
+            return None
+        return max(matches, key=lambda row: len(row[1]))
 
 
 class Conn:
     def __init__(
-        self, vector: list[tuple[Any, ...]], lexical: list[tuple[Any, ...]]
+        self,
+        vector: list[tuple[Any, ...]],
+        lexical: list[tuple[Any, ...]],
+        exact: list[tuple[Any, ...]] | None = None,
+        works: list[tuple[str, str]] | None = None,
     ) -> None:
-        self.cursor_obj = Cursor(vector, lexical)
+        self.cursor_obj = Cursor(vector, lexical, exact, works)
 
     def cursor(self) -> Cursor:
         return self.cursor_obj
@@ -115,6 +146,35 @@ def test_is_devanagari_pure_english() -> None:
 
 def test_is_devanagari_mixed_romanized() -> None:
     assert r._is_devanagari("muluki ain ko dafa") is False
+
+
+def test_parse_section_reference() -> None:
+    assert r._parse_section_reference("दफा 94") == "94"
+    assert r._parse_section_reference("धारा 51") == "51"
+    assert r._parse_section_reference("उपदफा (2)") is None
+    assert r._parse_section_reference("उपदफा (2), दफा 9 अनुसार") == "9"
+    assert r._parse_section_reference("ordinary query") is None
+
+
+def test_parse_subsection_reference() -> None:
+    assert r._parse_subsection_reference("उपदफा (2)") == "2"
+    assert r._parse_subsection_reference("ordinary query") is None
+
+
+def test_parse_schedule_reference() -> None:
+    assert r._parse_schedule_reference("अनुसूची 3") == "3"
+    assert r._parse_schedule_reference("ordinary query") is None
+
+
+def test_resolve_act_title_longest_match_wins() -> None:
+    conn = Conn(
+        [],
+        [],
+        works=[("short", "देवानी संहिता"), ("long", "मुलुकी देवानी संहिता")],
+    )
+
+    assert r._resolve_act_title(cast(Any, conn), "मुलुकी देवानी संहिता दफा 1") == "long"
+    assert "strpos(%(query)s, title_ne) > 0" in conn.cursor_obj.sql
 
 
 def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
@@ -185,6 +245,45 @@ def test_vector_arm_results_only(monkeypatch: Any) -> None:
     out = r.retrieve_postgres(cast(Any, Conn([ROW1], [])), "law", date(2024, 1, 1), k=5)
     assert [h["component_uri"] for h in out] == ["c1"]
     assert out[0]["work_title_ne"] == "Act"
+
+
+def test_bare_subsection_does_not_run_exact_section_filter(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    out = r.retrieve_postgres(cast(Any, conn), "उपदफा (2) मा के छ?", date(2024, 1, 1))
+
+    assert out == []
+    assert not any("num" in params for params in conn.cursor_obj.params_history)
+
+
+def test_exact_lookup_only_result_survives(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+    out = r.retrieve_postgres(
+        cast(Any, conn),
+        "दफा 94",
+        date(2024, 1, 1),
+        k=5,
+    )
+
+    assert [h["component_uri"] for h in out] == ["c3"]
+    assert out[0]["document_source_id"] == "doc3"
+    assert any(
+        params.get("eligible") == ["c3"] and params.get("num") == "94"
+        for params in conn.cursor_obj.params_history
+    )
+
+
+def test_exact_lookup_uses_work_title_filter(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW], works=[("work-1", "भन्सार महसुल ऐन २०८१")])
+
+    r.retrieve_postgres(cast(Any, conn), "भन्सार महसुल ऐन २०८१ दफा 94", date(2024, 1, 1))
+
+    assert any(
+        params.get("work_id") == "work-1" for params in conn.cursor_obj.params_history
+    )
 
 
 def test_both_arms_rrf_merges(monkeypatch: Any) -> None:
