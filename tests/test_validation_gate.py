@@ -159,6 +159,7 @@ class GateConn:
             "act",
             "derived_verified",
             0.91,
+            "https://example.org/gazette",
         )
         self.cursor_obj = GateCursor(self)
 
@@ -242,18 +243,191 @@ def test_terminated_before_skips_null_component_uri() -> None:
     assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
 
 
-def test_citation_reads_source_publication_with_fallback() -> None:
+def test_citation_unlinked_fallback_reads_source_publication() -> None:
     conn = GateConn()
+    conn.component_uri = None  # unlinked chunk: no component/work resolution
     citation = gate._citation(cast(Any, conn), "chunk-id", date(2024, 1, 1))
     assert citation is not None
+    assert citation["component_uri"] == "chunk-id"  # evidence_id fallback
+    assert citation["work_title_ne"] == "ऐन"
     assert citation["source_kind"] == "derived_verified"
     assert citation["ocr_confidence"] == 0.91
+    assert citation["source_url"] == "https://example.org/gazette"
+    assert citation["derived"] is True  # derived_verified is a consolidation
+    assert citation["amendments"] == []
 
-    conn.citation_row = ("ऐन", None, "act", None, None)
+    conn.citation_row = ("ऐन", None, "act", None, None, None)
     fallback = gate._citation(cast(Any, conn), "chunk-id", date(2024, 1, 1))
     assert fallback is not None
     assert fallback["source_kind"] == "act"
     assert fallback["ocr_confidence"] is None
+    assert fallback["derived"] is False  # "act" is not a consolidation kind
+    assert fallback["amendments"] == []
+
+
+class CitationCursor:
+    """Evaluates the citation queries against seeded rows, including the
+    amend-chain WHERE predicates (no canned booleans)."""
+
+    def __init__(self, conn: "CitationConn") -> None:
+        self.conn = conn
+        self.result: tuple[Any, ...] | None = None
+        self.rows: list[tuple[Any, ...]] = []
+
+    def __enter__(self) -> "CitationCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def execute(self, sql: str, params: dict[str, Any]) -> None:
+        squashed = " ".join(sql.split())
+        if squashed.startswith("SELECT c.act_name"):
+            assert params == {"evidence_id": self.conn.evidence_id}
+            self.result = self.conn.base_row
+        elif squashed.startswith("SELECT component_uri FROM chunks"):
+            self.result = (self.conn.component_uri,)
+        elif squashed.startswith("SELECT w.title_ne"):
+            assert params == {"component_uri": self.conn.component_uri}
+            self.result = self.conn.component_row
+        elif squashed.startswith("SELECT le.effective_date"):
+            as_of = cast(date, params["as_of"])
+            assert params["component_uri"] == self.conn.component_uri
+            rows = [
+                r
+                for r in self.conn.lifecycle_rows
+                if r["effect_type"] == "amend"
+                and r["approval_status"] == "approved"
+                and cast(date, r["valid_lower"]) <= as_of
+            ]
+            rows.sort(key=lambda r: cast(date, r["effective_date"]))
+            self.rows = [
+                (r["effective_date"], r["kind"], r["ocr"], r["url"]) for r in rows
+            ]
+        else:
+            raise AssertionError(squashed)
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.result
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self.rows
+
+
+class CitationConn:
+    def __init__(self) -> None:
+        self.evidence_id = "chunk-uuid-1"
+        self.component_uri: str | None = "/nka/dafa/1"
+        self.base_row: tuple[Any, ...] | None = (
+            "ऐन देनदारिकृत",
+            None,
+            "act",
+            "official_original",
+            0.95,
+            "https://example.org/base",
+        )
+        self.component_row: tuple[Any, ...] | None = (
+            "नेपाल कानून",
+            "Nepal Act",
+            "dafa",
+            "१",
+        )
+        self.lifecycle_rows: list[dict[str, Any]] = []
+
+    def cursor(self) -> CitationCursor:
+        return CitationCursor(self)
+
+
+def _amend(
+    eff: date, kind: str = "amending_instrument", **overrides: Any
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "effective_date": eff,
+        "kind": kind,
+        "ocr": 0.88,
+        "url": f"https://example.org/amend-{eff.isoformat()}",
+        "effect_type": "amend",
+        "approval_status": "approved",
+        "valid_lower": eff,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_citation_linked_no_amendments_official_original() -> None:
+    conn = CitationConn()
+    citation = gate._citation(cast(Any, conn), "chunk-uuid-1", date(2024, 1, 1))
+    assert citation is not None
+    assert citation["component_uri"] == "/nka/dafa/1"
+    assert citation["work_title_ne"] == "नेपाल कानून"  # canonical, not chunk copy
+    assert citation["work_title_en"] == "Nepal Act"
+    assert citation["source_kind"] == "official_original"
+    assert citation["derived"] is False
+    assert citation["amendments"] == []
+    assert citation["source_url"] == "https://example.org/base"
+
+
+def test_citation_linked_amend_chain_respects_as_of_and_order() -> None:
+    conn = CitationConn()
+    conn.lifecycle_rows = [
+        # approved, in force by as_of — included (seeded out of order)
+        _amend(date(2021, 6, 1)),
+        # approved but not yet in force at as_of — excluded (Core Invariant #6)
+        _amend(date(2025, 1, 1)),
+        # pending approval — excluded even though in force
+        _amend(date(2022, 1, 1), approval_status="pending"),
+        # approved repeal — excluded, only 'amend' effects render
+        _amend(date(2020, 1, 1), effect_type="repeal", kind="official_original"),
+        # approved, in force, earliest — must sort before 2021-06-01
+        _amend(date(2020, 3, 15)),
+    ]
+    citation = gate._citation(cast(Any, conn), "chunk-uuid-1", date(2024, 1, 1))
+    assert citation is not None
+    assert [a["effective_date"] for a in citation["amendments"]] == [
+        "2020-03-15",
+        "2021-06-01",
+    ]
+    first = citation["amendments"][0]
+    assert first["source_kind"] == "amending_instrument"
+    assert first["ocr_confidence"] == 0.88
+    assert first["source_url"] == "https://example.org/amend-2020-03-15"
+
+
+def test_citation_derived_true_for_consolidation_base() -> None:
+    conn = CitationConn()
+    conn.base_row = (
+        "ऐन",
+        None,
+        "act",
+        "verified_internal_consolidation",
+        None,
+        None,
+    )
+    citation = gate._citation(cast(Any, conn), "chunk-uuid-1", date(2024, 1, 1))
+    assert citation is not None
+    assert citation["derived"] is True
+    assert citation["source_kind"] == "verified_internal_consolidation"
+
+
+def test_citation_linked_and_unlinked_return_same_keys() -> None:
+    linked = gate._citation(cast(Any, CitationConn()), "chunk-uuid-1", date(2024, 1, 1))
+    unlinked_conn = CitationConn()
+    unlinked_conn.component_uri = None
+    unlinked = gate._citation(
+        cast(Any, unlinked_conn), "chunk-uuid-1", date(2024, 1, 1)
+    )
+    assert linked is not None and unlinked is not None
+    assert set(linked) == set(unlinked)
+    # unlinked falls back to the chunk-level denormalized title
+    assert unlinked["work_title_ne"] == "ऐन देनदारिकृत"
+    assert unlinked["component_uri"] == "chunk-uuid-1"
+    assert unlinked["amendments"] == []
+
+
+def test_citation_returns_none_for_unknown_chunk() -> None:
+    conn = CitationConn()
+    conn.base_row = None
+    assert gate._citation(cast(Any, conn), conn.evidence_id, date(2024, 1, 1)) is None
 
 
 def test_expression_reads_chunks() -> None:
