@@ -23,5 +23,5 @@ eval: ## per-phase RAGAS quality report + romanized Recall@5
 eval-gates:
 	python3 -m app.eval.gates
 
-stress: ## no cases yet
-	@python3 -c 'print("no stress cases yet")'
+stress: ## pytest stress suite by taxonomy cell
+	python3 -m pytest tests/stress/ -v
