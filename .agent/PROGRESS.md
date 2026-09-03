@@ -1,13 +1,21 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-28 (task 3 of 6 in the retrieval-hardening program)
-is **MERGED**. AGENT-29 (composer output re-validation) is next —
-scoping/task.md not yet written, queued.
+AGENT-29 (task 4 of 6 in the retrieval-hardening program) — composer output
+re-validation. Scoped, `task.md` committed on
+`agent/composer-output-revalidation` (`199420d`, off `dev`, in sync).
+**Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between waves** — AGENT-28 merged to `dev`. AGENT-29-31 queued per
-the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-29.
+**DISPATCHED, awaiting engineer run** — AGENT-28 merged to `dev`. AGENT-29
+task brief written and committed; run prompt given to Prakash below.
+AGENT-30/31 remain queued per the program below.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/composer-output-revalidation` — reason: precise, correctness-heavy
+change to the last-mile answer-rendering path (`gated_orchestrator.py`/
+`query_graph.py::answer_composer_node`), matches Pi's selection criteria,
+not Kimi's. `task.md` on that branch has the full brief.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -35,13 +43,54 @@ legal-QA product, no per-user document permissions).
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
-| AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
+| AGENT-29 | **assigned to Pi** | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: scope AGENT-29 (composer output re-validation — write
-`task.md`, create `agent/composer-output-revalidation` off `dev`), dispatch
-to Pi.
+**Next action**: Prakash runs Pi on `agent/composer-output-revalidation`
+per the run prompt above. Claude reviews the pushed diff on return.
+
+- **AGENT-29 scoping (2026-09-03)**: traced `answer_composer_node`
+  (`query_graph.py:381`) end-to-end — its returned `_response` **is** the
+  literal `/ask` API response (`build_graph()`'s final
+  `return cast(dict[str, Any], result["_response"])`). Confirmed the live
+  gap directly: `_compose_answer`'s prompt (`gated_orchestrator.py:213-231`)
+  asks a second, independent Gemini call to write its own
+  `"citation": {}` per `relevant_sections` entry, restrained only by
+  prompt text ("Never modify citations") — no server-side check exists
+  anywhere between that call returning and it becoming the response.
+  Design choice made directly rather than left to Pi: join key for
+  matching a composed section back to its source claim is
+  **`(evidence_id, as_of)`**, not `evidence_id` alone — a diachronic query
+  can carry the same `evidence_id` under two different per-claim `as_of`
+  values (Core Invariant #6) with genuinely different citation content, so
+  a single-field key could silently attach the wrong `as_of`'s citation.
+  Both fields already exist on every `all_results` entry, so this costs
+  nothing extra. Also decided: `abstained` is always server-recomputed
+  from the post-filter `relevant_sections` list, never trusted from the
+  composer's own JSON (same principle as Core Invariant #7, one layer up);
+  `plain_language` is blanked only when *all* sections get stripped, left
+  alone on partial stripping (flagged as an accepted, not-fixed-here
+  limitation — surgically editing prose to remove one section's mention is
+  a separate, harder problem).
+  Found one adjacent, genuinely-existing one-line bug in the exact same
+  function while grounding this: the `composed is None` fallback branch
+  (`query_graph.py:375`) sets `"abstained": not all_results` — true only
+  when the *list* is empty, not when every entry in a non-empty list is
+  individually `abstained: True`. Folded the fix into this task's scope
+  (same file, same function, same "abstained must reflect real evidence,
+  not list-shape" principle already being applied everywhere else here) —
+  not a separate task, too small and too on-theme to warrant one.
+  Checked the repo's existing test convention before writing the allowed-
+  scope list: `tests/test_orchestrator.py` already covers
+  `gated_orchestrator.py` (including `test_compose_answer_success`,
+  imports it as `orchestrator`) — pointed Pi at that file, not a new one.
+  Confirmed the existing `test_compose_answer_success` only asserts on
+  `_compose_answer`'s return shape, not prompt content or citation
+  fields — the prompt-schema change this task makes won't break it.
+  Branch `agent/composer-output-revalidation` created off `dev`. `task.md`
+  committed there (`199420d`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch.
 
 - **AGENT-28 (2026-09-03, MERGED)**: Pi returned `39505c7` — real commit,
   correct branch, clean tree. File scope matched `task.md` exactly
