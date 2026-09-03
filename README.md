@@ -2,7 +2,7 @@
 
 > **An AI-powered legal assistant for Nepal's laws and constitution.**
 
-Wakil-G is a production-grade RAG (Retrieval-Augmented Generation) system built with FastAPI that enables users to ask questions about Nepali legal documents in **Nepali (Devanagari script)** and receive accurate, cited answers with real-time streaming responses.
+Wakil-G is a RAG (Retrieval-Augmented Generation) system built with FastAPI that enables users to ask questions about Nepali legal documents in **Nepali (Devanagari script)** and receive cited JSON answers.
 
 ---
 
@@ -12,7 +12,7 @@ Wakil-G is a production-grade RAG (Retrieval-Augmented Generation) system built 
 - **📚 Multi-Law Coverage** — Constitution, Criminal Law, Civil Law, Labor Law, and more
 - **🔍 Advanced RAG Pipeline** — Hierarchical parent-child chunking + multi-stage retrieval + Cohere reranking
 - **📖 Cited Answers** — Every answer references specific legal provisions (दफा, धारा, परिच्छेद)
-- **⚡ Streaming Responses** — Real-time SSE streaming with token buffering
+- **⚡ JSON Responses** — `/ask` returns one validated JSON response per request
 - **🔐 User Authentication** — Supabase JWT auth with daily quota management (20 queries/day)
 - **💬 Chat History** — Contextual multi-turn conversations
 
@@ -26,7 +26,7 @@ User Query (Nepali)
     ▼
 ┌─────────────────┐     ┌──────────────────────┐
 │  FastAPI /ask   │────▶│  Query Processor     │
-│  (SSE Streaming)│     │  • Domain detection  │
+│  (JSON response)│     │  • Domain detection  │
 └─────────────────┘     │  • Term expansion    │
                         │  • Query decomposition│
                         └──────────┬───────────┘
@@ -40,11 +40,11 @@ User Query (Nepali)
                                    │
                         ┌──────────▼───────────┐
                         │  GPT-4o-mini         │
-                        │  (Streaming)         │
+                        │  (JSON claims)       │
                         └──────────┬───────────┘
                                    │
                         ┌──────────▼───────────┐
-                        │  SSE Response        │
+                        │  JSON Response       │
                         │  + Source Citations  │
                         └──────────────────────┘
 ```
@@ -131,7 +131,7 @@ wakilg-backend/
 │   │   └── retrieval_orchestrator.py  # Pipeline coordinator
 │   └── utils/                     # Utilities
 │       ├── helpers.py             # Supabase auth, quotas, history
-│       ├── token_buffer.py        # SSE token buffering
+│       ├── token_buffer.py        # unused; reserved for future streaming
 │       ├── loggers.py             # Logging configuration
 │       ├── security.py            # HMAC verification
 │       └── pdf_to_markdown.py     # Azure DI PDF converter

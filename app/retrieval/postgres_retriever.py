@@ -365,10 +365,11 @@ def retrieve_postgres(
 
     t0 = time.monotonic()
     ranked = rerank(query, candidates, k)
+    reranker_tier = ranked[0].get("reranker_tier", "none") if ranked else "none"
     _end_span(
         retrieval_span,
         "rerank",
-        ran=bool(get_settings().COHERE_API_KEY),
+        tier=reranker_tier,
         final_count=len(ranked),
         top_score=float(ranked[0].get("score", 0.0)) if ranked else 0.0,
         latency_ms=int((time.monotonic() - t0) * 1000),
@@ -389,7 +390,12 @@ def retrieve_postgres(
         full_rows = {str(row[0]): row for row in cur.fetchall()}
 
     result_hits = [
-        _hit(full_rows[h["component_uri"]], h["score"], h.get("vector_score", 0.0))
+        {
+            **_hit(
+                full_rows[h["component_uri"]], h["score"], h.get("vector_score", 0.0)
+            ),
+            "reranker_tier": h.get("reranker_tier", "unknown"),
+        }
         for h in ranked
         if h["component_uri"] in full_rows
     ]

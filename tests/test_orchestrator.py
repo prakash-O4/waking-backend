@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from itertools import chain, repeat
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -832,8 +832,7 @@ def test_compose_answer_no_key_returns_none(monkeypatch: Any) -> None:
 
 
 def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) -> None:
-    """When fact_extractor finds a required missing fact, retrieve is skipped and
-    the response has interrupted=True."""
+    """When the coverage probe finds no law, required missing facts interrupt."""
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
@@ -869,7 +868,7 @@ def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) ->
         body["interrupt_prompt"] or ""
     )
     assert body["results"] == []
-    assert retrieve_called == []
+    assert retrieve_called == [1]
 
 
 def test_emit_trace_uses_vector_score(monkeypatch: Any) -> None:
@@ -901,3 +900,185 @@ def test_emit_trace_uses_vector_score(monkeypatch: Any) -> None:
     assert captured["top_chunk_scores"][0] == pytest.approx(0.71)
     assert captured["top_chunk_scores"][1] == pytest.approx(0.65)
     assert captured["gate_decision"] == "abstained"
+
+
+def _state(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "raw_query": "q",
+        "session_as_of": date(2024, 1, 1),
+        "subqueries": [],
+        "all_hits": [],
+        "all_results": [],
+        "query_type": "simple",
+        "wall_clock_start": 0.0,
+        "facts": None,
+        "missing_facts": [],
+        "issue_queries": [],
+        "interrupted": False,
+        "interrupt_prompt": None,
+        "_pending_results": [],
+        "_response": {},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_required_missing_fact_with_probe_hit_becomes_clarifying(
+    monkeypatch: Any,
+) -> None:
+    import app.retrieval.query_graph as qg
+
+    monkeypatch.setattr(
+        qg._orch,
+        "_fact_extract",
+        lambda question, as_of, **kw: {
+            "facts": None,
+            "missing_facts": [{"fact": "lease type?", "type": "required"}],
+            "issue_queries": [
+                {"query": question, "as_of": as_of, "work_type_hint": None}
+            ],
+        },
+    )
+    monkeypatch.setattr(qg._orch, "retrieve_postgres", lambda *a, **kw: [{"id": "hit"}])
+    monkeypatch.setattr(qg._orch, "_wall_clock_expired", lambda start: False)
+
+    out = qg.fact_extractor_node(
+        cast(Any, _state()), cast(Any, {"configurable": {"conn": object()}})
+    )
+
+    assert out["interrupted"] is False
+    assert out["missing_facts"] == [{"fact": "lease type?", "type": "clarifying"}]
+
+
+def test_co_retrievers_use_issue_as_of(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as qg
+
+    seen_parent: list[date] = []
+    seen_cross: list[date] = []
+
+    def parent(
+        hits: list[dict[str, Any]], as_of: date, conn: object
+    ) -> list[dict[str, Any]]:
+        seen_parent.append(as_of)
+        return []
+
+    def cross(
+        hits: list[dict[str, Any]], as_of: date, conn: object
+    ) -> list[dict[str, Any]]:
+        seen_cross.append(as_of)
+        return []
+
+    monkeypatch.setattr(qg._orch, "_resolve_co_retrieve_parents", parent)
+    monkeypatch.setattr(qg._orch, "_resolve_cross_refs", cross)
+    state = _state(
+        issue_queries=[
+            {"query": "old", "as_of": date(2020, 1, 1)},
+            {"query": "new", "as_of": date(2024, 1, 1)},
+        ],
+        all_hits=[
+            {"component_uri": "a", "_issue_idx": 0},
+            {"component_uri": "b", "_issue_idx": 1},
+        ],
+    )
+
+    qg.co_retrieve_parent_resolver_node(
+        cast(Any, state), cast(Any, {"configurable": {"conn": object()}})
+    )
+    qg.cross_ref_resolver_node(
+        cast(Any, state), cast(Any, {"configurable": {"conn": object()}})
+    )
+
+    assert seen_parent == [date(2020, 1, 1), date(2024, 1, 1)]
+    assert seen_cross == [date(2020, 1, 1), date(2024, 1, 1)]
+
+
+def test_enabling_resolver_uses_hit_issue_as_of(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as qg
+
+    seen: list[date] = []
+
+    def fetch(conn: object, hit: dict[str, Any], as_of: date) -> None:
+        seen.append(as_of)
+        return None
+
+    monkeypatch.setattr(qg, "_fetch_enabling_chunk", fetch)
+    state = _state(
+        issue_queries=[
+            {"query": "old", "as_of": date(2020, 1, 1)},
+            {"query": "new", "as_of": date(2024, 1, 1)},
+        ],
+        all_hits=[
+            {"component_uri": "a", "_issue_idx": 0},
+            {"component_uri": "b", "_issue_idx": 1},
+        ],
+    )
+
+    qg.enabling_power_resolver_node(
+        cast(Any, state), cast(Any, {"configurable": {"conn": object()}})
+    )
+
+    assert seen == [date(2020, 1, 1), date(2024, 1, 1)]
+
+
+def test_parallel_retrieve_preserves_issue_order_and_closes_pool(
+    monkeypatch: Any,
+) -> None:
+    import app.retrieval.db_pool as db_pool
+    import app.retrieval.query_graph as qg
+
+    class Pool:
+        closed = False
+
+        def getconn(self) -> object:
+            return object()
+
+        def putconn(self, conn: object) -> None:
+            pass
+
+        def closeall(self) -> None:
+            self.closed = True
+
+    pool = Pool()
+    monkeypatch.setattr(db_pool, "make_retrieval_pool", lambda maxconn: pool)
+    monkeypatch.setattr(qg._orch, "_wall_clock_expired", lambda start: False)
+    monkeypatch.setattr(
+        qg._orch,
+        "retrieve_postgres",
+        lambda conn, query, as_of, k=5, **kw: [
+            {"component_uri": query, "text_ne": query}
+        ],
+    )
+    state = _state(
+        issue_queries=[
+            {"query": "first", "as_of": date(2024, 1, 1)},
+            {"query": "second", "as_of": date(2024, 1, 1)},
+        ]
+    )
+
+    out = qg.retrieve_node(
+        cast(Any, state), cast(Any, {"configurable": {"conn": object()}})
+    )
+
+    assert [h["component_uri"] for h in out["all_hits"]] == ["first", "second"]
+    assert pool.closed is True
+
+
+def test_answer_response_exposes_degraded_mode(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as qg
+
+    monkeypatch.setattr(qg._orch, "_compose_answer", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        qg._orch, "_emit_answer_trace_from_state", lambda *a, **kw: None
+    )
+    state = _state(
+        query_type="extractive",
+        all_hits=[{"component_uri": "a", "reranker_tier": "flashrank"}],
+        all_results=[{"claim": "x", "abstained": False}],
+    )
+
+    out = qg.answer_composer_node(cast(Any, state), cast(Any, {"configurable": {}}))
+
+    assert out["_response"]["degraded_mode"] == [
+        "reasoner_fallback:extractive",
+        "reranker_fallback:flashrank",
+    ]

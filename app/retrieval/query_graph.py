@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib as _hashlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any, cast
 
@@ -13,23 +14,69 @@ from app.retrieval.postgres_retriever import get_lf_client as _get_lf_client
 from app.retrieval.query_state import QueryState
 
 _ASCII_TO_DEVA = str.maketrans("0123456789", "०१२३४५६७८९")
+MAX_RETRIEVER_FANOUT = 5
+
+
+def _issue_queries_for_state(state: QueryState) -> list[dict[str, Any]]:
+    return state.get("issue_queries") or [
+        {
+            "query": state.get("raw_query", ""),
+            "as_of": state["session_as_of"],
+            "work_type_hint": None,
+        }
+    ]
+
+
+def _hit_as_of(state: QueryState, hit: dict[str, Any]) -> date:
+    issue_queries = _issue_queries_for_state(state)
+    idx = int(hit.get("_issue_idx", 0) or 0)
+    if 0 <= idx < len(issue_queries):
+        return cast(date, issue_queries[idx].get("as_of") or state["session_as_of"])
+    return cast(date, state["session_as_of"])
+
+
+def _degraded_mode(state: QueryState) -> list[str]:
+    modes = {
+        f"reranker_fallback:{h.get('reranker_tier')}"
+        for h in state.get("all_hits", [])
+        if h.get("reranker_tier") and h.get("reranker_tier") != "cohere"
+    }
+    if state.get("query_type") == "extractive":
+        modes.add("reasoner_fallback:extractive")
+    return sorted(modes)
 
 
 # ── nodes ──────────────────────────────────────────────────────────────────────
 
 
 def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
+    conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
     result = _orch._fact_extract(
         state["raw_query"], state["session_as_of"], lf_trace=lf_trace
     )
     issue_queries = result["issue_queries"]
-    missing_facts = result["missing_facts"]
+    missing_facts = list(result["missing_facts"])
 
     required = [mf for mf in missing_facts if mf.get("type") == "required"]
     interrupted = bool(required)
+    if required and not _orch._wall_clock_expired(state["wall_clock_start"]):
+        try:
+            probe = _orch.retrieve_postgres(
+                conn, state["raw_query"], state["session_as_of"], k=3, lf_trace=lf_trace
+            )
+        except Exception:
+            probe = []
+        if probe:
+            interrupted = False
+            missing_facts = [
+                {**mf, "type": "clarifying"} if mf.get("type") == "required" else mf
+                for mf in missing_facts
+            ]
+            required = []
+
     interrupt_prompt: str | None = None
-    if required:
+    if interrupted:
         interrupt_prompt = "To answer your question I need to know: " + "; ".join(
             mf.get("fact", "") for mf in required
         )
@@ -48,25 +95,63 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
     """Pure retrieval — no LLM calls. Tags each hit with _issue_idx."""
     conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
-    all_hits: list[dict[str, Any]] = []
+    issue_queries = _issue_queries_for_state(state)
 
-    issue_queries = state["issue_queries"] or [
-        {
-            "query": state["raw_query"],
-            "as_of": state["session_as_of"],
-            "work_type_hint": None,
+    def sequential() -> list[dict[str, Any]]:
+        all_hits: list[dict[str, Any]] = []
+        for idx, iq in enumerate(issue_queries):
+            if _orch._wall_clock_expired(state["wall_clock_start"]):
+                break
+            hits = _orch.retrieve_postgres(
+                conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace
+            )
+            all_hits.extend({**h, "_issue_idx": idx} for h in hits)
+        return all_hits
+
+    if len(issue_queries) <= 1:
+        return {"all_hits": sequential(), "_pending_results": []}
+
+    pool = None
+    try:
+        from app.retrieval.db_pool import make_retrieval_pool
+
+        max_workers = min(len(issue_queries), MAX_RETRIEVER_FANOUT)
+        pool = make_retrieval_pool(max_workers)
+        per_issue: list[list[dict[str, Any]]] = [[] for _ in issue_queries]
+
+        def run_one(idx: int, iq: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]:
+            if _orch._wall_clock_expired(state["wall_clock_start"]):
+                return idx, []
+            worker_conn = pool.getconn()
+            try:
+                # Langfuse trace objects are not assumed thread-safe; node-level traces stay on main thread.
+                hits = _orch.retrieve_postgres(
+                    worker_conn, iq["query"], iq["as_of"], k=5
+                )
+                return idx, [{**h, "_issue_idx": idx} for h in hits]
+            finally:
+                pool.putconn(worker_conn)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(run_one, idx, iq)
+                for idx, iq in enumerate(issue_queries)
+            ]
+            for future in futures:
+                idx, hits = future.result()
+                per_issue[idx] = hits
+        return {
+            "all_hits": [h for hits in per_issue for h in hits],
+            "_pending_results": [],
         }
-    ]
-    for idx, iq in enumerate(issue_queries):
-        if _orch._wall_clock_expired(state["wall_clock_start"]):
-            break
-        hits = _orch.retrieve_postgres(
-            conn, iq["query"], iq["as_of"], k=5, lf_trace=lf_trace
-        )
-        for h in hits:
-            all_hits.append({**h, "_issue_idx": idx})
-
-    return {"all_hits": all_hits, "_pending_results": []}
+    except Exception:
+        return {"all_hits": sequential(), "_pending_results": []}
+    finally:
+        if pool is not None:
+            try:
+                pool.closeall()
+            except Exception:
+                pass
 
 
 def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
@@ -130,9 +215,16 @@ def co_retrieve_parent_resolver_node(
 ) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
-    additional = _orch._resolve_co_retrieve_parents(
-        state["all_hits"], state["session_as_of"], conn
-    )
+    by_as_of: dict[date, list[dict[str, Any]]] = {}
+    for hit in state["all_hits"]:
+        by_as_of.setdefault(_hit_as_of(state, hit), []).append(hit)
+    additional: list[dict[str, Any]] = []
+    seen = {h.get("component_uri", "") for h in state["all_hits"]}
+    for as_of, hits in by_as_of.items():
+        for hit in _orch._resolve_co_retrieve_parents(hits, as_of, conn):
+            if hit.get("component_uri") not in seen:
+                seen.add(hit.get("component_uri"))
+                additional.append(hit)
     if lf_trace is not None:
         try:
             sp = lf_trace.span(name="co_retrieve_parent_resolution")
@@ -149,9 +241,16 @@ def cross_ref_resolver_node(
 ) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
-    additional = _orch._resolve_cross_refs(
-        state["all_hits"], state["session_as_of"], conn
-    )
+    by_as_of: dict[date, list[dict[str, Any]]] = {}
+    for hit in state["all_hits"]:
+        by_as_of.setdefault(_hit_as_of(state, hit), []).append(hit)
+    additional: list[dict[str, Any]] = []
+    seen = {h.get("component_uri", "") for h in state["all_hits"]}
+    for as_of, hits in by_as_of.items():
+        for hit in _orch._resolve_cross_refs(hits, as_of, conn):
+            if hit.get("component_uri") not in seen:
+                seen.add(hit.get("component_uri"))
+                additional.append(hit)
     if lf_trace is not None:
         try:
             sp = lf_trace.span(name="cross_ref_resolution")
@@ -246,7 +345,6 @@ def enabling_power_resolver_node(
 ) -> dict[str, Any]:
     conn = config["configurable"]["conn"]
     lf_trace = config["configurable"].get("lf_trace")
-    as_of = state["session_as_of"]
     hits = state.get("all_hits", [])
     additional: list[dict[str, Any]] = []
 
@@ -255,7 +353,7 @@ def enabling_power_resolver_node(
         for h in hits[:5]:
             if h.get("co_retrieved"):
                 continue
-            enabling = _fetch_enabling_chunk(conn, h, as_of)
+            enabling = _fetch_enabling_chunk(conn, h, _hit_as_of(state, h))
             if enabling and enabling["component_uri"] not in existing_ids:
                 existing_ids.add(enabling["component_uri"])
                 additional.append(enabling)
@@ -313,6 +411,8 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
     session_as_of = state["session_as_of"]
     query_type = state["query_type"]
 
+    degraded_mode = _degraded_mode(state)
+
     if state.get("interrupted"):
         if lf_trace is not None:
             try:
@@ -330,6 +430,7 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
                 "results": [],
                 "interrupted": True,
                 "interrupt_prompt": state.get("interrupt_prompt"),
+                "degraded_mode": degraded_mode,
             }
         }
 
@@ -374,11 +475,13 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
                 "query_type": query_type,
                 "abstained": not any(not r.get("abstained") for r in all_results),
                 "results": all_results,
+                "degraded_mode": degraded_mode,
             }
         }
 
     composed = _orch._revalidate_composed(composed, all_results)
     composed["query_type"] = query_type
+    composed["degraded_mode"] = degraded_mode
     return {"_response": composed}
 
 

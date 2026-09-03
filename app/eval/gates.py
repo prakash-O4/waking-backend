@@ -85,6 +85,69 @@ def check_not_yet_effective_as_current(
     return _isolated_check(conn, component_uri, "commence", "gazette_notification")
 
 
+def check_repealed_as_current_live(
+    conn: connection, os_client: object | None = None
+) -> int:
+    today = date.today()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(DISTINCT c.id)
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE d.ingestion_status = 'approved'
+              AND c.source_type <> 'nkp_case'
+              AND c.component_uri IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM lifecycle_effect le
+                  WHERE le.component_uri = c.component_uri
+                    AND le.effect_type = 'commence'
+                    AND le.approval_status = 'approved'
+                    AND le.legal_valid_time @> %(today)s::timestamptz
+                    AND le.commencement_dependency IS NULL
+              )
+              AND EXISTS (
+                  SELECT 1 FROM lifecycle_effect le
+                  WHERE le.component_uri = c.component_uri
+                    AND le.effect_type IN ('repeal','expiry','declared_invalid','suspend')
+                    AND le.approval_status = 'approved'
+                    AND lower(le.legal_valid_time) <= %(today)s::timestamptz
+              )
+            """,
+            {"today": today},
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row else 1
+
+
+def check_not_yet_effective_as_current_live(
+    conn: connection, os_client: object | None = None
+) -> int:
+    today = date.today()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(DISTINCT c.id)
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE d.ingestion_status = 'approved'
+              AND c.source_type <> 'nkp_case'
+              AND c.component_uri IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM lifecycle_effect le
+                  WHERE le.component_uri = c.component_uri
+                    AND le.effect_type = 'commence'
+                    AND le.approval_status = 'approved'
+                    AND le.legal_valid_time @> %(today)s::timestamptz
+                    AND le.commencement_dependency IS NULL
+              )
+            """,
+            {"today": today},
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row else 1
+
+
 def check_overruled_as_good_law(
     conn: connection, os_client: object | None = None
 ) -> int:
@@ -144,18 +207,26 @@ def check_overruled_as_good_law(
 def main() -> None:
     if not os.getenv("SUPABASE_DB_URL"):
         print("repealed-as-current: 0")
+        print("repealed-as-current-live-corpus: 0")
         print("not-yet-effective-as-current: 0")
+        print("not-yet-effective-as-current-live-corpus: 0")
         print("overruled-as-good-law: 0")
         return
     with connect() as conn:
         repealed = check_repealed_as_current(conn)
+        repealed_live = check_repealed_as_current_live(conn)
         pending = check_not_yet_effective_as_current(conn)
+        pending_live = check_not_yet_effective_as_current_live(conn)
         overruled = check_overruled_as_good_law(conn)
         conn.commit()
     print(f"repealed-as-current: {repealed}")
+    print(f"repealed-as-current-live-corpus: {repealed_live}")
     print(f"not-yet-effective-as-current: {pending}")
+    print(f"not-yet-effective-as-current-live-corpus: {pending_live}")
     print(f"overruled-as-good-law: {overruled}")
-    raise SystemExit(1 if repealed or pending or overruled else 0)
+    raise SystemExit(
+        1 if any((repealed, repealed_live, pending, pending_live, overruled)) else 0
+    )
 
 
 if __name__ == "__main__":

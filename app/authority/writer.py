@@ -11,13 +11,17 @@ from app.authority.parser import ParsedComponent, ParsedLaw
 PHASE0_APPROVER = UUID("00000000-0000-0000-0000-000000000001")
 
 
-def connect() -> connection:
+def database_url() -> str:
     import os
 
     url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is not set")
-    return psycopg2.connect(url)
+    return url
+
+
+def connect() -> connection:
+    return psycopg2.connect(database_url())
 
 
 def upsert_work(conn: connection, law: ParsedLaw) -> str:

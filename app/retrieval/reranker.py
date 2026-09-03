@@ -16,6 +16,10 @@ def _get_ranker() -> Any:
     return _ranker
 
 
+def _tag(hits: list[dict[str, Any]], tier: str) -> list[dict[str, Any]]:
+    return [{**h, "reranker_tier": tier} for h in hits]
+
+
 def _flashrank_rerank(
     query: str, hits: list[dict[str, Any]], k: int
 ) -> list[dict[str, Any]]:
@@ -42,11 +46,11 @@ def rerank(query: str, hits: list[dict[str, Any]], k: int) -> list[dict[str, Any
                 documents=docs,
                 top_n=k,
             )
-            return [hits[r.index] for r in response.results]
+            return _tag([hits[r.index] for r in response.results], "cohere")
         except Exception:
             pass
 
     try:
-        return _flashrank_rerank(query, hits, k)
+        return _tag(_flashrank_rerank(query, hits, k), "flashrank")
     except Exception:
-        return hits[:k]
+        return _tag(hits[:k], "passthrough")
