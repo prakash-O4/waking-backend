@@ -55,7 +55,7 @@ def _citation(conn: connection, evidence_id: str, as_of: date) -> dict[str, Any]
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT w.title_ne, w.title_en, c.component_type, c.number
+                SELECT w.title_ne, w.title_en
                 FROM component c
                 JOIN work w ON w.id = c.work_id
                 WHERE c.uri = %(component_uri)s
