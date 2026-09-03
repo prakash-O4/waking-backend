@@ -1,13 +1,20 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-27 (task 2 of 6 in the retrieval-hardening program)
-is **MERGED**. AGENT-28 (citation authority-chain rendering) is next —
-scoping/task.md not yet written, queued.
+AGENT-28 (task 3 of 6 in the retrieval-hardening program) — citation
+authority-chain rendering. Scoped, `task.md` committed on
+`agent/citation-authority-chain` (`9356ab3`, off `dev`, in sync).
+**Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between waves** — AGENT-27 merged to `dev`. AGENT-28-31 queued per
-the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-28.
+**DISPATCHED, awaiting engineer run** — AGENT-27 merged to `dev`. AGENT-28
+task brief written and committed; run prompt given to Prakash below.
+AGENT-29-31 remain queued per the program below.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/citation-authority-chain` — reason: precise, correctness-heavy gate
+logic touching one function (`validation_gate.py::_citation`), matches Pi's
+selection criteria, not Kimi's. `task.md` on that branch has the full brief.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -34,14 +41,64 @@ legal-QA product, no per-user document permissions).
 |---|---|---|---|---|---|
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
-| AGENT-28 | queued | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
+| AGENT-28 | **assigned to Pi** | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: scope AGENT-28 (citation authority-chain rendering — write
-`task.md`, create `agent/citation-authority-chain` off `dev`), dispatch to
-Pi.
+**Next action**: Prakash runs Pi on `agent/citation-authority-chain` per
+the run prompt above. Claude reviews the pushed diff on return.
+
+- **AGENT-28 scoping (2026-09-03)**: grounded against the actual schema
+  (`migrations/001_bitemporal_schema.sql`'s `component`/`work`/
+  `source_publication`/`lifecycle_effect`/`expression`,
+  `migrations/011_chunk_authority_links.sql`'s `chunks.component_uri`/
+  `documents.source_pub_id`) rather than the design doc alone. Traced the
+  current `_citation()` end-to-end: it joins `chunks`→`documents`→
+  `source_publication` by the chunk's own id and reads
+  `act_name`/`case_id`/`source_type` off the chunk row directly — never
+  touches `component`, `work`, or `lifecycle_effect`, so a claim citing a
+  once-amended provision shows only whichever single document backs that
+  chunk, with no record of the amendment. Confirmed via
+  `grep`/read that `_citation()`'s parameter is misleadingly named
+  `component_uri` but is actually called with the chunk's UUID id
+  (`claim["evidence_id"]`) at its one call site in `validate_and_render()`
+  — the real TEXT `component.uri` only exists via the already-built
+  `_authority_component_uri()` helper (added under AGENT-26). This
+  conflation is pre-existing and repo-wide (same pattern in
+  `eligible_chunk_ids()`'s returned set, retrieval hit dicts, etc.) —
+  scoped the fix narrowly to renaming just `_citation()`'s own parameter to
+  `evidence_id`, not a repo-wide rename (Ponytail: smallest local change).
+  Confirmed nothing downstream pattern-matches specific citation dict keys
+  (`grep` for `["citation"]`/`.get("citation")` outside
+  `validation_gate.py` — none; the whole `all_results` list is
+  JSON-serialized wholesale into the composer prompt) — extending the
+  return shape with `derived`/`amendments`/`source_url` is additive, not a
+  breaking change to any consumer.
+  Confirmed `_citation()` is only ever reached after `validate_and_render`'s
+  `ok` chain already passed eligibility + termination — so a
+  currently-repealed/terminated component's claim never reaches
+  `_citation()` at all, meaning the new amending-chain query only needs
+  `effect_type='amend'`, not the full repeal/expiry/suspend/
+  declared_invalid list (those are handled upstream already).
+  One real, separate finding surfaced while grounding this (not folded into
+  AGENT-28, explicitly flagged in `task.md` as forbidden-to-fix-here and
+  worth Prakash's attention): `upsert_expression()`
+  (`app/authority/writer.py:276`) is only ever called once, during initial
+  document `PERSIST_AUTHORITY` ingest (`pipeline.py:306`) — nothing in the
+  codebase calls it again when a `lifecycle_effect` amend is later
+  approved. Combined with `chunks.chunk_text` also being written once at
+  initial ingest, this raises the question of whether retrieved chunk text
+  for an amended provision can go stale relative to an approved amendment —
+  `system-design.md` §5 says ingestion should "materialize expression;
+  re-embed only affected components" on a lifecycle write, but no live code
+  path does this today. Not verified against the live corpus this session
+  (would need a real amended-and-then-later-ingested component to check
+  against) — flagged as a candidate future task, not assumed to be a bug
+  without live-corpus confirmation.
+  Branch `agent/citation-authority-chain` created off `dev`. `task.md`
+  committed there (`9356ab3`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch.
 
 - **AGENT-27 (2026-09-03, MERGED)**: Pi returned `78da5bb` — real commit on
   the correct branch, clean working tree (no repeat of the
