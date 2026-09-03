@@ -25,32 +25,83 @@ def _claim_supported(quote: str, chunk_text: str) -> bool:
     return len(q) >= _MIN_QUOTE_CHARS and q in _normalize(chunk_text)
 
 
-def _citation(
-    conn: connection, component_uri: str, as_of: date
-) -> dict[str, Any] | None:
+_DERIVED_KINDS = {"verified_internal_consolidation", "derived_verified"}
+
+
+def _citation(conn: connection, evidence_id: str, as_of: date) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT c.act_name, c.case_id, c.source_type,
-                   sp.kind, d.ocr_confidence
+                   sp.kind, d.ocr_confidence, sp.source_url
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             LEFT JOIN source_publication sp ON sp.id = d.source_pub_id
-            WHERE c.id = %(component_uri)s::uuid
+            WHERE c.id = %(evidence_id)s::uuid
             LIMIT 1
             """,
-            {"component_uri": component_uri},
+            {"evidence_id": evidence_id},
         )
         row = cur.fetchone()
     if not row:
         return None
+
+    component_uri = _authority_component_uri(conn, evidence_id)
+    title_ne = row[0] or row[1] or ""
+    title_en = ""
+    amendments: list[dict[str, Any]] = []
+
+    if component_uri is not None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT w.title_ne, w.title_en, c.component_type, c.number
+                FROM component c
+                JOIN work w ON w.id = c.work_id
+                WHERE c.uri = %(component_uri)s
+                LIMIT 1
+                """,
+                {"component_uri": component_uri},
+            )
+            comp = cur.fetchone()
+        if comp:
+            title_ne = comp[0] or title_ne
+            title_en = comp[1] or ""
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT le.effective_date, sp.kind, sp.ocr_confidence, sp.source_url
+                FROM lifecycle_effect le
+                LEFT JOIN source_publication sp ON sp.id = le.source_pub_id
+                WHERE le.component_uri = %(component_uri)s
+                  AND le.effect_type = 'amend'
+                  AND le.approval_status = 'approved'
+                  AND lower(le.legal_valid_time) <= %(as_of)s
+                ORDER BY le.effective_date ASC
+                """,
+                {"component_uri": component_uri, "as_of": as_of},
+            )
+            for eff_date, kind, ocr, url in cur.fetchall():
+                amendments.append(
+                    {
+                        "effective_date": eff_date.isoformat() if eff_date else None,
+                        "source_kind": kind,
+                        "ocr_confidence": ocr,
+                        "source_url": url,
+                    }
+                )
+
+    source_kind = row[3] or row[2]
     return {
-        "component_uri": component_uri,
-        "work_title_ne": row[0] or row[1] or "",
-        "work_title_en": "",
+        "component_uri": component_uri or evidence_id,
+        "work_title_ne": title_ne,
+        "work_title_en": title_en,
         "as_of": as_of.isoformat(),
-        "source_kind": row[3] or row[2],
+        "source_kind": source_kind,
         "ocr_confidence": row[4],
+        "source_url": row[5],
+        "derived": source_kind in _DERIVED_KINDS,
+        "amendments": amendments,
     }
 
 
