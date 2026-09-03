@@ -1,13 +1,20 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-26 (task 1 of 6 in the retrieval-hardening program)
-is **MERGED**. AGENT-27 (claim-support verbatim-quote check) is next —
-scoping/task.md not yet written, queued.
+AGENT-27 (task 2 of 6 in the retrieval-hardening program) — claim-support
+verbatim-quote check. Scoped, `task.md` committed on
+`agent/claim-support-verbatim-quote` (`674ff5f`, off `dev`, in sync).
+**Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between waves** — AGENT-26 merged to `dev`. AGENT-27-31 queued per
-the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-27.
+**DISPATCHED, awaiting engineer run** — AGENT-26 merged to `dev`. AGENT-27
+task brief written and committed; run prompt given to Prakash below.
+AGENT-28-31 remain queued per the program below.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/claim-support-verbatim-quote` — reason: precise, narrow,
+correctness-heavy change to gate logic (`validation_gate.py`), matches Pi's
+selection criteria, not Kimi's. `task.md` on that branch has the full brief.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -33,14 +40,49 @@ legal-QA product, no per-user document permissions).
 | # | Status | Scope | Files | PS / Invariant | Depends on |
 |---|---|---|---|---|---|
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
-| AGENT-27 | queued, next | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
+| AGENT-27 | **assigned to Pi** | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | queued | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: scope AGENT-27 (write `task.md`, create
-`agent/claim-support-verbatim-quote` off `dev`), dispatch to Pi.
+**Next action**: Prakash runs Pi on `agent/claim-support-verbatim-quote`
+per the run prompt above. Claude reviews the pushed diff on return.
+
+- **AGENT-27 scoping (2026-09-03)**: session-resume found an untracked file,
+  `docs/legal_rag_ingestion_best_practices.md` — Prakash's own notes on a
+  real, separate problem (`LawsChunker` mis-chunking tariff/customs schedule
+  Acts like `भन्सार_महसुल_ऐन_२०८१` as prose instead of structured tariff
+  rows). Not referenced anywhere in this file or any commit; not part of the
+  6-task program. Flagged to Prakash before proceeding — his call: leave it
+  as untracked reference notes for now, proceed with AGENT-27 as already
+  queued. Not committed, not acted on; still sitting untracked in the working
+  tree, revisit later if Prakash prioritizes it.
+  Read `system-design.md` §2 (Core Invariants) + §7.7 (validation gate
+  sequence: "exact-quote check → claim-support check → bounded regenerate →
+  fallback/abstain → render citations") + §14 PS-7 before scoping, per the
+  Mandatory Inputs / Design Gate. Confirmed `_extractive_claim`'s `text_ne`
+  is literally `chunks.chunk_text` (`postgres_retriever.py:122`) — the
+  extractive fallback path is definitionally verbatim, so its `quote` is
+  just its own `claim` value, no extra query needed. Confirmed the existing
+  NFC + Devanagari-digit-fold normalization pattern is already duplicated
+  twice in the codebase (`pipeline.py::_content_hash`,
+  `pii_redactor.py::_digit_fold`) — instructed a third small local copy in
+  `validation_gate.py` rather than a new shared-utils module (Ponytail).
+  One design call made directly rather than round-tripped: a **15-character
+  minimum** on the normalized/stripped quote before it's eligible to
+  substring-match, to close an obvious gaming vector (a single common word
+  trivially "supporting" any claim) — flagged in `task.md` as tunable, not
+  proven-optimal, revisit once eval data exists. Explicitly scoped bounded
+  regenerate (also named in §7.7's chain) **out** of this task — abstain
+  directly on claim-support failure, same as every other failure mode in the
+  existing chain; regenerate is a separate future task if ever built.
+  Branch `agent/claim-support-verbatim-quote` created off `dev` (fast-forward
+  clean, no divergence from local `dev` at the time of branching — local
+  `dev` itself is 217 commits ahead of `origin/dev`, unpushed, unrelated to
+  this task). `task.md` committed there (`674ff5f`, author `Prakash
+  Basnet`). Assigned to Pi (narrow, correctness-heavy gate-logic change,
+  not Kimi's profile). Awaiting Prakash to dispatch.
 
 - **AGENT-26 (2026-09-02, MERGED)**: Pi's diff was sitting **uncommitted** in
   the working tree on the correct branch (same recurring failure mode as
