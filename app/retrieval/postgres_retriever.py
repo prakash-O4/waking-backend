@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 import unicodedata
 from datetime import date
@@ -104,6 +105,32 @@ def _embed_query(text: str) -> list[float]:
     return cast(list[float], resp.data[0].embedding)
 
 
+def _parse_section_reference(query: str) -> str | None:
+    match = re.search(r"(?:दफा|धारा|उपदफा)\s*\(?(\d+)\)?", query)
+    return match.group(1) if match else None
+
+
+def _parse_schedule_reference(query: str) -> str | None:
+    match = re.search(r"अनुसूची\s*(\d+)", query)
+    return match.group(1) if match else None
+
+
+def _resolve_act_title(conn: connection, query: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id::text, title_ne
+            FROM work
+            WHERE strpos(%(query)s, title_ne) > 0
+            ORDER BY length(title_ne) DESC
+            LIMIT 1
+            """,
+            {"query": query},
+        )
+        row = cur.fetchone()
+    return str(row[0]) if row else None
+
+
 def _rrf(ranked_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
     scores: dict[str, float] = {}
     for ranked in ranked_lists:
@@ -133,7 +160,11 @@ def _hit(
 def retrieve_postgres(
     conn: connection, query: str, as_of: date, k: int = 5, lf_trace: Any = None
 ) -> list[dict[str, Any]]:
+    title_query = unicodedata.normalize("NFC", query)
     query = _preprocess(query)
+    section_num = _parse_section_reference(query)
+    schedule_num = _parse_schedule_reference(query)
+    act_work_id: str | None = None
     query_ne = translate_query(query)
     if query_ne is not None:
         query_ne = _preprocess(query_ne)
@@ -168,6 +199,7 @@ def retrieve_postgres(
                 pass
         return []
 
+    act_work_id = _resolve_act_title(conn, title_query)
     qvec = _embed_query(query)
     qvec_ne = _embed_query(query_ne) if query_ne else None
     limit = k * 3
@@ -206,6 +238,33 @@ def retrieve_postgres(
             )
             return cur.fetchall()
 
+        def exact_lookup_search() -> list[tuple[Any, ...]]:
+            filters = ["c.id::text = ANY(%(eligible)s)"]
+            params: dict[str, Any] = {"eligible": eligible, "limit": limit}
+            if act_work_id is not None:
+                filters.append("c.work_id = %(work_id)s")
+                params["work_id"] = act_work_id
+            if section_num is not None:
+                filters.append(
+                    "(c.section_number = %(num)s OR c.parent_section = %(num)s)"
+                )
+                params["num"] = section_num
+            if schedule_num is not None:
+                filters.append("strpos(c.chunk_text, 'अनुसूची ' || %(schedule_num)s) > 0")
+                params["schedule_num"] = schedule_num
+            cur.execute(
+                f"""
+                SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, c.case_id,
+                       c.chunk_type, c.section_number, d.source_id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE {" AND ".join(filters)}
+                LIMIT %(limit)s
+                """,
+                params,
+            )
+            return cur.fetchall()
+
         t0 = time.monotonic()
         vector_rows = vector_search(qvec)
         vector_rows_ne = vector_search(qvec_ne) if qvec_ne is not None else []
@@ -235,9 +294,28 @@ def retrieve_postgres(
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
+        exact_ran = any(x is not None for x in (section_num, schedule_num, act_work_id))
+        exact_rows: list[tuple[Any, ...]] = []
+        t0 = time.monotonic()
+        if exact_ran:
+            exact_rows = exact_lookup_search()
+        _end_span(
+            retrieval_span,
+            "exact_lookup",
+            ran=exact_ran,
+            candidate_count=len(exact_rows),
+            latency_ms=int((time.monotonic() - t0) * 1000),
+        )
+
     rows = {
         str(row[0]): row
-        for row in [*vector_rows, *lexical_rows, *vector_rows_ne, *lexical_rows_ne]
+        for row in [
+            *vector_rows,
+            *lexical_rows,
+            *vector_rows_ne,
+            *lexical_rows_ne,
+            *exact_rows,
+        ]
     }
     vector_scores = {
         str(row[0]): float(row[-1]) for row in [*vector_rows, *vector_rows_ne]
@@ -247,6 +325,8 @@ def retrieve_postgres(
         ranked_lists.append([str(r[0]) for r in vector_rows_ne])
     if query_ne is not None:
         ranked_lists.append([str(r[0]) for r in lexical_rows_ne])
+    if exact_ran:
+        ranked_lists.append([str(r[0]) for r in exact_rows])
     t0 = time.monotonic()
     rrf_scores = _rrf(ranked_lists)
     _end_span(
