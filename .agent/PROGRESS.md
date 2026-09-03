@@ -2,11 +2,79 @@
 
 ## Current task
 None dispatched. AGENT-32 (confirmed production gaps bundle) is
-**MERGED**. Production-gaps program is open with only this one task so
-far — next task not yet identified, awaiting Prakash's direction.
+**MERGED**. A 6-item post-AGENT-32 roadmap toward 9-10/10 is agreed with
+Prakash (2026-09-04) — see "Post-AGENT-32 roadmap" below. **Next up: an
+investigation (not a code task) into whether `chunk_text`/`expression` can
+serve stale legal text after an approved amendment** — flagged P0 if
+confirmed. No branch/task.md yet; this is a research step before any
+scoping.
 
 ## Status
-**IDLE** — AGENT-32 merged to `dev`. No task currently queued.
+**IDLE, roadmap agreed, no task dispatched yet.** AGENT-32 merged to
+`dev`. Awaiting Prakash's go-ahead to start the staleness investigation
+(step 1 of the roadmap).
+
+## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
+
+Six remaining gaps toward a 9-10/10 production legal RAG, raised by
+Prakash after AGENT-32 merged, each independently assessed (not accepted
+at face value) before this order was proposed and then explicitly
+confirmed by Prakash. Agreed order — **do this in this order, don't
+re-litigate without a reason**:
+
+1. **Investigate citation/expression staleness** — the single most urgent
+   open question, could be P0: *"After an approved amendment, does
+   expression/chunk_text update and re-embed, or can retrieval serve stale
+   legal text?"* Grounded in a real, already-confirmed fact from AGENT-28's
+   review: `upsert_expression()` (`app/authority/writer.py`) is only ever
+   called once, during initial document `PERSIST_AUTHORITY` ingest
+   (`pipeline.py:306`) — nothing re-triggers it (or re-chunks
+   `chunks.chunk_text`) when a `lifecycle_effect` amend is later approved.
+   Never confirmed against the live corpus. **If stale text is possible,
+   this jumps to P0 for legal correctness** — ahead of everything else on
+   this list, ahead of any other queued work. This is a research step,
+   not a code task — no branch/task.md until the finding is in.
+2. **Build eval-labeling tooling** — engineering work (a script/workflow
+   that turns real query traffic + Prakash's review into a golden entry
+   with minimal friction), not new golden data itself. Golden-set
+   expansion responsibly needs Prakash's own legal verification; this step
+   only makes that verification fast, it doesn't do the labeling.
+3. **Improve legal reference parser** — extend AGENT-30's दफा/धारा/
+   उपदफा/अनुसूची/Act-title lookup: ranges, aliases/colloquial Act names,
+   multiple Acts per query, provisos referenced by name. Bounded,
+   independent of the other items, no open design questions — bump it
+   ahead of anything blocked on a decision.
+4. **Use eval data to decide the claim-support verifier** — do **not**
+   jump straight to an NLI/entailment model (trades a cheap deterministic
+   check for a second unverified black-box judge — the "jagged intern"
+   problem `AGENTS.md` warns about). First measure the actual gap size
+   with a labeled (quote, claim) eval slice — built using step 2's
+   tooling — of "quote genuinely supports this claim" vs. "quote exists
+   but claim doesn't follow." Only add an entailment/LLM-judge layer if
+   that measurement shows a real, sized problem, and even then as an
+   *additional* gate alongside the quote check, not a replacement.
+5. **Revisit interrupt-routing design — deferred, not scoped now.**
+   Prakash's explicit refinement: the cleaner design ("run the full
+   pipeline optimistically, interrupt only if the final result is fully
+   abstained/empty") is agreed as architecturally correct, but **do not
+   build it yet** — AGENT-32's coverage-probe fix is good enough until eval
+   data actually shows user harm from the probe's imprecision (it only
+   proves "some hit exists," not "the answer doesn't depend on the missing
+   fact"). Revisit once step 2/4's eval work exists to make that call with
+   real numbers instead of guessing.
+6. **Jurisdiction/ACL future-proofing — parked, no work planned.**
+   `work.jurisdiction`/no-ACL-schema is correctly assessed as real but not
+   worth building ahead of an actual multi-jurisdiction or
+   private-content requirement (`AGENTS.md`: don't design for hypothetical
+   future requirements). Revisit only if the product roadmap actually
+   needs it.
+
+**Next action**: Prakash decides when to start step 1 (staleness
+investigation). Not a dispatch to Pi/Kimi — this is Claude doing direct
+code/live-corpus investigation, same style as the AGENT-26/AGENT-28
+grounding work already in this file. No branch or task.md until a finding
+lands; if it confirms staleness, treat it as P0 and re-prioritize
+everything above it.
 
 ## Production-gaps program (started 2026-09-04)
 
