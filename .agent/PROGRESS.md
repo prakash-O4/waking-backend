@@ -1,20 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-28 (task 3 of 6 in the retrieval-hardening program) — citation
-authority-chain rendering. Scoped, `task.md` committed on
-`agent/citation-authority-chain` (`9356ab3`, off `dev`, in sync).
-**Assigned to Pi, awaiting dispatch by Prakash.**
+None dispatched. AGENT-28 (task 3 of 6 in the retrieval-hardening program)
+is **MERGED**. AGENT-29 (composer output re-validation) is next —
+scoping/task.md not yet written, queued.
 
 ## Status
-**DISPATCHED, awaiting engineer run** — AGENT-27 merged to `dev`. AGENT-28
-task brief written and committed; run prompt given to Prakash below.
-AGENT-29-31 remain queued per the program below.
-
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/citation-authority-chain` — reason: precise, correctness-heavy gate
-logic touching one function (`validation_gate.py::_citation`), matches Pi's
-selection criteria, not Kimi's. `task.md` on that branch has the full brief.
+**IDLE, between waves** — AGENT-28 merged to `dev`. AGENT-29-31 queued per
+the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-29.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -41,13 +34,88 @@ legal-QA product, no per-user document permissions).
 |---|---|---|---|---|---|
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
-| AGENT-28 | **assigned to Pi** | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
+| AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash runs Pi on `agent/citation-authority-chain` per
-the run prompt above. Claude reviews the pushed diff on return.
+**Next action**: scope AGENT-29 (composer output re-validation — write
+`task.md`, create `agent/composer-output-revalidation` off `dev`), dispatch
+to Pi.
+
+- **AGENT-28 (2026-09-03, MERGED)**: Pi returned `39505c7` — real commit,
+  correct branch, clean tree. File scope matched `task.md` exactly
+  (`validation_gate.py` + its test file only, no other files touched).
+  `_citation()` correctly resolves the TEXT `component.uri` via the
+  existing `_authority_component_uri()` helper before touching
+  `component`/`work`/`lifecycle_effect` — traced every new query's
+  parameter back to its source myself to confirm no conflation between the
+  chunk UUID (`evidence_id`) and the real component URI, the specific trap
+  the brief called out. Base source query stays keyed by `evidence_id`
+  (correct — that's still the right way to find the specific document
+  backing this chunk's exact span); `component`+`work`+`lifecycle_effect`
+  queries all keyed by the resolved TEXT uri. Linked/unlinked branches
+  return identical key sets (proven by a dedicated test, not just visual
+  inspection). Amend-chain query correctly restricts to `effect_type =
+  'amend'` only, with a comment-free but correct rationale (repeal/expiry/
+  suspend/declared_invalid claims never reach `_citation()` at all —
+  `validate_and_render`'s `ok` chain already excludes them upstream).
+  `derived` flag computed correctly as `source_kind in
+  {"verified_internal_consolidation", "derived_verified"}`.
+  **Checked a specific concern myself before trusting it**: the new
+  amend-chain query compares `lower(le.legal_valid_time) <= %(as_of)s`
+  without the explicit `::timestamptz` cast used everywhere else in this
+  codebase (`is_eligible()`, `_terminated_before()`). Rather than assume
+  either "obviously fine" or "obviously a bug," checked psycopg2's actual
+  parameter adaptation directly (`psycopg2.extensions.adapt(date(...))
+  .getquoted()` → `b"'2024-01-01'::date"`) — confirmed psycopg2 sends an
+  explicitly-typed `date` literal, and PostgreSQL has native
+  `timestamptz`↔`date` comparison operators (via `date2timestamptz`
+  conversion at the session timezone), so this resolves correctly without
+  the cast — a benign style deviation from precedent, not a bug. Wanted to
+  additionally verify against the live DB directly (this repo's established
+  practice all session) but **could not** — Postgres at
+  `localhost:5433` (per `.env`) was unreachable this session (no Docker
+  daemon running, no local Postgres process found) — noting this
+  explicitly rather than silently skipping it: the amend-chain SQL's
+  correctness rests on the psycopg2/Postgres semantics check above, not on
+  a live query run against real `lifecycle_effect` rows this session. Also
+  confirms `make eval-gates` (which Pi's report cites as green, and which
+  did run successfully during AGENT-27's review — DB has since gone
+  unreachable in this session) **does not exercise `_citation()` at all**
+  (`app/eval/gates.py` only tests `is_eligible()`/`eligible_chunk_ids()`
+  against synthetic data, confirmed by grep — same pre-existing gap AGENT-26
+  already documented) — so its green result, while real, doesn't itself
+  validate this task's new SQL either way.
+  **One trivial issue found and fixed directly rather than sent back**: the
+  `component`+`work` join selected `c.component_type, c.number` (matching
+  this task's own brief, which asked to resolve them) but never used either
+  value anywhere in the output — dead columns in the SELECT, my own
+  ambiguity in `task.md` (the brief asked to resolve them but never
+  specified an output key for them). Trimmed the SELECT to just
+  `w.title_ne, w.title_en` (`402f054`) — mechanical, re-ran `make test`
+  (206 passed, matches, unaffected) and `make lint` (clean) after, not
+  new engineer work worth a round-trip. **Also corrected a `git add -A`
+  slip of my own**: my first fixup commit accidentally staged the untracked
+  `docs/legal_rag_ingestion_best_practices.md` (the tariff-ingestion notes
+  Prakash asked to leave untracked) — caught immediately via `git status`
+  before pushing anywhere, `git reset --soft` + `git restore --staged` to
+  undo, recommitted with only the intended file. File is back to untracked,
+  unaffected.
+  Test rewrite is substantively good, not just updated for new fields: new
+  `CitationConn`/`CitationCursor` actually evaluates the amend-chain WHERE
+  predicate against seeded rows (effect_type/approval_status/as_of-lower
+  comparison + sort), not canned booleans — proves, with real seeded data,
+  that a future-effective approved amendment, a pending-approval amendment,
+  and an approved repeal are each correctly excluded from the same list
+  that correctly includes two in-force amendments in effective-date order
+  (seeded out of order). Separate tests prove `derived` for a consolidation
+  base, linked/unlinked key-set parity, and `None` for an unknown chunk.
+  Independently re-verified (after my own fixup): `make test` (206 passed,
+  3 skipped — matches), `make lint` clean. `make eval-gates` **not**
+  re-run this session (DB unreachable, see above) — flagging this as the
+  one check not independently reproduced, rather than claiming it was.
+  Merged `agent/citation-authority-chain` → `dev` (`--no-ff`, `c6923ba`).
 
 - **AGENT-28 scoping (2026-09-03)**: grounded against the actual schema
   (`migrations/001_bitemporal_schema.sql`'s `component`/`work`/
