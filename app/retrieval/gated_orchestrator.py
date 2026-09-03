@@ -208,13 +208,14 @@ def _compose_answer(
     system = (
         "You are Wakil-G, a Nepali legal assistant. "
         "Compose a structured legal answer from the provided validated claims. "
-        "Never invent law. Never modify citations. Use only what the claims provide. "
+        "Never invent law. Use only what the claims provide. "
+        "For each relevant section, copy evidence_id and as_of verbatim from the validated claim it summarizes; never invent or modify them. "
         "Output JSON only:\n"
         "{\n"
         '  "relevant_sections": [\n'
         '    {"section": "<law name + दफा number>", "why_applicable": "<reason>",\n'
         '     "applicability": "high|medium|low", "condition": "<condition or null>",\n'
-        '     "citation": {}}\n'
+        '     "evidence_id": "<claim evidence_id>", "as_of": "<claim as_of>"}\n'
         "  ],\n"
         '  "missing_facts": ["<user-facing question about clarifying fact>"],\n'
         '  "conflicts": ["<description of conflict between sources>"],\n'
@@ -260,6 +261,33 @@ def _compose_answer(
         return cast(dict[str, Any], json.loads(raw))
     except Exception:
         return None
+
+
+def _revalidate_composed(
+    composed: dict[str, Any], all_results: list[dict[str, Any]]
+) -> dict[str, Any]:
+    citations = {
+        (r.get("evidence_id"), r.get("as_of")): r["citation"]
+        for r in all_results
+        if not r.get("abstained") and r.get("evidence_id") and "citation" in r
+    }
+    sections = composed.get("relevant_sections")
+    kept: list[dict[str, Any]] = []
+    if isinstance(sections, list):
+        for item in sections:
+            if not isinstance(item, dict):
+                continue
+            citation = citations.get((item.get("evidence_id"), item.get("as_of")))
+            if citation is None:
+                continue
+            item["citation"] = citation
+            kept.append(item)
+
+    composed["relevant_sections"] = kept
+    composed["abstained"] = not kept
+    if not kept:
+        composed["plain_language"] = ""
+    return composed
 
 
 def _fact_extract(

@@ -372,11 +372,12 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
             "_response": {
                 "as_of": session_as_of.isoformat(),
                 "query_type": query_type,
-                "abstained": not all_results,
+                "abstained": not any(not r.get("abstained") for r in all_results),
                 "results": all_results,
             }
         }
 
+    composed = _orch._revalidate_composed(composed, all_results)
     composed["query_type"] = query_type
     return {"_response": composed}
 
