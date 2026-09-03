@@ -1,22 +1,12 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-32 — confirmed production gaps bundle (6 items, one task, per
-Prakash's explicit instruction not to phase it). Scoped, `task.md`
-committed on `agent/confirmed-production-gaps` (`4da6016`, off `dev`, in
-sync). **Assigned to Pi, awaiting dispatch by Prakash.**
+None dispatched. AGENT-32 (confirmed production gaps bundle) is
+**MERGED**. Production-gaps program is open with only this one task so
+far — next task not yet identified, awaiting Prakash's direction.
 
 ## Status
-**DISPATCHED, awaiting engineer run** — the 6-task retrieval-hardening
-program (AGENT-26–31) is complete. AGENT-32 opens a new program; task
-brief written and committed; run prompt given to Prakash below.
-
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/confirmed-production-gaps` — reason: precise, correctness-heavy
-work across several retrieval/gate functions plus one docs fix, matches
-Pi's selection criteria, not Kimi's. `task.md` on that branch has the full
-brief (six items, each independently verified before being accepted — see
-the dated grounding entry below).
+**IDLE** — AGENT-32 merged to `dev`. No task currently queued.
 
 ## Production-gaps program (started 2026-09-04)
 
@@ -34,10 +24,102 @@ written — do not re-ask them:
 
 | # | Status | Scope | Files | Gap |
 |---|---|---|---|---|
-| AGENT-32 | **assigned to Pi** | Bundle: (1) per-claim as_of leak in co-retrieve/cross-ref/enabling-power resolvers, (2) eager fact-extractor interruption, (3) sequential retrieval → bounded parallel fan-out, (4) live-corpus zero-tolerance check, (5) silent reranker/reasoner fallback labeling, (6) README streaming-claim correction | `query_graph.py`, `postgres_retriever.py`, `reranker.py`, new `db_pool.py`, `writer.py` (DSN extraction only), `gates.py`, `README.md` | Core Invariant #6 (as-of), ADR Node 2/missing-facts routing, PS-12 |
+| AGENT-32 | **MERGED** (`ab9f725`) | Bundle: (1) per-claim as_of leak in co-retrieve/cross-ref/enabling-power resolvers, (2) eager fact-extractor interruption, (3) sequential retrieval → bounded parallel fan-out, (4) live-corpus zero-tolerance check, (5) silent reranker/reasoner fallback labeling, (6) README streaming-claim correction | `query_graph.py`, `postgres_retriever.py`, `reranker.py`, new `db_pool.py`, `writer.py` (DSN extraction only), `gates.py`, `README.md` | Core Invariant #6 (as-of), ADR Node 2/missing-facts routing, PS-12 |
 
-**Next action**: Prakash runs Pi on `agent/confirmed-production-gaps` per
-the run prompt above. Claude reviews the pushed diff on return.
+**Next action**: none queued. Awaiting Prakash's direction — streaming/SSE
+was discussed and deliberately deferred (see 2026-09-04 conversation, not
+logged in detail here since no code decision was made), possible future
+work if wanted.
+
+- **AGENT-32 (2026-09-04, MERGED)**: Pi's work (`c4c8a75`, authored by
+  Claude after review — sitting uncommitted in the shared working tree
+  again, same recurring pattern as AGENT-26/31) was the most
+  architecturally involved diff reviewed in this session — 6 items across
+  10 files. Verified each against `task.md`'s specific design constraints,
+  not just "does it look reasonable":
+  - **as_of leak (item 1)**: `co_retrieve_parent_resolver_node`/
+    `cross_ref_resolver_node` now group `all_hits` by a new `_hit_as_of()`
+    helper (resolves each hit's true issue-declared as_of, falling back to
+    `session_as_of` for the single-issue default) and call the existing
+    orchestrator functions once per distinct as_of value — confirmed
+    `_resolve_co_retrieve_parents`/`_resolve_cross_refs`/
+    `_fetch_enabling_chunk`'s own signatures are genuinely untouched, per
+    the brief. New tests (`test_co_retrievers_use_issue_as_of`,
+    `test_enabling_resolver_uses_hit_issue_as_of`) prove two hits from
+    different issues get resolved with their own distinct as_of, not one
+    shared value.
+  - **eager interruption (item 2)**: coverage probe correctly wall-clock-
+    guarded and exception-safe; when it finds coverage, **all** `required`
+    facts get relabeled to `clarifying` (not silently dropped from what
+    the composer sees) and `required` is cleared before building the
+    interrupt prompt. The *existing* `test_required_missing_fact_returns_interrupted_response`
+    was correctly updated (not left stale) — its retrieve stub now returns
+    `[]` and asserts the probe *was* called once but the response still
+    interrupts, proven through a full `orchestrator.answer(...)` call, not
+    just the node in isolation. New
+    `test_required_missing_fact_with_probe_hit_becomes_clarifying` proves
+    the other direction.
+  - **parallel fan-out (item 3)**: request-scoped pool, `min(len(issue_queries),
+    5)` matching the ADR's own cap, connections borrowed/returned per
+    thread via `try/finally`, results collected into a pre-sized
+    `per_issue[idx]` list so ordering is deterministic regardless of
+    thread completion order, full fallback to the sequential path on any
+    exception, pool always closed via an outer `finally`. **Correctly
+    resolved the Langfuse thread-safety self-review item by sidestepping
+    it entirely** — `lf_trace` is deliberately not passed into the
+    per-thread `retrieve_postgres` calls at all, with an explicit comment
+    explaining why, rather than assuming the client is thread-safe. New
+    `test_parallel_retrieve_preserves_issue_order_and_closes_pool` proves
+    both the ordering and the pool-close guarantee with a fake pool.
+    Single-issue queries confirmed to skip the pool path entirely (cheap
+    common case unaffected). One thing verified by direct code reading
+    rather than a dedicated test (noted, not blocking): pool-closes-on-
+    exception is guaranteed by the `try/except/finally` structure itself,
+    a language-level guarantee, not something a test was strictly needed
+    to prove.
+  - **live-corpus gate (item 4)**: `check_repealed_as_current_live()`/
+    `check_not_yet_effective_as_current_live()` turned out **more
+    independent** than the brief's own literal wording asked for — rather
+    than calling `eligible_chunk_ids()` and filtering its result (which my
+    brief described, and which would trivially pass if that function ever
+    silently returned an empty set), Pi's version never touches
+    `eligible_chunk_ids()`/`is_eligible()` at all, re-deriving
+    commence/terminate status directly from `lifecycle_effect` — a
+    genuinely stronger independence guarantee. New tests
+    (`test_live_*_gate_is_independent_sql`) verify this architecturally via
+    `inspect.getsource()`, asserting `eligible_chunk_ids`/`is_eligible`
+    never appear in the function's source — a real, mechanical proof of
+    independence, not just a claim. Verified myself against the live DB:
+    both new checks report `0`, consistent with AGENT-26's prior finding
+    that the corpus currently holds zero approved terminating effects.
+  - **degraded-mode labeling (item 5)**: confirmed additive-only as
+    required — `rerank()`'s return type unchanged, tags applied at all
+    three tiers (`cohere`/`flashrank`/`passthrough`) via a small `_tag()`
+    helper; `postgres_retriever.py` carries the tag forward via a dict-
+    merge with no `_hit()` signature change; the Langfuse span fix
+    (`ran=bool(COHERE_API_KEY)` → `tier=<actual>`) closes the "even the
+    trace lies" part of the original finding. `_degraded_mode()` dedupes
+    via a set before sorting, attached to all three `_response` branches
+    (interrupted, composed-None fallback, composed-success — a superset of
+    what the brief asked for, which only named two). New
+    `test_answer_response_exposes_degraded_mode` proves the tag survives
+    end-to-end through `answer_composer_node`, not just at the
+    `reranker.py` unit level.
+  - **README (item 6)**: accurate, honest correction — replaced streaming/
+    SSE claims with what `/ask` actually does, and relabeled
+    `token_buffer.py`'s doc comment to `# unused; reserved for future
+    streaming` instead of deleting the file, exactly as scoped.
+  Confirmed `app/retrieval/db_pool.py` is new and not in the Makefile's
+  fixed lint file list (same pre-existing gap noted for other new files
+  across this whole session's history) — manually ran `ruff check`/`ruff
+  format --check`/`mypy --strict` on it myself; clean. Independently
+  re-verified everything else: `make test` (235 passed, 3 skipped —
+  matches), `make stress` (9 passed — AGENT-31's suite, including the
+  romanized-eligibility and enabling-power cells that touch the same
+  nodes this task modified, unregressed), `make lint` clean, `make
+  eval-gates` — all three original zero-tolerance gates at `0`, **plus**
+  both new live-corpus checks at `0` (live DB). No blocking findings.
+  Merged `agent/confirmed-production-gaps` → `dev` (`--no-ff`, `ab9f725`).
 
 - **AGENT-32 scoping (2026-09-04)**: Prakash asked for a rigorous,
   code-verified answer to a 12-point external production-readiness
