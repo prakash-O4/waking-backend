@@ -1,20 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-27 (task 2 of 6 in the retrieval-hardening program) — claim-support
-verbatim-quote check. Scoped, `task.md` committed on
-`agent/claim-support-verbatim-quote` (`674ff5f`, off `dev`, in sync).
-**Assigned to Pi, awaiting dispatch by Prakash.**
+None dispatched. AGENT-27 (task 2 of 6 in the retrieval-hardening program)
+is **MERGED**. AGENT-28 (citation authority-chain rendering) is next —
+scoping/task.md not yet written, queued.
 
 ## Status
-**DISPATCHED, awaiting engineer run** — AGENT-26 merged to `dev`. AGENT-27
-task brief written and committed; run prompt given to Prakash below.
-AGENT-28-31 remain queued per the program below.
-
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/claim-support-verbatim-quote` — reason: precise, narrow,
-correctness-heavy change to gate logic (`validation_gate.py`), matches Pi's
-selection criteria, not Kimi's. `task.md` on that branch has the full brief.
+**IDLE, between waves** — AGENT-27 merged to `dev`. AGENT-28-31 queued per
+the program below. Awaiting Prakash's go-ahead to scope and dispatch AGENT-28.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -40,14 +33,75 @@ legal-QA product, no per-user document permissions).
 | # | Status | Scope | Files | PS / Invariant | Depends on |
 |---|---|---|---|---|---|
 | AGENT-26 | **MERGED** (`66ad5e9`) | Canonical eligibility predicate — wire `eligible_chunk_ids()` + `_terminated_before()` to the DB's `is_eligible()`, single source, no drift | `eligibility_gate.py`, `validation_gate.py::_terminated_before` | CI #1,#2; PS-2,PS-4,PS-15 | none — foundational |
-| AGENT-27 | **assigned to Pi** | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
+| AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | queued | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | queued | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | queued | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash runs Pi on `agent/claim-support-verbatim-quote`
-per the run prompt above. Claude reviews the pushed diff on return.
+**Next action**: scope AGENT-28 (citation authority-chain rendering — write
+`task.md`, create `agent/citation-authority-chain` off `dev`), dispatch to
+Pi.
+
+- **AGENT-27 (2026-09-03, MERGED)**: Pi returned `78da5bb` — real commit on
+  the correct branch, clean working tree (no repeat of the
+  uncommitted-diff failure mode from AGENT-15/19/20/22). File scope exactly
+  matched `task.md`'s allowed list (`validation_gate.py`,
+  `gated_orchestrator.py` limited to `_structured_claims`'s prompt and
+  `_extractive_claim`, `query_graph.py` limited to `validate_node`'s
+  field-copy loop, `tests/test_validation_gate.py`) — no `_citation()`
+  touch, no composer touch, no precedent touch. `_normalize()` (NFC +
+  Devanagari-digit-fold + whitespace-collapse-via-`.split()`) and
+  `_claim_supported()` (15-char floor + substring check) added as a third
+  local copy of the existing normalization pattern, per the brief's Ponytail
+  instruction — not a new shared-utils module. Wired into the existing
+  `ok = ok and ...` chain in `validate_and_render()` using the
+  already-fetched `expr[0]`, no second query. Verified the short-circuit
+  claim myself by reading the code, not just trusting the report: because
+  Python's `and` short-circuits before evaluating the right operand at all,
+  `_claim_supported(...)` and its argument expressions never execute when
+  `ok` is already `False` from an earlier failed check — no risk of
+  `expr[0] if expr else ""` raising when `expr` is `None`, and termination/
+  eligibility/hash failures reach abstention exactly as before. Extractive
+  fallback self-quotes (`quote = text_ne[:300]`, same slice as `claim`) —
+  correctly definitional-verbatim, confirmed no new DB round-trip added.
+  `query_graph.py`'s field-copy loop gained `"quote"` alongside the existing
+  `issue`/`applicability`/`condition` fields, so it survives onto the
+  rendered result rather than being silently dropped.
+  Test rewrite is substantively better than the prior file, not just
+  updated for the new field: introduced `_passing_stubs`/`_render` helpers
+  to cut duplication across the pre-existing three tests, then rewrote all
+  three to carry a **genuine substring quote** rather than an absent one —
+  each asserts abstention still comes from the *original* failure reason
+  (bad hash, termination) with a comment saying so explicitly, directly
+  proving the short-circuit claim rather than leaving it implicit. Five new
+  tests, each behavioral rather than canned: exact-substring pass,
+  no-match-anywhere abstain, digit-script+whitespace normalization
+  (ASCII digits/collapsed newlines in the quote vs. Devanagari digits in the
+  chunk — proves normalization is doing real work), empty/missing/
+  whitespace-only quote abstain (parametrized over three cases), and the
+  15-char floor abstaining a claim whose quote is a *real* substring
+  (`assert quote in _CHUNK_TEXT` inline) but too short — the exact "floor
+  matters independently of substring-match" case the brief asked for.
+  Independently re-verified rather than trusting the report: `make test`
+  (201 passed, 3 skipped — matches), `make lint` clean (ruff + ruff format +
+  mypy --strict), `make eval-gates` against the live DB —
+  `repealed-as-current: 0`, `not-yet-effective-as-current: 0`,
+  `overruled-as-good-law: 0`, all matching. Independently confirmed the
+  self-review's "only two claim-construction paths feed
+  `validate_and_render`" claim by grepping every `"claim":` dict-literal
+  site in `app/` — `gated_orchestrator.py`'s two (`_extractive_claim`,
+  `_structured_claims`' prompt schema) both now emit `quote`;
+  `phase_a_slice.py`'s own `claims` JSON schema is a separate ragas
+  faithfulness/relevancy eval slice that never calls `validate_and_render`
+  at all (confirmed via `grep` on call sites — only `query_graph.py:284`
+  calls it), so it correctly wasn't in scope and doesn't need a `quote`
+  field. `_citation()` confirmed untouched by diff.
+  Bounded regenerate (also named in §7.7's chain) was correctly left out of
+  scope per the brief — claim-support failure abstains directly, same as
+  every other failure mode; regenerate remains a separate future task if
+  ever built. Merged `agent/claim-support-verbatim-quote` → `dev`
+  (`--no-ff`, `c1304cf`).
 
 - **AGENT-27 scoping (2026-09-03)**: session-resume found an untracked file,
   `docs/legal_rag_ingestion_best_practices.md` — Prakash's own notes on a
