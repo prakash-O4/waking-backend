@@ -1,21 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-31 (task 6 of 6, final task in the retrieval-hardening program) —
-real stress/red-team suite. Scoped, `task.md` committed on
-`agent/stress-redteam-suite` (`392d03f`, off `dev`, in sync).
-**Assigned to Pi, awaiting dispatch by Prakash.**
+**Retrieval-hardening program (AGENT-26–31) is COMPLETE** — all 6 tasks
+merged to `dev`. AGENT-32 (new program: confirmed production gaps) is
+scoped next — see the second table below.
 
 ## Status
-**DISPATCHED, awaiting engineer run** — AGENT-30 merged to `dev`. AGENT-31
-task brief written and committed; run prompt given to Prakash below. This
-is the last task in the program — once merged, the 6-task
-retrieval-hardening program (4/10 → 9/10) is complete.
-
-**Run prompt for Prakash**: dispatch **Pi** on branch
-`agent/stress-redteam-suite` — reason: precise, correctness-heavy test
-work across several retrieval/gate functions, matches Pi's selection
-criteria, not Kimi's. `task.md` on that branch has the full brief.
+**IDLE, between programs** — AGENT-31 merged to `dev`, closing out the
+6-task retrieval-hardening program. AGENT-32 scoping is in progress in
+this session (see the dated entry below and the new table further down).
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -45,11 +38,58 @@ legal-QA product, no per-user document permissions).
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | **MERGED** (`f1ed7cb`) | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
-| AGENT-31 | **assigned to Pi, run last** | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
+| AGENT-31 | **MERGED** (`e03d82f`) | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash runs Pi on `agent/stress-redteam-suite` per the
-run prompt above. Claude reviews the pushed diff on return — the final
-review in this program.
+**Retrieval-hardening program status: all 6 tasks (AGENT-26–31) MERGED.
+Program complete.**
+
+**Next action**: create `agent/confirmed-production-gaps` off `dev` and
+dispatch AGENT-32 — see the new program section below for the full brief.
+
+- **AGENT-31 (2026-09-03, MERGED — final task in the retrieval-hardening
+  program)**: Pi's work (`3cc89f1`, authored by Claude after review — see
+  below) was sitting **uncommitted** in the shared working tree when this
+  review started (same recurring failure mode as AGENT-15/19/20/22/26 —
+  Makefile change + new `tests/stress/` directory, both untracked/modified
+  but never committed). Verified the full content before committing it
+  myself, not just trusting the report. `Makefile`'s `stress` target
+  correctly replaced. All six taxonomy cells present and genuinely
+  behavioral, not canned: a shared `tests/stress/helpers.py` provides
+  `StressConn.component_eligible()`, which actually evaluates the
+  commence/terminate predicate against seeded `effect()` data (mirrors
+  `is_eligible()`'s real logic — approved commence with no pending
+  dependency, not terminated by an approved repeal/expiry/declared_invalid/
+  suspend before as_of) — the same "real predicate, not canned boolean"
+  standard as every mock harness built earlier in this program.
+  `test_repealed_current.py` proves the single most important cell through
+  **both** `eligible_chunk_ids()` (pre-retrieval) **and**
+  `validate_and_render()` (the full validation-gate path) — directly
+  closing the exact gap AGENT-26 originally found, that nothing before
+  this proved the live wired-together path, only the isolated SQL
+  function. `test_not_yet_effective.py` covers both the plain future-
+  commence case and the `commencement_dependency` pending-notification
+  case staying excluded even past what would otherwise be its commence
+  date. `test_romanized_eligibility.py` drives the full
+  `retrieve_postgres()` romanized path (confirms `_is_devanagari` is
+  `False`, real translation stub, real eligibility predicate) and proves a
+  repealed target is excluded via that path too — reused
+  `tests/test_retrieval.py`'s existing `Conn`/`Cursor`/`patch_common`
+  rather than duplicating a mock (Ponytail). `test_cross_ref_eligibility.py`
+  and `test_proviso_eligibility.py` each upgrade an existing
+  hardcoded-set/empty-set test to a real predicate with both a positive and
+  negative case — the proviso test additionally proves the "never drop the
+  original hit" contract explicitly (`hits == result["all_hits"][:2]`).
+  `test_enabling_power_orphan.py` is genuinely new coverage — confirmed via
+  `grep` before scoping that `_fetch_enabling_chunk`'s repeal-orphaning
+  case (`system-design.md` §7.5, already implemented in code) had zero
+  existing tests — proves both directions (repealed enabling section →
+  `None`; in-force → returned with correct `_issue_idx` propagation).
+  Independently re-verified rather than trusting the report: `make test`
+  (227 passed, 3 skipped — matches), `make stress` (9 passed, matches),
+  `make lint` clean, `make eval-gates` 0/0/0 (live DB). No findings. Merged
+  `agent/stress-redteam-suite` → `dev` (`--no-ff`, `e03d82f`).
+  **This closes the 6-task retrieval-hardening program (AGENT-26–31,
+  started 2026-09-02, target 4/10 → 9/10).**
 
 - **AGENT-31 scoping (2026-09-03)**: read `system-design.md` §10 before
   writing the brief and found it describes **three** stress-test surfaces
