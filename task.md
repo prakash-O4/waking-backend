@@ -228,3 +228,63 @@ Every commit must be authored as `Prakash Basnet
 <basnetprakash090@gmail.com>` — no AI attribution, no `Co-Authored-By:
 Claude` trailer, no "Generated with Claude" line, in any commit on this
 branch. Use `git commit --author="Prakash Basnet <basnetprakash090@gmail.com>"`.
+
+---
+
+## Rework note (2026-09-03) — उपदफा number leaks into the दफा/धारा filter value
+
+Everything else in `bf17e64` is correct and well-tested (`make test` 216
+passed, `make lint` clean, `make eval-gates` 0/0/0, all independently
+reproduced) — this is the one finding blocking merge.
+
+`_parse_section_reference` currently is:
+```python
+match = re.search(r"(?:दफा|धारा|उपदफा)\s*\(?(\d+)\)?", query)
+```
+— it merges उपदफा into the **same capture group** as दफा/धारा, so its own
+number can be returned as `section_num` and fed straight into the
+`(c.section_number = %(num)s OR c.parent_section = %(num)s)` filter as if
+it were a दफा/धारा number. That's exactly the conflation the original
+brief's schema-grounding section warned against: उपदफा numbers are
+enumerated *per-दफा* (दफा 5 and दफा 9 both have their own उपदफा (1), (2),
+(3)...) — an उपदफा number has no relationship to a दफा number of the same
+digit, it's coincidental overlap, not a valid substitute.
+
+Reproduced live, both wrong:
+```python
+>>> _parse_section_reference("उपदफा (2) मा के छ?")
+"2"   # should be None — no दफा/धारा number was ever stated
+>>> _parse_section_reference("उपदफा (2), दफा 9 अनुसार")
+"2"   # should be "9" — re.search takes the leftmost match; उपदफा
+      # appearing before दफा in the sentence silently wins
+```
+Both cases would make `retrieve_postgres` filter by "दफा 2" for a query
+that never mentioned दफा 2 at all — a real retrieval-precision regression,
+not a hypothetical, and it currently ships locked in by a passing test
+(`test_parse_section_reference`'s `_parse_section_reference("उपदफा (2)") ==
+"2"` assertion actively asserts the wrong behavior).
+
+**Required fix**: `_parse_section_reference` must match **only**
+`(?:दफा|धारा)\s*(\d+)` — drop उपदफा from this regex entirely. Per the
+original brief: उपदफा should still be parsed (needed so the completion
+report can note the schema limitation with a real example), but as a
+**separate, non-filtering signal** — e.g. a distinct function or variable
+— that is never assigned to `section_num` and never reaches the SQL
+filter. `exact_lookup_search()`'s filter list is untouched by this — it
+already only reads `section_num`; the fix is entirely in how `section_num`
+gets computed.
+
+**Required test changes**:
+- Fix `test_parse_section_reference`'s उपदफा assertion — a bare "उपदफा
+  (2)" must not produce a value indistinguishable from a दफा/धारा number.
+  If you keep a separate उपदफा-parsing function, test it directly instead.
+- Add a new test proving the word-order case: a query containing both,
+  उपदफा appearing *before* दफा/धारा in the string (e.g. "उपदफा (2), दफा 9
+  अनुसार"), must resolve `section_num` to the दफा/धारा number ("9"), not
+  the उपदफा number ("2").
+- Add a test proving a bare उपदफा-only query (no दफा/धारा anywhere)
+  results in `section_num is None` — `exact_lookup_search` must not run
+  with a उपदफा-shaped filter masquerading as a section number.
+
+Same branch, same engineer, per the Rework Loop — not re-scoped. Commit,
+push, and report back the same way (commit hash, checks run, self-review).
