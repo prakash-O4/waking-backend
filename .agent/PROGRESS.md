@@ -1,14 +1,21 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-30 (task 5 of 6 in the retrieval-hardening program)
-is **MERGED**. AGENT-31 (real stress/red-team suite) is next and last —
-scoping/task.md not yet written, queued.
+AGENT-31 (task 6 of 6, final task in the retrieval-hardening program) —
+real stress/red-team suite. Scoped, `task.md` committed on
+`agent/stress-redteam-suite` (`392d03f`, off `dev`, in sync).
+**Assigned to Pi, awaiting dispatch by Prakash.**
 
 ## Status
-**IDLE, between waves** — AGENT-30 merged to `dev`. AGENT-31 is the final
-task in the retrieval-hardening program. Awaiting Prakash's go-ahead to
-scope and dispatch it.
+**DISPATCHED, awaiting engineer run** — AGENT-30 merged to `dev`. AGENT-31
+task brief written and committed; run prompt given to Prakash below. This
+is the last task in the program — once merged, the 6-task
+retrieval-hardening program (4/10 → 9/10) is complete.
+
+**Run prompt for Prakash**: dispatch **Pi** on branch
+`agent/stress-redteam-suite` — reason: precise, correctness-heavy test
+work across several retrieval/gate functions, matches Pi's selection
+criteria, not Kimi's. `task.md` on that branch has the full brief.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -38,12 +45,63 @@ legal-QA product, no per-user document permissions).
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
 | AGENT-30 | **MERGED** (`f1ed7cb`) | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
-| AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
+| AGENT-31 | **assigned to Pi, run last** | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: scope AGENT-31 — the final task in the program (real
-stress/red-team suite: repealed/current, not-yet-effective, romanized,
-cross-ref, proviso, enabling-power taxonomy cells — write `task.md`, create
-`agent/stress-redteam-suite` off `dev`), dispatch to Pi.
+**Next action**: Prakash runs Pi on `agent/stress-redteam-suite` per the
+run prompt above. Claude reviews the pushed diff on return — the final
+review in this program.
+
+- **AGENT-31 scoping (2026-09-03)**: read `system-design.md` §10 before
+  writing the brief and found it describes **three** stress-test surfaces
+  (#1 ingestion — corpus poisoning, fake amending instruments, OCR
+  attacks; #2 query — jailbreaks/injection, PII extraction, cost
+  amplification; #3 retrieval — injection in statutory text, canary
+  tokens), while the program table's own one-liner for this task only
+  names six correctness/temporal cells (repealed/current,
+  not-yet-effective, romanized, cross-ref, proviso, enabling-power) —
+  entirely surface #3's correctness angle, none of surfaces #1/#2's
+  adversarial-security scope. Made the scope boundary explicit in
+  `task.md` rather than silently narrowing it or silently expanding to
+  match §10's full breadth: this task builds only the six named cells;
+  jailbreak/injection/PII/cost-amplification red-teaming is out of scope,
+  a separate future initiative if Prakash wants it.
+  Traced all three co-retrieval mechanisms the taxonomy cells touch
+  (`_resolve_cross_refs`, `_resolve_co_retrieve_parents`,
+  `_fetch_enabling_chunk`) and found **all three already apply an
+  eligibility filter in their SQL** — this isn't a "wire the gate in" task
+  like AGENT-26 was. The real, verified gap: their *existing* tests
+  (`test_orchestrator.py::test_resolve_cross_refs_finds_section_reference`,
+  `test_co_retrieve_parent.py::test_co_retrieve_parent_ineligible_parent_does_not_drop_hit`)
+  mock `eligible_chunk_ids` with a **hardcoded set** (or an empty set for
+  the "excluded" case) rather than a genuinely evaluated repeal/commence
+  predicate — proving "a chunk id not in an arbitrary set gets excluded"
+  is not the same claim as "a chunk that's actually repealed gets
+  excluded." Same "canned boolean vs. real predicate" gap this whole
+  program has been closing everywhere else (`FilteringCursor`,
+  `TerminationCursor`, `CitationCursor`) — named this explicitly as the
+  quality bar for every new test in this task, not just described once and
+  left implicit.
+  Confirmed `_fetch_enabling_chunk` (`query_graph.py:227`) already checks
+  eligibility on the fetched enabling chunk — i.e. `system-design.md`
+  §7.5's "orphaned Rules flagged when the enabling section is repealed" is
+  **already implemented**, just never tested for the repeal-orphaning case
+  specifically. Told Pi explicitly to check existing coverage first and
+  report (not assume) whether this is a real gap before writing new tests
+  for it — avoid guaranteed-duplicate work.
+  Explicitly separated the "romanized" cell from `app/eval/romanized_slice.py`
+  (an existing live-DB recall@k quality eval, PS-8) — this task's romanized
+  cell is a different concern entirely: whether the *translated query
+  code path* can silently bypass eligibility filtering the way the direct
+  -Devanagari path already provably doesn't. Told Pi not to touch or
+  duplicate the existing slice.
+  Explicitly forbade fixing anything in `app/retrieval/*` even if a stress
+  test surfaces a real bug — report it, don't silently patch it; this task
+  is test-only, a production bug found here becomes its own task, not
+  scope creep on this one.
+  Branch `agent/stress-redteam-suite` created off `dev`. `task.md`
+  committed there (`392d03f`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch. This is the last task in the 6-task
+  program — no more scoping entries expected after this one merges.
 
 - **AGENT-30 review round 2 (2026-09-03, MERGED)**: Pi returned `973e1f6` —
   real commit, correct branch, clean tree. Diffed `a2354cb..973e1f6`
