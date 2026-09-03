@@ -1,23 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-30 (task 5 of 6 in the retrieval-hardening program) — exact
-दफा/धारा/उपदफा/अनुसूची/Act-title lookup. Pi's first pass (`bf17e64`)
-reviewed; one correctness finding sent back as a rework note
-(`a2354cb`, same branch `agent/exact-citation-lookup`).
-**Awaiting Pi's rework, same branch.**
+None dispatched. AGENT-30 (task 5 of 6 in the retrieval-hardening program)
+is **MERGED**. AGENT-31 (real stress/red-team suite) is next and last —
+scoping/task.md not yet written, queued.
 
 ## Status
-**REWORK REQUESTED** — see the dated entry below for the full finding
-(उपदफा number leaking into the दफा/धारा filter value). Everything else in
-the first pass was correct and well-tested. AGENT-31 remains queued, run
-last, after AGENT-30 actually lands.
-
-**Run prompt for Prakash**: re-run **Pi** on the same branch
-`agent/exact-citation-lookup` — the rework note is appended to `task.md`
-there (a `## Rework note` section at the end, dated 2026-09-03) with the
-exact bug, two reproduction cases, the required fix, and the required new
-tests.
+**IDLE, between waves** — AGENT-30 merged to `dev`. AGENT-31 is the final
+task in the retrieval-hardening program. Awaiting Prakash's go-ahead to
+scope and dispatch it.
 
 ## Retrieval-hardening program (started 2026-09-02, target: 4/10 → 9/10)
 
@@ -46,11 +37,48 @@ legal-QA product, no per-user document permissions).
 | AGENT-27 | **MERGED** (`c1304cf`) | Claim-support: model emits a verbatim quote alongside each claim; server substring-checks it against `chunk_text` | `validation_gate.py`, `gated_orchestrator.py::_structured_claims` (prompt), `query_graph.py` (claim shape) | CI #4,#7 | AGENT-26 (same file — sequenced) |
 | AGENT-28 | **MERGED** (`c6923ba`) | Citation authority-chain: resolve `component`→`expression`→amending `lifecycle_effect`, label `derived`, stop reading raw chunk metadata as the citation | `validation_gate.py::_citation` | PS-3 | AGENT-26/27 (same file — sequenced) |
 | AGENT-29 | **MERGED** (`4092fcb`) | Composer output re-validation: strip/abstain any composed section whose citation doesn't match a validated `evidence_id` | `gated_orchestrator.py::_compose_answer`, `query_graph.py::answer_composer_node` | CI #3,#4 | none — different file, parallel-safe |
-| AGENT-30 | **rework requested** | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
+| AGENT-30 | **MERGED** (`f1ed7cb`) | Exact दफा/धारा/उपदफा/अनुसूची/Act-title lookup merged into `retrieve_postgres` alongside vector+lexical via the existing `_rrf` | `postgres_retriever.py` | (retrieval precision) | none — different file, parallel-safe |
 | AGENT-31 | queued, run last | Real stress/red-team suite: repealed/current, not-yet-effective, romanized, cross-ref, proviso, enabling-power taxonomy cells | `Makefile`, new `tests/stress/` | PS-12 | should land after 26-28 so it tests the *fixed* invariants, not the current gaps |
 
-**Next action**: Prakash re-runs Pi on `agent/exact-citation-lookup` (same
-branch) to address the rework note. Claude reviews the resulting diff.
+**Next action**: scope AGENT-31 — the final task in the program (real
+stress/red-team suite: repealed/current, not-yet-effective, romanized,
+cross-ref, proviso, enabling-power taxonomy cells — write `task.md`, create
+`agent/stress-redteam-suite` off `dev`), dispatch to Pi.
+
+- **AGENT-30 review round 2 (2026-09-03, MERGED)**: Pi returned `973e1f6` —
+  real commit, correct branch, clean tree. Diffed `a2354cb..973e1f6`
+  specifically (not `bf17e64..973e1f6`, which would have included my own
+  already-reviewed rework-note commit) to see just Pi's actual fix: a
+  clean two-line split — `_parse_section_reference` now matches only
+  `(?:दफा|धारा)\s*(\d+)`, and a new, separate `_parse_subsection_reference`
+  handles उपदफा on its own, never feeding `section_num`. Exactly the fix
+  requested, nothing more. Reproduced both rework-note repro cases myself
+  directly against the fixed function rather than trusting the diff read:
+  `_parse_section_reference("उपदफा (2) मा के छ?")` → `None` (was `"2"`),
+  `_parse_section_reference("उपदफा (2), दफा 9 अनुसार")` → `"9"` (was
+  `"2"`) — both now correct. All three required tests present and
+  behavioral: the fixed `test_parse_section_reference` assertions, a new
+  direct `test_parse_subsection_reference`, and a new
+  `test_bare_subsection_does_not_run_exact_section_filter` proving
+  end-to-end that a bare उपदफा query returns `[]` and never even reaches
+  the exact-lookup SQL (`not any("num" in params for params in
+  params_history)`) — the exact "doesn't silently filter by the wrong
+  thing" proof the rework note asked for, not just a unit test on the
+  regex in isolation.
+  One thing considered and explicitly not sent back: `_parse_subsection_reference`
+  is defined and tested but never called from `retrieve_postgres()` itself
+  — not wired into any variable or observability span. My rework note's
+  wording ("parse it... needed so the completion report can note the
+  schema limitation") was genuinely ambiguous about whether it needed to
+  be wired into live code or just exist as a documented, tested capability;
+  read it as the latter — the substance of the finding was the *filter*
+  conflation, which is fully fixed and tested, and this doesn't affect
+  correctness, so treating it as a second finding would be nitpicking
+  beyond what actually matters.
+  Independently re-verified rather than trusting the report: `make test`
+  (218 passed, 3 skipped — matches), `make lint` clean, `make eval-gates`
+  0/0/0 (live DB, all reproduced myself). No further findings. Merged
+  `agent/exact-citation-lookup` → `dev` (`--no-ff`, `f1ed7cb`).
 
 - **AGENT-30 review round 1 (2026-09-03, rework requested)**: Pi returned
   `bf17e64` — real commit, correct branch, clean tree, file scope exactly
