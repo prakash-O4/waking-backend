@@ -355,7 +355,7 @@ def test_cohere_reranks_when_key_set(monkeypatch: Any) -> None:
     monkeypatch.setattr("app.retrieval.reranker.get_settings", lambda: Settings())
 
     hits = [{"text_ne": "a"}, {"text_ne": "b"}]
-    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b", "reranker_tier": "cohere"}]
 
 
 def test_flashrank_fallback_when_cohere_raises(monkeypatch: Any) -> None:
@@ -378,7 +378,7 @@ def test_flashrank_fallback_when_cohere_raises(monkeypatch: Any) -> None:
     )
 
     hits = [{"text_ne": "a"}, {"text_ne": "b"}]
-    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b", "reranker_tier": "flashrank"}]
 
 
 def test_flashrank_used_when_no_cohere_key(monkeypatch: Any) -> None:
@@ -391,7 +391,7 @@ def test_flashrank_used_when_no_cohere_key(monkeypatch: Any) -> None:
     )
 
     hits = [{"text_ne": "a"}, {"text_ne": "b"}]
-    assert rerank("q", hits, 1) == [{"text_ne": "b"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "b", "reranker_tier": "flashrank"}]
 
 
 def test_passthrough_when_both_fail(monkeypatch: Any) -> None:
@@ -405,4 +405,4 @@ def test_passthrough_when_both_fail(monkeypatch: Any) -> None:
     monkeypatch.setattr("app.retrieval.reranker._flashrank_rerank", bad_flashrank)
 
     hits = [{"text_ne": "a"}, {"text_ne": "b"}]
-    assert rerank("q", hits, 1) == [{"text_ne": "a"}]
+    assert rerank("q", hits, 1) == [{"text_ne": "a", "reranker_tier": "passthrough"}]
