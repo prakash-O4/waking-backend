@@ -151,8 +151,14 @@ def test_is_devanagari_mixed_romanized() -> None:
 def test_parse_section_reference() -> None:
     assert r._parse_section_reference("दफा 94") == "94"
     assert r._parse_section_reference("धारा 51") == "51"
-    assert r._parse_section_reference("उपदफा (2)") == "2"
+    assert r._parse_section_reference("उपदफा (2)") is None
+    assert r._parse_section_reference("उपदफा (2), दफा 9 अनुसार") == "9"
     assert r._parse_section_reference("ordinary query") is None
+
+
+def test_parse_subsection_reference() -> None:
+    assert r._parse_subsection_reference("उपदफा (2)") == "2"
+    assert r._parse_subsection_reference("ordinary query") is None
 
 
 def test_parse_schedule_reference() -> None:
@@ -239,6 +245,16 @@ def test_vector_arm_results_only(monkeypatch: Any) -> None:
     out = r.retrieve_postgres(cast(Any, Conn([ROW1], [])), "law", date(2024, 1, 1), k=5)
     assert [h["component_uri"] for h in out] == ["c1"]
     assert out[0]["work_title_ne"] == "Act"
+
+
+def test_bare_subsection_does_not_run_exact_section_filter(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    out = r.retrieve_postgres(cast(Any, conn), "उपदफा (2) मा के छ?", date(2024, 1, 1))
+
+    assert out == []
+    assert not any("num" in params for params in conn.cursor_obj.params_history)
 
 
 def test_exact_lookup_only_result_survives(monkeypatch: Any) -> None:

@@ -106,7 +106,12 @@ def _embed_query(text: str) -> list[float]:
 
 
 def _parse_section_reference(query: str) -> str | None:
-    match = re.search(r"(?:दफा|धारा|उपदफा)\s*\(?(\d+)\)?", query)
+    match = re.search(r"(?:दफा|धारा)\s*(\d+)", query)
+    return match.group(1) if match else None
+
+
+def _parse_subsection_reference(query: str) -> str | None:
+    match = re.search(r"उपदफा\s*\(?(\d+)\)?", query)
     return match.group(1) if match else None
 
 
