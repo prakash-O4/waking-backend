@@ -103,10 +103,24 @@ tooling). Items 3-6 stay queued behind it, in agreed order.
   safely, since this also couldn't be verified live this session.
   No blocking findings. Merged `agent/expression-staleness-gate` → `dev`
   (`--no-ff`). `task.md` cleared.
-  **Residual risk carried forward, not a task**: get a real live-DB run of
-  `make eval-gates` (with `SUPABASE_DB_URL` actually set) before leaning on
-  `stale-expression-as-current-live-corpus` for production confidence —
-  next session with DB access should do this opportunistically.
+  **Residual risk carried forward, not a task — fact corrected 2026-09-04**:
+  original note above wrongly implied a missing *Supabase* dependency. Not
+  true — this project runs plain Postgres (`DATABASE_URL`, `localhost:5433`
+  per `.env`); `SUPABASE_URL`/`SUPABASE_KEY` in `.env` are vestigial from an
+  earlier setup and unused by the DB path. Traced the actual bug precisely:
+  `app/authority/writer.py::connect()` already prefers `DATABASE_URL`,
+  falling back to `SUPABASE_DB_URL` — it works fine against Postgres. The
+  bug is narrower — `app/eval/gates.py::main()` (line 236) gates its entire
+  live-check block on `os.getenv("SUPABASE_DB_URL")` specifically, ignoring
+  `DATABASE_URL` entirely, so it silently no-ops (prints all-zero) even when
+  a real Postgres DB is reachable via `DATABASE_URL`. One-line wrong-env-var
+  fix (`SUPABASE_DB_URL` → `DATABASE_URL`, or check either), not a new
+  dependency to stand up.
+  **Explicitly deferred by Prakash**: not fixed now. Do this only after the
+  retrieval pipeline is rated 9-10/10 overall — i.e. after roadmap items 2-6
+  below have progressed enough to earn that rating, not opportunistically in
+  "the next session with DB access." Do not pick this up early without
+  Prakash's go-ahead.
 
 - **Staleness investigation (2026-09-04, CONFIRMED P0 → AGENT-33)**: live DB
   unreachable this session (Postgres at `localhost:5433` refused —  no
