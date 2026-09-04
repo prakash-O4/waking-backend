@@ -1,13 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-36 — claim-support gap measurement tooling** (roadmap item 4, first
-half). Branch `agent/claim-support-report`, `task.md` committed (`3c1b4b8`,
-author Prakash Basnet). Assigned to Pi. Awaiting Prakash to dispatch.
+None dispatched. AGENT-36 (claim-support gap measurement tooling) is
+**MERGED**. Roadmap item 4's tooling half is done; the measurement itself
+now needs Prakash's own labeling before a verifier decision can be made.
 
 ## Status
-**DISPATCHED, awaiting Pi.** AGENT-35 merged to `dev`. Roadmap items 5-6
-remain queued behind item 4.
+**IDLE, AGENT-36 merged to `dev`.** Roadmap items 5-6 remain queued behind
+item 4's full closure (labeling + measured decision, not just tooling).
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -58,8 +58,50 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash dispatches Pi on `agent/claim-support-report`
-(AGENT-36). Items 5-6 stay queued behind item 4, in agreed order.
+**Next action**: Prakash runs `python3 scripts/label_eval_candidates.py
+--fetch` against real Langfuse traffic, then personally `--label`s a
+meaningful number of real (quote, claim) pairs over time. Once
+`--report` shows enough labeled volume to be meaningful, revisit whether
+an entailment/LLM-judge layer is warranted — that decision, not this
+tooling, is what actually closes roadmap item 4. Items 5-6 stay queued
+behind it.
+
+- **AGENT-36 review (2026-09-04, MERGED)**: Pi's work (`8f9d291`, correct
+  author) matched `task.md` precisely. Verified directly rather than
+  trusting the report: `_run_pipeline()` now computes `quote_check_passed`
+  per claim while `conn` is still open, via `_expression`/`_claim_supported`
+  imported directly from `validation_gate.py` (same direct-private-import
+  precedent this file already used for `_structured_claims`) — argument
+  order (`quote`, `chunk_text`) matches `validate_and_render`'s own call
+  exactly, fails closed (`False`) when `expr is None`. `--report` added as
+  a new mutually-exclusive mode, reads `claim_support.json` only (no DB),
+  prints the 2x2 breakdown plus a gap-rate percentage denominated correctly
+  on `quote_check_passed=True` total (hand-verified the test's 66.7% figure:
+  2/(1+2)), with an "n/a" branch instead of dividing by zero. One
+  accepted addition beyond the brief: capped (5) example sources printed
+  for the `supports=False, quote_check_passed=True` quadrant — display-only,
+  doesn't touch labeling behavior, useful for exactly this report's
+  purpose, not scope creep.
+  Diffstat confirmed only the two allowed files touched (
+  `scripts/label_eval_candidates.py`, `tests/test_label_eval_candidates.py`)
+  — no serve-path file touched, no entailment model, no auto-labeling, no
+  `_MIN_QUOTE_CHARS`/`_normalize` change. All 6 required tests present and
+  behavioral (verified by reading each, not just that they exist).
+  Independently reproduced rather than trusting the report: `make test`
+  (277 passed, 4 skipped — matches), `make lint` clean, manual
+  `ruff`/`ruff format --check`/`mypy --strict` on the script directly
+  (still not in the Makefile's fixed lint list, same pre-existing gap
+  noted every session) — clean. No blocking findings.
+  Merged `agent/claim-support-report` → `dev` (`--no-ff`, `3879214`) —
+  author/committer both `Prakash Basnet <basnetprakash090@gmail.com>`
+  (first attempt with `git merge --author=...` failed since that flag
+  doesn't exist for `merge`; redone via `GIT_AUTHOR_NAME`/`GIT_COMMITTER_NAME`
+  env vars, verified both fields afterward). Re-ran `make test`/`make lint`
+  on merged `dev` — still green. `task.md` cleared.
+  **This closes the tooling half of roadmap item 4.** The measurement
+  itself — and the resulting claim-support-verifier decision — still
+  needs Prakash's own real labeling, not delegable to Pi (see Next
+  action above).
 
 - **AGENT-36 scoping (2026-09-04)**: grounded in actual code, not just the
   roadmap's one-line description. Confirmed `claim_support.json` (AGENT-34's
