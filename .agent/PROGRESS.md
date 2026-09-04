@@ -1,13 +1,14 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-35 (legal reference parser improvements)** — round 1 reviewed,
-**rework requested** (`e11dbf7` on `agent/legal-reference-parser`). Not
-merged yet.
+None dispatched. AGENT-35 (legal reference parser improvements) is
+**MERGED**. Roadmap item 3 is fully closed. Next: Prakash decides when to
+start roadmap item 4 (decide the claim-support verifier, using AGENT-34's
+tooling).
 
 ## Status
-**AGENT-35 in rework.** Roadmap item 3 in progress. Items 4-6 remain
-queued behind it, in agreed order.
+**IDLE, AGENT-35 merged to `dev`.** Roadmap items 4-6 remain queued, in
+agreed order, behind item 3's closure.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -27,11 +28,11 @@ re-litigate without a reason**:
    Prakash's own legal verification; this step only makes that
    verification fast, it doesn't do the labeling. Full grounding + design
    + review in the dated entries below.
-3. **Improve legal reference parser — IN PROGRESS, scoped as AGENT-35**
-   (2026-09-04). Extend AGENT-30's दफा/धारा/उपदफा/अनुसूची/Act-title lookup:
-   ranges, aliases/colloquial Act names, multiple Acts per query, provisos
-   referenced by name. Bounded, independent of the other items, no open
-   design questions — bump it ahead of anything blocked on a decision.
+3. **Improve legal reference parser — DONE, CLOSED as AGENT-35, MERGED**
+   (2026-09-04). Extended AGENT-30's दफा/धारा/उपदफा/अनुसूची/Act-title
+   lookup: ranges, aliases/colloquial Act names, multiple Acts per query,
+   provisos referenced by name. Full grounding + design + review in the
+   dated entries below.
    Full grounding + design in the dated entry below.
 4. **Use eval data to decide the claim-support verifier** — do **not**
    jump straight to an NLI/entailment model (trades a cheap deterministic
@@ -58,9 +59,30 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Pi fixes the round-1 rework item on
-`agent/legal-reference-parser` (`task.md` rework note at `e11dbf7`). Items
-4-6 stay queued behind item 3, in agreed order.
+**Next action**: Prakash decides when to start roadmap item 4 (decide the
+claim-support verifier, using AGENT-34's eval-labeling tooling). Items 5-6
+stay queued behind it, in agreed order.
+
+- **AGENT-35 review round 2 (2026-09-04, MERGED)**: Pi's fix (`450b0cd` —
+  committed by me after review, same uncommitted-working-tree pattern as
+  round 1) is exactly the required fix: `_load_act_aliases()` now catches
+  `json.JSONDecodeError` and returns `{}`, matching the missing-file
+  behavior. Reproduced directly against the fixed code myself (not just
+  read the diff): wrote malformed JSON to `act_aliases.json`, imported
+  `app.retrieval.postgres_retriever` — module loaded fine,
+  `_ACT_ALIASES == {}`. Two new tests: one validates the actual committed
+  `act_aliases.json` parses (keeps the "catch bad edits early" value in
+  `make test`/CI rather than production import), one drives
+  `_load_act_aliases()` directly against a malformed file via a
+  `monkeypatch.setattr(r, "Path", ...)` swap — traced the mechanism to
+  confirm it correctly redirects `Path(__file__).with_name(...)`
+  resolution to a temp file, not just trusting it worked because the
+  assertion passed.
+  Independently re-ran everything rather than trusting the report: `make
+  test` (271 passed, 4 skipped — matches), `make lint` clean. No further
+  findings. Merged `agent/legal-reference-parser` → `dev` (`--no-ff`) —
+  merge-commit authorship spot-checked, correct. `task.md` cleared.
+  **This closes roadmap item 3.**
 
 - **AGENT-35 review round 1 (2026-09-04, rework requested)**: Pi's work
   (`921161d` — committed by me after review; sitting uncommitted in the
