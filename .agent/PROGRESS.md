@@ -1,18 +1,19 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-32 (confirmed production gaps bundle) is
-**MERGED**. A 6-item post-AGENT-32 roadmap toward 9-10/10 is agreed with
-Prakash (2026-09-04) — see "Post-AGENT-32 roadmap" below. **Next up: an
-investigation (not a code task) into whether `chunk_text`/`expression` can
-serve stale legal text after an approved amendment** — flagged P0 if
-confirmed. No branch/task.md yet; this is a research step before any
-scoping.
+**AGENT-33: expression-staleness serve/publish gate.** Step 1 of the
+post-AGENT-32 roadmap (staleness investigation) is done and **confirmed
+P0** — see dated entry below for the full grounding. Prakash chose the fix
+direction (build the §7.4 CI invariant, scoped to a serve/publish blocker,
+no `replacement_text` auto-apply). Branch `agent/expression-staleness-gate`
+created off `dev`; `task.md` committed there (`b627f58`, author `Prakash
+Basnet`). Assigned to Pi. Awaiting Prakash to dispatch.
 
 ## Status
-**IDLE, roadmap agreed, no task dispatched yet.** AGENT-32 merged to
-`dev`. Awaiting Prakash's go-ahead to start the staleness investigation
-(step 1 of the roadmap).
+**Task assigned, awaiting dispatch.** AGENT-32 merged to `dev`. AGENT-33
+branch + task.md ready; run prompt given to Prakash. Roadmap items 2-6 stay
+queued behind this (item 1 is now this task, not a standalone investigation
+line item anymore).
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -22,18 +23,9 @@ at face value) before this order was proposed and then explicitly
 confirmed by Prakash. Agreed order — **do this in this order, don't
 re-litigate without a reason**:
 
-1. **Investigate citation/expression staleness** — the single most urgent
-   open question, could be P0: *"After an approved amendment, does
-   expression/chunk_text update and re-embed, or can retrieval serve stale
-   legal text?"* Grounded in a real, already-confirmed fact from AGENT-28's
-   review: `upsert_expression()` (`app/authority/writer.py`) is only ever
-   called once, during initial document `PERSIST_AUTHORITY` ingest
-   (`pipeline.py:306`) — nothing re-triggers it (or re-chunks
-   `chunks.chunk_text`) when a `lifecycle_effect` amend is later approved.
-   Never confirmed against the live corpus. **If stale text is possible,
-   this jumps to P0 for legal correctness** — ahead of everything else on
-   this list, ahead of any other queued work. This is a research step,
-   not a code task — no branch/task.md until the finding is in.
+1. **Investigate citation/expression staleness — DONE, CONFIRMED P0, now
+   AGENT-33** (2026-09-04). Full grounding in the dated entry below. Fix
+   scoped and dispatched as AGENT-33 — see "Current task" above.
 2. **Build eval-labeling tooling** — engineering work (a script/workflow
    that turns real query traffic + Prakash's review into a golden entry
    with minimal friction), not new golden data itself. Golden-set
@@ -69,12 +61,87 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash decides when to start step 1 (staleness
-investigation). Not a dispatch to Pi/Kimi — this is Claude doing direct
-code/live-corpus investigation, same style as the AGENT-26/AGENT-28
-grounding work already in this file. No branch or task.md until a finding
-lands; if it confirms staleness, treat it as P0 and re-prioritize
-everything above it.
+**Next action**: Prakash dispatches Pi on `agent/expression-staleness-gate`
+(AGENT-33). Roadmap items 2-6 stay queued behind it.
+
+- **Staleness investigation (2026-09-04, CONFIRMED P0 → AGENT-33)**: live DB
+  unreachable this session (Postgres at `localhost:5433` refused —  no
+  Docker daemon running, no compose file in this repo to restart it from;
+  same class of gap AGENT-28 hit). Answered entirely via code-path tracing,
+  which is unambiguous on its own — three independent, converging pieces of
+  evidence:
+  1. `propose_lifecycle_amend()` (`app/authority/writer.py:167`) writes only
+     `raw_clause_text` (the literal `<amend>` marker text, not new statutory
+     wording). `review_lifecycle.py::_approve_one()` — what a second
+     approver's click actually runs — only flips `approval_status`; touches
+     neither `expression` nor `chunks`. `lifecycle_effect.replacement_text`
+     exists on both the DB schema (`migrations/001_bitemporal_schema.sql:51`)
+     and the `LifecycleEffect` Pydantic model, seemingly built for exactly
+     this — grepped the whole codebase, it's written by nobody and read by
+     nobody. Dead column.
+  2. The only real refresh path is re-running `ingest_law()` on a fresh copy
+     of the base Act's raw text. Verified this path is mechanically
+     *correct and safe* when it happens: `PgvectorIndexer.upsert_document()`
+     atomically deletes+reinserts all chunks for that `document_id`
+     (`app/ingestion/pgvector_indexer.py:177-187`), and `ingest_law()`
+     resets `documents.ingestion_status` to `pending` on re-run
+     (`pipeline.py:228`), which `eligible_chunk_ids()` correctly gates on
+     (`eligibility_gate.py:24`) — so a stale/half-updated document can't
+     leak through mid-update. But nothing in the amend-approval workflow
+     triggers, queues, or flags that this manual step is needed — it
+     depends entirely on someone remembering, out of band.
+  3. `system-design.md:125` (§7.4) specifies the intended safety net
+     verbatim: *"for every expression, regenerate from base + verified
+     effects and diff against the stored expression... If it doesn't
+     reconstruct, it doesn't publish."* Grepped for any
+     regenerate/reconstruct/diff-and-block implementation anywhere in the
+     codebase — none exists (`test_..._keeps_reconstruction_order` is an
+     unrelated chunk-ordering test, confirmed by reading it).
+  Sharpest concrete symptom, found while tracing (3): `_citation()`
+  (`validation_gate.py:70-92`) already builds and renders an `"amendments"`
+  list to the user (PS-10) for every approved amend effect on a component —
+  `_expression()`'s `chunk_text` for the same claim has zero relationship to
+  that list. The system can tell a user "this section was amended on
+  <date>" while quoting pre-amendment text as current law, no discrepancy
+  signal. Confirmed this is invisible to every existing gate:
+  `is_eligible()` correctly excludes `effect_type='amend'` from its
+  predicate (migrations 001/002 — right call, amend doesn't change in-force
+  status), so `repealed-as-current`/`not-yet-effective-as-current` and
+  AGENT-26/31's tests are structurally blind to this — correct eligibility,
+  wrong content, a harm class none of them were built to catch.
+  Presented the finding to Prakash with four fix-direction options
+  (AskUserQuestion, not assumed): build the §7.4 CI regen-and-diff gate;
+  wire amend-approval to a re-ingestion flag/queue; populate+auto-apply
+  `replacement_text`; or ship a detection-only eval check first. **Prakash
+  chose option 1, refined**: build it as a serve/publish blocker (abstain
+  when the system can't prove current text reflects an approved amendment),
+  not full reconstruction — explicitly ruled out auto-applying
+  `replacement_text` this round.
+  Ran both required gates before scoping (per this skill's own protocol,
+  since the fix touches the gate/temporal path): **Ponytail** — permitted;
+  smallest change is one new SQL predicate function
+  (`is_expression_current()`, mirrors `is_eligible()`'s exact existing
+  migration-file pattern) called additively from the two existing gate
+  files, no new table/column/abstraction. **PS-Check** — caught a real
+  design error before it reached `task.md`: comparing against
+  `effective_date` instead of `lower(lifecycle_effect.transaction_time)`
+  would silently miss retroactive amendments (PS-17) — an amendment dated
+  in the past but only proposed/approved just now must still flag an old
+  chunk stale; `transaction_time` (set at proposal INSERT, before either
+  approval) is the correct comparator against the chunk's `created_at`.
+  Locked this into `task.md` explicitly as a required test case, not left
+  to the engineer to discover.
+  Branch `agent/expression-staleness-gate` created off `dev` (verified clean
+  tree, `dev` already ahead of `origin/dev` — nothing to sync). `task.md`
+  committed there (`b627f58`, author `Prakash Basnet`) — full design locked
+  (SQL predicate text, exact call sites in `eligibility_gate.py` and
+  `validation_gate.py`, new `check_stale_expression_as_current_live()` in
+  `app/eval/gates.py` mirroring AGENT-32 item 4's independent-re-derivation
+  style, required test list including the retroactive-amendment case).
+  Explicitly forbidden in `task.md`: touching `replacement_text`,
+  `amend_extractor.py`, `is_eligible()`'s own signature, or
+  `ingest_law()`/`upsert_document()`'s re-ingestion behavior. Assigned to
+  Pi. Awaiting Prakash to dispatch.
 
 ## Production-gaps program (started 2026-09-04)
 
