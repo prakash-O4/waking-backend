@@ -1,13 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-34 (eval-labeling tooling) is **MERGED**. Roadmap
-item 2 is fully closed. Next: Prakash decides when to start roadmap item 3
-(legal reference parser).
+**AGENT-35 (legal reference parser improvements)** — assigned to Pi,
+branch `agent/legal-reference-parser`, `task.md` committed (`0ca8ff2`).
+Awaiting Prakash to dispatch.
 
 ## Status
-**IDLE, AGENT-34 merged to `dev`.** Roadmap items 3-6 remain queued, in
-agreed order, behind item 2's closure.
+**AGENT-35 assigned, awaiting dispatch.** Roadmap item 3 in progress.
+Items 4-6 remain queued behind it, in agreed order.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -27,11 +27,12 @@ re-litigate without a reason**:
    Prakash's own legal verification; this step only makes that
    verification fast, it doesn't do the labeling. Full grounding + design
    + review in the dated entries below.
-3. **Improve legal reference parser** — extend AGENT-30's दफा/धारा/
-   उपदफा/अनुसूची/Act-title lookup: ranges, aliases/colloquial Act names,
-   multiple Acts per query, provisos referenced by name. Bounded,
-   independent of the other items, no open design questions — bump it
-   ahead of anything blocked on a decision.
+3. **Improve legal reference parser — IN PROGRESS, scoped as AGENT-35**
+   (2026-09-04). Extend AGENT-30's दफा/धारा/उपदफा/अनुसूची/Act-title lookup:
+   ranges, aliases/colloquial Act names, multiple Acts per query, provisos
+   referenced by name. Bounded, independent of the other items, no open
+   design questions — bump it ahead of anything blocked on a decision.
+   Full grounding + design in the dated entry below.
 4. **Use eval data to decide the claim-support verifier** — do **not**
    jump straight to an NLI/entailment model (trades a cheap deterministic
    check for a second unverified black-box judge — the "jagged intern"
@@ -57,8 +58,64 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash decides when to start roadmap item 3 (legal
-reference parser). Items 4-6 stay queued behind it, in agreed order.
+**Next action**: Prakash dispatches AGENT-35 (branch
+`agent/legal-reference-parser`, `task.md` at `0ca8ff2`). Items 4-6 stay
+queued behind it, in agreed order.
+
+- **AGENT-35 scoping (2026-09-04)**: grounded all four sub-features in
+  actual code before writing the brief, not the roadmap's one-line
+  description — no live DB this session (still unreachable, same as
+  every prior entry this session), so grounding is code-trace-only,
+  with explicit "verify against live DB" checkpoints left for Pi (who
+  has DB access) rather than assumed.
+  Traced `_resolve_act_title()`'s `strpos(query, title_ne)` and found a
+  real, independent bug: it requires the query to contain the Act's
+  **full** title including the trailing year clause to match at all — a
+  year-less "श्रम ऐन" currently fails to match "श्रम ऐन, २०७४". Confirmed
+  via the existing golden data (`phase_c_romanized.json`) that
+  `title_ne` year suffixes are stored in **Devanagari digits**, so the
+  fix regex must match `[०-९]+`, not ASCII `\d+` — a detail that would
+  have silently no-op'd if gotten wrong.
+  Traced `chunks.level` (not `chunk_type`) end-to-end as the real
+  structural proviso marker: `laws_chunker.py::_emit_subsection` →
+  `_emit` → `pgvector_indexer.py::_chunk_row()`'s `"level": chunk.level`
+  — confirmed `chunk_type` for law chunks is a separate, human-readable
+  derivation (`f"दफा {N}"`) that does **not** distinguish proviso from
+  operative text; `level` does. Getting this column choice wrong would
+  have produced a filter that silently matched nothing or everything.
+  Confirmed `chunks.section_number`/`parent_section` are `TEXT`,
+  populated by a Devanagari-digit-only chunker regex (no letter-suffix
+  parsing like "५क" exists anywhere) — safe to range-filter via a
+  defensive digit-strip-and-cast, flagged for Pi to spot-check against
+  the live corpus rather than assumed absolute.
+  One design question genuinely needed Prakash's input, put to him
+  directly (AskUserQuestion) rather than assumed: where should
+  genuine colloquial/nickname Act aliases (distinct from the year-suffix
+  bug, which is fixable from code alone) live, given no alias
+  table/column exists anywhere in the schema. **Decided: a new small
+  static file** (`app/retrieval/act_aliases.json`), seeded thin, same
+  "tooling not data" split as AGENT-34's golden sets — no new DB table,
+  no dual-approval (matching-convenience layer, not authority data).
+  Locked into `task.md`: exact regex for ranges (देखि...सम्म and
+  hyphenated forms, tried before the existing single-number parser to
+  avoid a double/conflicting filter), the `BETWEEN`-with-defensive-cast
+  SQL shape, `_resolve_act_title` → `_resolve_act_titles` (plural,
+  `LIMIT 5` not `LIMIT 1`, `= ANY(...)` in `exact_lookup_search`), and
+  the proviso-keyword-AND-दफा-number filter combination. Explicitly
+  named and accepted one real simplification rather than hiding it: this
+  task does not pair a section number to a *specific* Act when multiple
+  Acts are named in one query — any parsed section/range applies as a
+  global filter across all matched Acts, not per-Act. Per-Act pairing is
+  a materially harder parsing problem, out of scope.
+  Explicitly forbidden in `task.md`: touching the ingestion/chunker path
+  (even if something looks fixable while reading it — report, don't
+  fix), touching `_parse_subsection_reference` (already-reviewed dead
+  code from AGENT-30), touching RRF/relevance-threshold/rerank, touching
+  any authority-store/temporal/gate code, fuzzy/typo-tolerant matching,
+  and populating the new alias file with unverified names.
+  Branch `agent/legal-reference-parser` created off `dev` (clean tree
+  verified first). `task.md` committed there (`0ca8ff2`, author
+  `Prakash Basnet`). Assigned to Pi. Awaiting Prakash to dispatch.
 
 - **AGENT-34 review round 2 (2026-09-04, MERGED)**: Pi's fix (`1520b25` —
   committed by me after review, same uncommitted-working-tree pattern as
