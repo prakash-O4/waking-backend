@@ -1,19 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-33: expression-staleness serve/publish gate.** Step 1 of the
-post-AGENT-32 roadmap (staleness investigation) is done and **confirmed
-P0** — see dated entry below for the full grounding. Prakash chose the fix
-direction (build the §7.4 CI invariant, scoped to a serve/publish blocker,
-no `replacement_text` auto-apply). Branch `agent/expression-staleness-gate`
-created off `dev`; `task.md` committed there (`b627f58`, author `Prakash
-Basnet`). Assigned to Pi. Awaiting Prakash to dispatch.
+None dispatched. AGENT-33 (expression-staleness serve/publish gate) is
+**MERGED**. Roadmap item 1 (staleness investigation) is fully closed. Next:
+Prakash decides when to start roadmap item 2 (eval-labeling tooling).
 
 ## Status
-**Task assigned, awaiting dispatch.** AGENT-32 merged to `dev`. AGENT-33
-branch + task.md ready; run prompt given to Prakash. Roadmap items 2-6 stay
-queued behind this (item 1 is now this task, not a standalone investigation
-line item anymore).
+**IDLE, AGENT-33 merged to `dev`.** Roadmap items 2-6 remain queued, in
+agreed order, behind item 1's closure.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -23,9 +17,9 @@ at face value) before this order was proposed and then explicitly
 confirmed by Prakash. Agreed order — **do this in this order, don't
 re-litigate without a reason**:
 
-1. **Investigate citation/expression staleness — DONE, CONFIRMED P0, now
-   AGENT-33** (2026-09-04). Full grounding in the dated entry below. Fix
-   scoped and dispatched as AGENT-33 — see "Current task" above.
+1. **Investigate citation/expression staleness — DONE, CLOSED as AGENT-33,
+   MERGED** (2026-09-04). Full grounding + review in the dated entries
+   below.
 2. **Build eval-labeling tooling** — engineering work (a script/workflow
    that turns real query traffic + Prakash's review into a golden entry
    with minimal friction), not new golden data itself. Golden-set
@@ -61,8 +55,58 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash dispatches Pi on `agent/expression-staleness-gate`
-(AGENT-33). Roadmap items 2-6 stay queued behind it.
+**Next action**: Prakash decides when to start roadmap item 2 (eval-labeling
+tooling). Items 3-6 stay queued behind it, in agreed order.
+
+- **AGENT-33 (2026-09-04, MERGED)**: Pi returned `87fdc42` on
+  `agent/expression-staleness-gate` — real commit, correct branch, clean
+  tree (untracked `docs/legal_rag_ingestion_best_practices.md` correctly
+  left alone). Independently re-verified rather than trusting the report:
+  diffed `b627f58..87fdc42` (the actual work, not the base-branch
+  divergence `dev..branch` diff showed for `task.md`/`PROGRESS.md`) — 9
+  files, 314 insertions. Migration, `eligibility_gate.py`, `validation_gate.py`
+  all match `task.md`'s locked design exactly, including the PS-17
+  correction (`lower(transaction_time) > p_chunk_created_at`, not
+  `effective_date` — mechanically proven via
+  `test_is_expression_current_migration_uses_transaction_time_and_empty_safe`'s
+  literal source assertion, and functionally proven by
+  `test_eligible_chunk_ids_excludes_stale_expression_pre_retrieval`'s case
+  shape). Traced `validate_and_render()`'s confusingly-named `component_uri`
+  local (actually holds `evidence_id`, pre-existing from AGENT-26/29) to
+  confirm `_expression_stale()` — new, mirrors `_terminated_before()`'s
+  exact call convention — receives the right value; not a bug.
+  Two files outside `task.md`'s declared scope, both judged justified rather
+  than sent back: `scripts/migrate.py` (mechanical 2-line migration-runner
+  registration, required for `012_...sql` to ever run, follows the exact
+  existing per-migration convention — a gap in my own `task.md` scope list,
+  not Pi's fault) and `tests/stress/helpers.py` (the shared
+  `StressConn`/`StressCursor` mock used by `test_repealed_current.py`, which
+  drives the *real* `validate_and_render()`, needed to simulate the new
+  `is_expression_current` SQL call or `make stress` would break — confirmed
+  by running it: 9 passed, no regression).
+  Independently re-ran everything rather than trusting the report: `make
+  test` (245 passed, 4 skipped — matches), `make lint` clean, `make stress`
+  (9 passed — not in `task.md`'s required checks, ran it anyway since a new
+  path was added to a function the stress suite exercises).
+  **One honest caveat surfaced, not a defect**: `make eval-gates` printed
+  all-zero for both Pi and me, but traced `app/eval/gates.py::main()` and
+  found it short-circuits to printing zeros *without touching the DB*
+  whenever `SUPABASE_DB_URL` (not `DATABASE_URL`) is unset — and it's unset
+  in this repo's `.env`. Pre-existing repo quirk, not introduced by this
+  task, but means neither Pi's report nor my re-verification is real
+  live-DB proof for the new `stale-expression-as-current-live-corpus`
+  check — flagged to Prakash explicitly rather than silently passed along
+  as confirmed (same discipline as AGENT-28's DB-down review). The mocked
+  unit tests and the migration's own source are solid on their own merits;
+  reasoned through Postgres's `lower(empty_range) = NULL` semantics (not
+  an error) to confirm the PS-2 unresolved-effective-date case is handled
+  safely, since this also couldn't be verified live this session.
+  No blocking findings. Merged `agent/expression-staleness-gate` → `dev`
+  (`--no-ff`). `task.md` cleared.
+  **Residual risk carried forward, not a task**: get a real live-DB run of
+  `make eval-gates` (with `SUPABASE_DB_URL` actually set) before leaning on
+  `stale-expression-as-current-live-corpus` for production confidence —
+  next session with DB access should do this opportunistically.
 
 - **Staleness investigation (2026-09-04, CONFIRMED P0 → AGENT-33)**: live DB
   unreachable this session (Postgres at `localhost:5433` refused —  no
