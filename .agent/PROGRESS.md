@@ -58,6 +58,27 @@ re-litigate without a reason**:
 **Next action**: Prakash decides when to start roadmap item 2 (eval-labeling
 tooling). Items 3-6 stay queued behind it, in agreed order.
 
+- **External review re-verified, roadmap order confirmed (2026-09-04)**:
+  Prakash shared an external post-AGENT-33 rating (statute path: 8.0/10
+  implemented pipeline, 7.3/10 production readiness, 8.4/10 architecture
+  alignment). Verified its claims against code/PROGRESS history before
+  accepting any of it — all four held up (pre-retrieval + validation
+  staleness blocks shipped; quote-substring claim support is a deliberate
+  AGENT-27 design choice, not a gap; citation chain renders provenance but
+  not `replacement_text` content, a known finding from AGENT-32 scoping).
+  Flagged one real tension rather than silently folding it in: the review's
+  top two "next priorities" (auto re-ingestion/rebuild workflow for stale
+  components; full citation reconstruction chain) are **not** on the agreed
+  6-item roadmap, and #1 specifically re-opens the exact
+  auto-reconstruct/auto-apply-`replacement_text` scope Prakash explicitly
+  told me to hold off on when AGENT-33 was scoped ("Do not auto-apply
+  replacement_text yet"). Asked Prakash directly rather than assuming.
+  **Decision: keep the agreed roadmap order.** Item 2 (eval-labeling
+  tooling) is still next, still awaiting Prakash's go-ahead. The review is
+  informational — not a re-scope. Re-ingestion/rebuild and full citation
+  reconstruction stay un-scoped, not queued, until Prakash raises them
+  again deliberately.
+
 - **AGENT-33 (2026-09-04, MERGED)**: Pi returned `87fdc42` on
   `agent/expression-staleness-gate` — real commit, correct branch, clean
   tree (untracked `docs/legal_rag_ingestion_best_practices.md` correctly
