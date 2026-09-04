@@ -16,7 +16,11 @@ sys.path.insert(0, str(ROOT))
 from app.authority.writer import connect  # noqa: E402
 from app.retrieval.gated_orchestrator import _structured_claims  # noqa: E402
 from app.retrieval.postgres_retriever import get_lf_client, retrieve_postgres  # noqa: E402
-from app.retrieval.validation_gate import validate_and_render  # noqa: E402
+from app.retrieval.validation_gate import (  # noqa: E402
+    _claim_supported,
+    _expression,
+    validate_and_render,
+)
 
 GOLDEN_DIR = ROOT / "app" / "eval" / "golden"
 QUEUE_FILE = GOLDEN_DIR / "_traffic_queue.json"
@@ -118,7 +122,9 @@ def list_candidates(status: str) -> None:
 
 def _run_pipeline(
     row: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[bool]
+]:
     as_of = date.fromisoformat(str(row["as_of"]))
     with connect() as conn:
         hits = retrieve_postgres(conn, row["question"], as_of)
@@ -128,11 +134,19 @@ def _run_pipeline(
         )
         claims = list(claims_doc.get("claims", []))
         rendered = validate_and_render(claims, as_of, conn)
-    return hits, claims, rendered
+        quote_check_passed = []
+        for claim in claims:
+            expr = _expression(conn, str(claim.get("evidence_id", "")), as_of)
+            quote_check_passed.append(
+                False
+                if expr is None
+                else _claim_supported(str(claim.get("quote", "")), expr[0])
+            )
+    return hits, claims, rendered, quote_check_passed
 
 
 def show(trace_id: str) -> None:
-    hits, claims, rendered = _run_pipeline(_candidate(trace_id))
+    hits, claims, rendered, _ = _run_pipeline(_candidate(trace_id))
     print("hits:")
     for hit in hits:
         print(
@@ -183,7 +197,7 @@ def label(
             "nothing to record — every claim was 'skip' and no --uris given; use --skip if this candidate isn't usable"
         )
     row = _candidate(trace_id)
-    _, claims, rendered = _run_pipeline(row)
+    _, claims, rendered, quote_check_passed = _run_pipeline(row)
     _parse_claims(raw_claims, len(claims))
     now = datetime.now(timezone.utc).isoformat()
     if expected_uris:
@@ -216,6 +230,7 @@ def label(
                 "evidence_id": claim.get("evidence_id", ""),
                 "supports": verdict == "supports",
                 "gate_verdict_abstained": bool(gate.get("abstained")),
+                "quote_check_passed": quote_check_passed[idx],
                 "source": f"langfuse:{trace_id}",
                 "labeled_by": by,
                 "labeled_at": now,
@@ -225,6 +240,34 @@ def label(
         _write_list(CLAIM_SUPPORT_FILE, support_rows)
     _set_status(trace_id, "labeled")
     print("labeled")
+
+
+def report() -> None:
+    rows = _read_list(CLAIM_SUPPORT_FILE)
+    if not rows:
+        print("no labeled claims yet")
+        return
+
+    counts: dict[tuple[bool, bool], int] = {}
+    examples: list[str] = []
+    for row in rows:
+        key = (bool(row.get("supports")), bool(row.get("quote_check_passed")))
+        counts[key] = counts.get(key, 0) + 1
+        if key == (False, True) and len(examples) < 5:
+            examples.append(str(row.get("source") or row.get("trace_id") or "unknown"))
+
+    for key in [(True, True), (True, False), (False, True), (False, False)]:
+        print(f"supports={key[0]}, quote_check_passed={key[1]}: {counts.get(key, 0)}")
+    print(f"total: {len(rows)}")
+    denominator = counts.get((True, True), 0) + counts.get((False, True), 0)
+    if denominator:
+        print(f"gap rate: {counts.get((False, True), 0) / denominator:.1%}")
+    else:
+        print("gap rate: n/a (no quote_check_passed=True rows)")
+    if examples:
+        print("examples for supports=False, quote_check_passed=True:")
+        for example in examples:
+            print(f"- {example}")
 
 
 def _set_status(trace_id: str, status: str, reason: str | None = None) -> None:
@@ -256,6 +299,7 @@ def _parser() -> argparse.ArgumentParser:
     group.add_argument("--show")
     group.add_argument("--label")
     group.add_argument("--skip")
+    group.add_argument("--report", action="store_true")
     parser.add_argument("--since-days", type=int, default=7)
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument(
@@ -280,6 +324,8 @@ def main() -> None:
         label(args.label, args.by, args.uris, args.claim)
     elif args.skip:
         skip(args.skip, args.by, args.reason or "")
+    elif args.report:
+        report()
 
 
 if __name__ == "__main__":

@@ -67,7 +67,9 @@ class Conn:
 
 
 def patch_pipeline(
-    monkeypatch: pytest.MonkeyPatch, claims: list[dict[str, Any]] | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    claims: list[dict[str, Any]] | None = None,
+    expressions: dict[str, tuple[str, str] | None] | None = None,
 ) -> None:
     monkeypatch.setattr(lec, "connect", Conn)
     monkeypatch.setattr(
@@ -85,6 +87,14 @@ def patch_pipeline(
         lambda claims, as_of, conn: [
             {"claim": c["claim"], "abstained": i == 0} for i, c in enumerate(claims)
         ],
+    )
+    expressions = expressions or {}
+    monkeypatch.setattr(
+        lec,
+        "_expression",
+        lambda conn, evidence_id, as_of: expressions.get(
+            evidence_id, ("default expression text", "sha")
+        ),
     )
 
 
@@ -162,6 +172,77 @@ def test_label_writes_uris_only_claims_only_and_requires_one(
 
     with pytest.raises(SystemExit):
         lec.label("t1", "Prakash", None, None)
+
+
+def test_label_quote_check_passed_true(
+    files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_queue(files)
+    quote = "यो लामो उद्धरण पाठ हो"
+    claims = [{"claim": "c", "quote": quote, "evidence_id": "u"}]
+    patch_pipeline(monkeypatch, claims, {"u": (f"अगाडि {quote} पछाडि", "sha")})
+    lec.label("t1", "Prakash", None, ["0:supports"])
+    assert read(files / "claim_support.json")[0]["quote_check_passed"] is True
+
+
+def test_label_quote_check_passed_false_when_quote_missing(
+    files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_queue(files)
+    claims = [{"claim": "c", "quote": "यो लामो उद्धरण पाठ हो", "evidence_id": "u"}]
+    patch_pipeline(monkeypatch, claims, {"u": ("अर्कै पाठ", "sha")})
+    lec.label("t1", "Prakash", None, ["0:unsupported"])
+    assert read(files / "claim_support.json")[0]["quote_check_passed"] is False
+
+
+def test_label_quote_check_passed_false_when_expression_missing(
+    files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_queue(files)
+    claims = [{"claim": "c", "quote": "यो लामो उद्धरण पाठ हो", "evidence_id": "u"}]
+    patch_pipeline(monkeypatch, claims, {"u": None})
+    lec.label("t1", "Prakash", None, ["0:unsupported"])
+    assert read(files / "claim_support.json")[0]["quote_check_passed"] is False
+
+
+def test_report_empty(files: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    lec.report()
+    assert "no labeled claims yet" in capsys.readouterr().out
+
+
+def test_report_counts_gap_rate_and_examples(
+    files: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rows = [
+        {"supports": True, "quote_check_passed": True, "source": "langfuse:tt"},
+        {"supports": True, "quote_check_passed": False, "source": "langfuse:tf"},
+        {"supports": False, "quote_check_passed": True, "source": "langfuse:ft1"},
+        {"supports": False, "quote_check_passed": True, "source": "langfuse:ft2"},
+        {"supports": False, "quote_check_passed": False, "source": "langfuse:ff"},
+    ]
+    (files / "claim_support.json").write_text(json.dumps(rows), encoding="utf-8")
+    lec.report()
+    out = capsys.readouterr().out
+    assert "supports=True, quote_check_passed=True: 1" in out
+    assert "supports=True, quote_check_passed=False: 1" in out
+    assert "supports=False, quote_check_passed=True: 2" in out
+    assert "supports=False, quote_check_passed=False: 1" in out
+    assert "total: 5" in out
+    assert "gap rate: 66.7%" in out
+    assert "langfuse:ft1" in out
+    assert "langfuse:ft2" in out
+
+
+def test_report_gap_rate_na_when_no_quote_passed(
+    files: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rows = [
+        {"supports": True, "quote_check_passed": False},
+        {"supports": False, "quote_check_passed": False},
+    ]
+    (files / "claim_support.json").write_text(json.dumps(rows), encoding="utf-8")
+    lec.report()
+    assert "gap rate: n/a (no quote_check_passed=True rows)" in capsys.readouterr().out
 
 
 def test_label_append_only(files: Path, monkeypatch: pytest.MonkeyPatch) -> None:
