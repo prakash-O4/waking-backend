@@ -1,14 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-35 (legal reference parser improvements) is
-**MERGED**. Roadmap item 3 is fully closed. Next: Prakash decides when to
-start roadmap item 4 (decide the claim-support verifier, using AGENT-34's
-tooling).
+**AGENT-36 — claim-support gap measurement tooling** (roadmap item 4, first
+half). Branch `agent/claim-support-report`, `task.md` committed (`3c1b4b8`,
+author Prakash Basnet). Assigned to Pi. Awaiting Prakash to dispatch.
 
 ## Status
-**IDLE, AGENT-35 merged to `dev`.** Roadmap items 4-6 remain queued, in
-agreed order, behind item 3's closure.
+**DISPATCHED, awaiting Pi.** AGENT-35 merged to `dev`. Roadmap items 5-6
+remain queued behind item 4.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -59,9 +58,52 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash decides when to start roadmap item 4 (decide the
-claim-support verifier, using AGENT-34's eval-labeling tooling). Items 5-6
-stay queued behind it, in agreed order.
+**Next action**: Prakash dispatches Pi on `agent/claim-support-report`
+(AGENT-36). Items 5-6 stay queued behind item 4, in agreed order.
+
+- **AGENT-36 scoping (2026-09-04)**: grounded in actual code, not just the
+  roadmap's one-line description. Confirmed `claim_support.json` (AGENT-34's
+  tool) is currently empty — zero real labels exist yet, item 4 starts from
+  scratch. Found a real design trap while grounding: AGENT-34's stored
+  `gate_verdict_abstained` field is not a clean proxy for "quote supports
+  claim" — `validate_and_render()` (`validation_gate.py:163-187`) sets
+  `abstained=True` on any of five independent failures (hash integrity,
+  eligibility, termination, expression staleness, **or** the quote-substring
+  check `_claim_supported`), so a claim abstained purely for staleness
+  reasons would be misread as a claim-support failure if compared directly
+  against human `supports` labels. Locked the fix into `task.md`: import
+  `_expression`/`_claim_supported` directly from `validation_gate.py`
+  (precedented — this same script already imports `_structured_claims`
+  directly from `gated_orchestrator.py`), compute an isolated
+  `quote_check_passed` boolean per claim inside `_run_pipeline()` while
+  `conn` is still open, store it alongside `supports` in each
+  `claim_support.json` row, and add a `--report` mode that prints the 2x2
+  breakdown — specifically `supports=False & quote_check_passed=True`,
+  which is the actual number roadmap item 4 needs ("quote exists but claim
+  doesn't follow").
+  Ran Ponytail (no new file/dependency/abstraction — one new field on an
+  existing row shape, one new CLI mode on an existing script, reuses two
+  already-written pure functions) and PS-check (offline, human-invoked only,
+  never imported by any serve-path module — same conclusion AGENT-34's own
+  task.md reached for this exact file) before writing the brief.
+  Explicitly forbidden in `task.md`: touching `validation_gate.py`/
+  `eligibility_gate.py`/`gated_orchestrator.py`/`postgres_retriever.py`/
+  `main.py`, touching `_MIN_QUOTE_CHARS`/`_normalize` (flagged in code as
+  "revisit with eval data" — this task produces that data, but the
+  threshold change itself is a follow-on decision, not bundled in), adding
+  any entailment/NLI/LLM-judge model, any auto-labeling, any new dependency
+  or file, or writing sample data into the golden files (those are
+  Prakash's own labeling output).
+  **Noted explicitly for Prakash, not glossed over**: this task only builds
+  the measurement tool. It does not answer roadmap item 4 by itself —
+  Prakash still needs to run `--fetch`/`--label` against real Langfuse
+  traffic and personally label a meaningful number of real (quote, claim)
+  pairs before `--report`'s numbers are meaningful (labeling needs his own
+  legal judgment, not delegable to Pi).
+  Branch `agent/claim-support-report` created off `dev` (clean tree
+  verified first, `dev` already up to date with `origin/dev`). `task.md`
+  committed there (`3c1b4b8`, author `Prakash Basnet`). Assigned to Pi.
+  Awaiting Prakash to dispatch.
 
 - **AGENT-35 review round 2 (2026-09-04, MERGED)**: Pi's fix (`450b0cd` —
   committed by me after review, same uncommitted-working-tree pattern as
