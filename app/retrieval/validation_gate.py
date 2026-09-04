@@ -136,6 +136,30 @@ def _terminated_before(conn: connection, evidence_id: str, as_of: date) -> bool:
     return component_uri is not None and not is_eligible(conn, component_uri, as_of)
 
 
+def _expression_stale(conn: connection, evidence_id: str, as_of: date) -> bool:
+    component_uri = _authority_component_uri(conn, evidence_id)
+    if component_uri is None:
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT created_at
+            FROM chunks
+            WHERE id = %(evidence_id)s::uuid
+            """,
+            {"evidence_id": evidence_id},
+        )
+        row = cur.fetchone()
+        if not row:
+            return True
+        cur.execute(
+            "SELECT is_expression_current(%s, %s, %s)",
+            (component_uri, row[0], as_of),
+        )
+        current = cur.fetchone()
+    return not bool(current and current[0])
+
+
 def validate_and_render(
     claims: list[dict[str, str]], as_of: date, conn: connection
 ) -> list[dict[str, Any]]:
@@ -149,6 +173,7 @@ def validate_and_render(
             ok = hashlib.sha256(expr[0].encode("utf-8")).hexdigest() == expr[1]
         ok = ok and component_uri in eligible
         ok = ok and not _terminated_before(conn, component_uri, as_of)
+        ok = ok and not _expression_stale(conn, component_uri, as_of)
         ok = ok and _claim_supported(claim.get("quote", ""), expr[0] if expr else "")
         citation = _citation(conn, component_uri, as_of) if ok else None
         rendered.append(

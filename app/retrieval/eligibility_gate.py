@@ -31,6 +31,10 @@ def eligible_chunk_ids(conn: connection, as_of: date) -> set[str]:
                       AND c.effective_date_ad <= %(as_of)s
                   )
               )
+              AND (
+                  c.component_uri IS NULL
+                  OR is_expression_current(c.component_uri, c.created_at, %(as_of)s)
+              )
             """,
             {"as_of": as_of},
         )

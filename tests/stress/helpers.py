@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, cast
 
 
@@ -57,6 +57,16 @@ class StressCursor:
                 str(cast(dict[str, Any], params)["evidence_id"])
             )
             self.result = (chunk.get("component_uri"),) if chunk else None
+        elif s.startswith("SELECT created_at FROM chunks"):
+            chunk = self.conn.chunks.get(
+                str(cast(dict[str, Any], params)["evidence_id"])
+            )
+            self.result = (chunk.get("created_at"),) if chunk else None
+        elif s.startswith("SELECT is_expression_current"):
+            component_uri, created_at, as_of = cast(tuple[Any, ...], params)
+            self.result = (
+                self.conn.expression_current(str(component_uri), created_at, as_of),
+            )
         elif s.startswith("SELECT c.act_name"):
             chunk = self.conn.chunks.get(
                 str(cast(dict[str, Any], params)["evidence_id"])
@@ -162,7 +172,9 @@ class StressConn:
         if component_uri is None:
             eff = chunk.get("effective_date_ad")
             return eff is not None and eff <= as_of
-        return self.component_eligible(str(component_uri), as_of)
+        return self.component_eligible(
+            str(component_uri), as_of
+        ) and self.expression_current(str(component_uri), chunk["created_at"], as_of)
 
     def component_eligible(self, component_uri: str, as_of: date) -> bool:
         effects = [
@@ -187,6 +199,21 @@ class StressConn:
         )
         return commenced and not terminated
 
+    def expression_current(
+        self, component_uri: str, created_at: datetime, as_of: date
+    ) -> bool:
+        return not any(
+            e["effect_type"] == "amend"
+            and e.get("approval_status") == "approved"
+            and e.get("start") is not None
+            and e["start"] <= as_of
+            and e.get("transaction_start", datetime.min.replace(tzinfo=timezone.utc))
+            > created_at
+            for chunk in self.chunks.values()
+            if chunk.get("component_uri") == component_uri
+            for e in chunk.get("effects", [])
+        )
+
 
 def chunk(
     component_uri: str, effects: list[dict[str, Any]], **extra: Any
@@ -201,6 +228,7 @@ def chunk(
         "source_id": "src",
         "chunk_type": "दफा",
         "section_number": "१",
+        "created_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "effects": effects,
         **extra,
     }

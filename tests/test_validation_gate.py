@@ -23,6 +23,7 @@ def _passing_stubs(monkeypatch: Any, chunk_text: str = _CHUNK_TEXT) -> None:
     )
     monkeypatch.setattr(gate, "eligible_chunk_ids", lambda conn, as_of: {"/c/1"})
     monkeypatch.setattr(gate, "_terminated_before", lambda conn, uri, as_of: False)
+    monkeypatch.setattr(gate, "_expression_stale", lambda conn, uri, as_of: False)
     monkeypatch.setattr(
         gate,
         "_citation",
@@ -61,6 +62,22 @@ def test_validation_gate_abstains_when_component_terminated(monkeypatch: Any) ->
     out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
     assert out[0]["abstained"] is True
     assert out[0]["citation"] is None
+
+
+def test_validation_gate_abstains_when_expression_stale(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    monkeypatch.setattr(gate, "_expression_stale", lambda conn, uri, as_of: True)
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
+    assert out[0]["abstained"] is True
+    assert out[0]["citation"] is None
+
+
+def test_validation_gate_keeps_refreshed_expression(monkeypatch: Any) -> None:
+    _passing_stubs(monkeypatch)
+    monkeypatch.setattr(gate, "_expression_stale", lambda conn, uri, as_of: False)
+    out = _render([{"claim": "x", "evidence_id": "/c/1", "quote": _QUOTE}])
+    assert out[0]["abstained"] is False
+    assert out[0]["citation"] is not None
 
 
 def test_claim_support_quote_not_in_chunk_abstains(monkeypatch: Any) -> None:
@@ -130,16 +147,21 @@ class GateCursor:
     def __exit__(self, *args: object) -> None:
         pass
 
-    def execute(self, sql: str, params: dict[str, Any]) -> None:
+    def execute(self, sql: str, params: dict[str, Any] | tuple[Any, ...]) -> None:
         self.sql = sql
-        self.params = params
+        if isinstance(params, dict):
+            self.params = params
         squashed = " ".join(sql.split())
         if squashed.startswith("SELECT component_uri FROM chunks"):
             self.result = (self.conn.component_uri,)
+        elif squashed.startswith("SELECT created_at FROM chunks"):
+            self.result = (self.conn.created_at,)
         elif squashed.startswith("SELECT 1 FROM lifecycle_effect"):
             self.result = (1,) if self.conn.terminated else None
         elif squashed.startswith("SELECT is_eligible"):
             self.result = (not self.conn.terminated,)
+        elif squashed.startswith("SELECT is_expression_current"):
+            self.result = (self.conn.expression_current,)
         elif squashed.startswith("SELECT c.act_name"):
             self.result = self.conn.citation_row
         else:
@@ -153,6 +175,8 @@ class GateConn:
     def __init__(self) -> None:
         self.component_uri: str | None = "/law/dafa/1"
         self.terminated = False
+        self.created_at = "2024-01-01T00:00:00Z"
+        self.expression_current = True
         self.citation_row: tuple[Any, ...] = (
             "ऐन",
             None,
@@ -241,6 +265,25 @@ def test_terminated_before_skips_null_component_uri() -> None:
     conn = GateConn()
     conn.component_uri = None
     assert not gate._terminated_before(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
+def test_expression_stale_uses_canonical_sql_function() -> None:
+    conn = GateConn()
+    conn.expression_current = False
+    assert gate._expression_stale(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+    assert conn.cursor_obj.sql == "SELECT is_expression_current(%s, %s, %s)"
+
+
+def test_expression_stale_false_for_refreshed_chunk() -> None:
+    conn = GateConn()
+    conn.expression_current = True
+    assert not gate._expression_stale(cast(Any, conn), "chunk-id", date(2024, 1, 1))
+
+
+def test_expression_stale_skips_null_component_uri() -> None:
+    conn = GateConn()
+    conn.component_uri = None
+    assert not gate._expression_stale(cast(Any, conn), "chunk-id", date(2024, 1, 1))
 
 
 def test_citation_unlinked_fallback_reads_source_publication() -> None:
