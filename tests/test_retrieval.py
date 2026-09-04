@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 import sys
 import types
 from datetime import date
+from pathlib import Path
 from typing import Any, cast
 
 import app.retrieval.postgres_retriever as r
@@ -100,6 +102,23 @@ def patch_common(monkeypatch: Any, eligible: set[str]) -> None:
 
 
 LLM_METADATA_COLUMNS = ("summary", "keywords", "relevant_questions")
+
+
+def test_committed_act_aliases_json_is_valid() -> None:
+    assert isinstance(
+        json.loads(Path("app/retrieval/act_aliases.json").read_text()), dict
+    )
+
+
+def test_load_act_aliases_returns_empty_on_malformed_json(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    fake_module = tmp_path / "postgres_retriever.py"
+    fake_module.write_text("")
+    fake_module.with_name("act_aliases.json").write_text("{invalid json")
+    monkeypatch.setattr(r, "Path", lambda _: fake_module)
+
+    assert r._load_act_aliases() == {}
 
 
 def test_hit_does_not_surface_llm_metadata() -> None:

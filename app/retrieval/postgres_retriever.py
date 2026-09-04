@@ -30,9 +30,11 @@ def _load_act_aliases() -> dict[str, str]:
     path = Path(__file__).with_name("act_aliases.json")
     if not path.exists():
         return {}
-    # Malformed JSON hard-fails in dev/tests; missing aliases fail closed to no aliases.
-    with path.open(encoding="utf-8") as f:
-        return cast(dict[str, str], json.load(f))
+    try:
+        with path.open(encoding="utf-8") as f:
+            return cast(dict[str, str], json.load(f))
+    except json.JSONDecodeError:
+        return {}
 
 
 # Matching convenience only; never render aliases as citation/source metadata.
