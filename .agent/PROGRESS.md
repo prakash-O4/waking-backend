@@ -9,6 +9,49 @@ now needs Prakash's own labeling before a verifier decision can be made.
 **IDLE, AGENT-36 merged to `dev`.** Roadmap items 5-6 remain queued behind
 item 4's full closure (labeling + measured decision, not just tooling).
 
+## Environment finding (2026-09-04): DB/code drift, now fixed
+
+Prakash's local Postgres (`DATABASE_URL`, `localhost:5433`, db `wakilg`) was
+reachable for the first time this session (every prior session in this
+history reported it unreachable). Running
+`scripts/label_eval_candidates.py --show <trace_id>` crashed with
+`psycopg2.errors.UndefinedFunction: is_expression_current(text, timestamp
+with time zone, date) does not exist`.
+
+Root cause confirmed directly against the live DB (not guessed): AGENT-33's
+migration `012_expression_staleness_gate.sql` (creates
+`is_expression_current()`, used by `eligibility_gate.py` and
+`validation_gate.py`) was merged to `dev` on 2026-09-04, but had never been
+applied to this DB — `schema_migrations` showed 001-011 applied, 012
+missing. Because every session since AGENT-33 merged reported the DB
+unreachable, nobody had run `scripts/migrate.py` against it since. Code and
+schema had silently drifted apart.
+
+Verified the migration is purely additive (`CREATE OR REPLACE FUNCTION`,
+STABLE SQL, no table/data mutation) before running it — safe on this local
+dev DB. Ran `scripts/migrate.py` (needed `DATABASE_URL` exported from
+`.env` manually; the script does not auto-load `.env`, unlike `app/config.py`
+which does via pydantic-settings) — applied `012` cleanly, confirmed
+`is_expression_current` now exists in `pg_proc`, re-ran the original
+`--show` command — succeeds.
+
+**Not a code bug, not an AGENT-33 defect** — the migration and its
+`scripts/migrate.py` registration were correct all along; this was purely
+an unapplied-migration/environment gap, now closed. No task needed.
+
+**Reminder for future sessions with DB access**: `scripts/migrate.py`
+requires `DATABASE_URL` in the shell environment, not just `.env` — export
+it first (e.g. `export $(grep -E "^DATABASE_URL=" .env | xargs)`) before
+running migration or ad-hoc DB scripts.
+
+**Separately, still true and still deferred** (see AGENT-33 entry below for
+full detail): `make eval-gates` silently prints all-zero without touching
+the DB because `app/eval/gates.py::main()` checks `SUPABASE_DB_URL`
+specifically, ignoring `DATABASE_URL` — this DB now being reachable does
+NOT fix that unrelated bug. Per Prakash's explicit instruction, still held
+until the pipeline overall rates 9-10/10; not picked up opportunistically
+here.
+
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
 Six remaining gaps toward a 9-10/10 production legal RAG, raised by
