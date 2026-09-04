@@ -101,13 +101,33 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash runs `python3 scripts/label_eval_candidates.py
---fetch` against real Langfuse traffic, then personally `--label`s a
-meaningful number of real (quote, claim) pairs over time. Once
+**Next action**: Prakash personally poses realistic, varied legal questions
+through the running app (not synthetic placeholders), waits for them to
+land in Langfuse, then `--fetch`/`--label`s them via the tool. Once
 `--report` shows enough labeled volume to be meaningful, revisit whether
 an entailment/LLM-judge layer is warranted — that decision, not this
 tooling, is what actually closes roadmap item 4. Items 5-6 stay queued
 behind it.
+
+- **No real traffic yet — self-generated substitute agreed (2026-09-04)**:
+  ran `--fetch`/`--list` for the first time this session and found the
+  queue is 20 rows of `question="q"`, `as_of=2024-01-01` — placeholder
+  smoke-test calls, not real usage. Confirmed with Prakash: the product is
+  pre-launch, no real end-user traffic exists yet, so AGENT-34's original
+  "traffic is already flowing" assumption held for the *infrastructure*
+  (every `/ask` call does create a Langfuse trace) but not for *content*
+  right now. **Decision (Prakash's, not assumed)**: he will personally type
+  realistic, varied legal questions through the running app himself — a
+  valid substitute pre-launch, since the labeling judgment (does this quote
+  genuinely support this claim) doesn't require the question to have come
+  from an anonymous end-user, only that it's a realistic legal question
+  exercising real provisions. Once those land in Langfuse,
+  `--fetch`/`--label`/`--report` work exactly as built, no code change
+  needed. The 20 `"q"` placeholder rows already in
+  `app/eval/golden/_traffic_queue.json` are noise — Prakash can `--skip`
+  them (or ignore them; `--list --status pending` will just keep showing
+  them until skipped) — not cleaned up automatically here since that file
+  is his own labeling data, not something to edit without being asked.
 
 - **AGENT-36 review (2026-09-04, MERGED)**: Pi's work (`8f9d291`, correct
   author) matched `task.md` precisely. Verified directly rather than
