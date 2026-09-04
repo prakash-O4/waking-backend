@@ -14,3 +14,6 @@ laws.jsonl
 regulations.json
 
 logs/
+
+# Local reviewer working state; raw unreviewed user questions
+app/eval/golden/_traffic_queue.json
