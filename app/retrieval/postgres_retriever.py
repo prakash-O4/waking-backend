@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 import unicodedata
 from datetime import date
+from pathlib import Path
 from typing import Any, cast
 
 from openai import AzureOpenAI
@@ -16,7 +18,25 @@ from app.retrieval.reranker import rerank
 
 _DIGIT_MAP = str.maketrans("०१२३४५६७८९", "0123456789")
 _RELEVANCE_THRESHOLD = 0.005
+_MAX_SECTION_RANGE = 50
+_MAX_SECTION_NUMBERS = 10
+_SECTION_RANGE_RE = re.compile(
+    r"(?:दफा|धारा)\s*(\d+)\s*(?:देखि|-|–|—)\s*(\d+)\s*(?:सम्म)?"
+)
 _lf_client: Any = None
+
+
+def _load_act_aliases() -> dict[str, str]:
+    path = Path(__file__).with_name("act_aliases.json")
+    if not path.exists():
+        return {}
+    # Malformed JSON hard-fails in dev/tests; missing aliases fail closed to no aliases.
+    with path.open(encoding="utf-8") as f:
+        return cast(dict[str, str], json.load(f))
+
+
+# Matching convenience only; never render aliases as citation/source metadata.
+_ACT_ALIASES = _load_act_aliases()
 
 
 def get_lf_client() -> Any | None:
@@ -106,8 +126,28 @@ def _embed_query(text: str) -> list[float]:
 
 
 def _parse_section_reference(query: str) -> str | None:
-    match = re.search(r"(?:दफा|धारा)\s*(\d+)", query)
-    return match.group(1) if match else None
+    nums = _parse_section_numbers(query)
+    return nums[0] if nums else None
+
+
+def _parse_section_numbers(query: str) -> list[str]:
+    match = re.search(r"(?:दफा|धारा)\s*(\d+)((?:\s*(?:,|र|तथा)\s*\d+)*)", query)
+    if not match:
+        return []
+    nums = [match.group(1), *re.findall(r"\d+", match.group(2))]
+    return nums[:_MAX_SECTION_NUMBERS]
+
+
+def _parse_section_range(query: str) -> tuple[int, int] | None:
+    match = _SECTION_RANGE_RE.search(query)
+    if not match:
+        return None
+    low, high = sorted((int(match.group(1)), int(match.group(2))))
+    return (low, high) if high - low <= _MAX_SECTION_RANGE else None
+
+
+def _parse_proviso_reference(query: str) -> bool:
+    return bool(re.search(r"परन्तुक|स्पष्टीकरण", query))
 
 
 def _parse_subsection_reference(query: str) -> str | None:
@@ -120,20 +160,28 @@ def _parse_schedule_reference(query: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _resolve_act_title(conn: connection, query: str) -> str | None:
+def _resolve_act_titles(conn: connection, query: str) -> list[str]:
+    search_text = (
+        query
+        + " "
+        + " ".join(
+            canonical for alias, canonical in _ACT_ALIASES.items() if alias in query
+        )
+    )
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT id::text, title_ne
             FROM work
             WHERE strpos(%(query)s, title_ne) > 0
+               OR strpos(%(query)s, regexp_replace(title_ne, ',\\s*[०-९]+\\s*$', '')) > 0
             ORDER BY length(title_ne) DESC
-            LIMIT 1
+            LIMIT 5
             """,
-            {"query": query},
+            {"query": search_text},
         )
-        row = cur.fetchone()
-    return str(row[0]) if row else None
+        rows = cur.fetchall()
+    return [str(row[0]) for row in rows]
 
 
 def _rrf(ranked_lists: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
@@ -167,9 +215,16 @@ def retrieve_postgres(
 ) -> list[dict[str, Any]]:
     title_query = unicodedata.normalize("NFC", query)
     query = _preprocess(query)
-    section_num = _parse_section_reference(query)
+    section_range = _parse_section_range(query)
+    section_nums = (
+        []
+        if section_range or _SECTION_RANGE_RE.search(query)
+        else _parse_section_numbers(query)
+    )
+    section_num = section_nums[0] if len(section_nums) == 1 else None
     schedule_num = _parse_schedule_reference(query)
-    act_work_id: str | None = None
+    proviso_ref = _parse_proviso_reference(query)
+    act_work_ids: list[str] = []
     query_ne = translate_query(query)
     if query_ne is not None:
         query_ne = _preprocess(query_ne)
@@ -204,7 +259,7 @@ def retrieve_postgres(
                 pass
         return []
 
-    act_work_id = _resolve_act_title(conn, title_query)
+    act_work_ids = _resolve_act_titles(conn, title_query)
     qvec = _embed_query(query)
     qvec_ne = _embed_query(query_ne) if query_ne else None
     limit = k * 3
@@ -246,14 +301,31 @@ def retrieve_postgres(
         def exact_lookup_search() -> list[tuple[Any, ...]]:
             filters = ["c.id::text = ANY(%(eligible)s)"]
             params: dict[str, Any] = {"eligible": eligible, "limit": limit}
-            if act_work_id is not None:
-                filters.append("c.work_id = %(work_id)s")
-                params["work_id"] = act_work_id
-            if section_num is not None:
+            if act_work_ids:
+                # ponytail: section refs apply globally across matched Acts; add per-Act
+                # pairing only when query grammar needs it.
+                filters.append("c.work_id = ANY(%(work_ids)s)")
+                params["work_ids"] = act_work_ids
+            if section_range is not None:
+                filters.append(
+                    "(NULLIF(regexp_replace(c.section_number, '\\D', '', 'g'), '')::int "
+                    "BETWEEN %(low)s AND %(high)s OR "
+                    "NULLIF(regexp_replace(c.parent_section, '\\D', '', 'g'), '')::int "
+                    "BETWEEN %(low)s AND %(high)s)"
+                )
+                params["low"], params["high"] = section_range
+            elif section_num is not None:
                 filters.append(
                     "(c.section_number = %(num)s OR c.parent_section = %(num)s)"
                 )
                 params["num"] = section_num
+            elif section_nums:
+                filters.append(
+                    "(c.section_number = ANY(%(nums)s) OR c.parent_section = ANY(%(nums)s))"
+                )
+                params["nums"] = section_nums
+            if proviso_ref and (section_range is not None or section_nums):
+                filters.append("c.level = 'proviso'")
             if schedule_num is not None:
                 filters.append("strpos(c.chunk_text, 'अनुसूची ' || %(schedule_num)s) > 0")
                 params["schedule_num"] = schedule_num
@@ -299,7 +371,7 @@ def retrieve_postgres(
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
-        exact_ran = any(x is not None for x in (section_num, schedule_num, act_work_id))
+        exact_ran = bool(section_range or section_nums or schedule_num or act_work_ids)
         exact_rows: list[tuple[Any, ...]] = []
         t0 = time.monotonic()
         if exact_ran:

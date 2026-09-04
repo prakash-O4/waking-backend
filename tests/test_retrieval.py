@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 import types
 from datetime import date
@@ -48,6 +49,14 @@ class Cursor:
         self.params_history.append(params)
 
     def fetchall(self) -> list[tuple[Any, ...]]:
+        if "FROM work" in self.sql:
+            q = self.params["query"]
+            matches = [
+                row
+                for row in self.works
+                if row[1] in q or re.sub(r",\s*[०-९]+\s*$", "", row[1]) in q
+            ]
+            return sorted(matches, key=lambda row: len(row[1]), reverse=True)[:5]
         if "embedding <=>" in self.sql:
             return self.vector
         if "ts_rank_cd" in self.sql:
@@ -65,10 +74,8 @@ class Cursor:
         ]
 
     def fetchone(self) -> tuple[str, str] | None:
-        matches = [row for row in self.works if row[1] in self.params["query"]]
-        if not matches:
-            return None
-        return max(matches, key=lambda row: len(row[1]))
+        rows = self.fetchall()
+        return rows[0] if rows else None
 
 
 class Conn:
@@ -156,6 +163,24 @@ def test_parse_section_reference() -> None:
     assert r._parse_section_reference("ordinary query") is None
 
 
+def test_parse_section_range_and_numbers() -> None:
+    assert r._parse_section_range("दफा 5 देखि 10 सम्म") == (5, 10)
+    assert r._parse_section_range("धारा 7-9") == (7, 9)
+    assert r._parse_section_range("दफा 1 देखि 999999") is None
+    assert r._parse_section_range("दफा 5") is None
+    assert r._parse_section_numbers("दफा 5 र 7") == ["5", "7"]
+    assert (
+        len(r._parse_section_numbers("दफा " + " र ".join(str(i) for i in range(20))))
+        == 10
+    )
+
+
+def test_parse_proviso_reference() -> None:
+    assert r._parse_proviso_reference("दफा 5 को परन्तुक") is True
+    assert r._parse_proviso_reference("दफा 5 को स्पष्टीकरण") is True
+    assert r._parse_proviso_reference("दफा 5") is False
+
+
 def test_parse_subsection_reference() -> None:
     assert r._parse_subsection_reference("उपदफा (2)") == "2"
     assert r._parse_subsection_reference("ordinary query") is None
@@ -166,15 +191,46 @@ def test_parse_schedule_reference() -> None:
     assert r._parse_schedule_reference("ordinary query") is None
 
 
-def test_resolve_act_title_longest_match_wins() -> None:
+def test_resolve_act_titles_longest_match_wins() -> None:
     conn = Conn(
         [],
         [],
         works=[("short", "देवानी संहिता"), ("long", "मुलुकी देवानी संहिता")],
     )
 
-    assert r._resolve_act_title(cast(Any, conn), "मुलुकी देवानी संहिता दफा 1") == "long"
+    assert r._resolve_act_titles(cast(Any, conn), "मुलुकी देवानी संहिता दफा 1") == [
+        "long",
+        "short",
+    ]
     assert "strpos(%(query)s, title_ne) > 0" in conn.cursor_obj.sql
+
+
+def test_resolve_act_titles_matches_yearless_title() -> None:
+    conn = Conn([], [], works=[("work-1", "श्रम ऐन, २०७४")])
+
+    assert r._resolve_act_titles(cast(Any, conn), "श्रम ऐन दफा 1") == ["work-1"]
+    assert "regexp_replace(title_ne" in conn.cursor_obj.sql
+
+
+def test_resolve_act_titles_matches_alias(monkeypatch: Any) -> None:
+    monkeypatch.setattr(r, "_ACT_ALIASES", {"लेबर ऐन": "श्रम ऐन"})
+    conn = Conn([], [], works=[("work-1", "श्रम ऐन, २०७४")])
+
+    assert r._resolve_act_titles(cast(Any, conn), "लेबर ऐन दफा 1") == ["work-1"]
+
+
+def test_resolve_act_titles_returns_multiple_acts(monkeypatch: Any) -> None:
+    monkeypatch.setattr(r, "_ACT_ALIASES", {"लेबर ऐन": "श्रम ऐन"})
+    conn = Conn(
+        [],
+        [],
+        works=[("work-1", "श्रम ऐन, २०७४"), ("work-2", "मुलुकी देवानी संहिता, २०७४")],
+    )
+
+    assert r._resolve_act_titles(cast(Any, conn), "लेबर ऐन र मुलुकी देवानी संहिता") == [
+        "work-2",
+        "work-1",
+    ]
 
 
 def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
@@ -277,13 +333,101 @@ def test_exact_lookup_only_result_survives(monkeypatch: Any) -> None:
 
 def test_exact_lookup_uses_work_title_filter(monkeypatch: Any) -> None:
     patch_common(monkeypatch, {"c3"})
-    conn = Conn([], [], exact=[EXACT_ROW], works=[("work-1", "भन्सार महसुल ऐन २०८१")])
+    conn = Conn([], [], exact=[EXACT_ROW], works=[("work-1", "भन्सार महसुल ऐन, २०८१")])
 
-    r.retrieve_postgres(cast(Any, conn), "भन्सार महसुल ऐन २०८१ दफा 94", date(2024, 1, 1))
+    r.retrieve_postgres(cast(Any, conn), "भन्सार महसुल ऐन दफा 94", date(2024, 1, 1))
 
     assert any(
-        params.get("work_id") == "work-1" for params in conn.cursor_obj.params_history
+        params.get("work_ids") == ["work-1"]
+        for params in conn.cursor_obj.params_history
     )
+    exact_sql = next(sql for sql in conn.cursor_obj.sqls if "c.work_id" in sql)
+    assert "c.work_id = ANY(%(work_ids)s)" in exact_sql
+    assert "c.work_id = %(work_id)s" not in exact_sql
+
+
+def test_range_query_uses_between_not_equality(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    r.retrieve_postgres(cast(Any, conn), "दफा 5 देखि 10 सम्म", date(2024, 1, 1))
+
+    exact_sql = next(sql for sql in conn.cursor_obj.sqls if "BETWEEN" in sql)
+    assert "BETWEEN %(low)s AND %(high)s" in exact_sql
+    assert "c.section_number = %(num)s" not in exact_sql
+    assert any(
+        params.get("low") == 5 and params.get("high") == 10
+        for params in conn.cursor_obj.params_history
+    )
+
+
+def test_huge_range_does_not_fallback_to_single_section(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    r.retrieve_postgres(cast(Any, conn), "दफा 1 देखि 999999", date(2024, 1, 1))
+
+    assert not any("BETWEEN" in sql for sql in conn.cursor_obj.sqls)
+    assert not any(
+        params.get("num") == "1" for params in conn.cursor_obj.params_history
+    )
+
+
+def test_plain_section_keeps_equality_filter(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    r.retrieve_postgres(cast(Any, conn), "दफा 94", date(2024, 1, 1))
+
+    exact_sql = next(sql for sql in conn.cursor_obj.sqls if "c.parent_section" in sql)
+    assert "(c.section_number = %(num)s OR c.parent_section = %(num)s)" in exact_sql
+    assert "BETWEEN" not in exact_sql
+
+
+def test_multiple_sections_use_any_filter(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    conn = Conn([], [], exact=[EXACT_ROW])
+
+    r.retrieve_postgres(cast(Any, conn), "दफा 5 र 7", date(2024, 1, 1))
+
+    exact_sql = next(sql for sql in conn.cursor_obj.sqls if "c.parent_section" in sql)
+    assert "c.section_number = ANY(%(nums)s)" in exact_sql
+    assert any(
+        params.get("nums") == ["5", "7"] for params in conn.cursor_obj.params_history
+    )
+
+
+def test_retrieve_multi_act_query_uses_all_work_ids(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    monkeypatch.setattr(r, "_ACT_ALIASES", {"लेबर ऐन": "श्रम ऐन"})
+    conn = Conn(
+        [],
+        [],
+        exact=[EXACT_ROW],
+        works=[("work-1", "श्रम ऐन, २०७४"), ("work-2", "मुलुकी देवानी संहिता, २०७४")],
+    )
+
+    out = r.retrieve_postgres(
+        cast(Any, conn), "लेबर ऐन र मुलुकी देवानी संहिता दफा 5", date(2024, 1, 1)
+    )
+
+    assert [h["component_uri"] for h in out] == ["c3"]
+    assert any(
+        params.get("work_ids") == ["work-2", "work-1"]
+        for params in conn.cursor_obj.params_history
+    )
+
+
+def test_proviso_filter_requires_section_anchor(monkeypatch: Any) -> None:
+    patch_common(monkeypatch, {"c3"})
+    anchored = Conn([], [], exact=[EXACT_ROW])
+    unanchored = Conn([], [], exact=[EXACT_ROW])
+
+    r.retrieve_postgres(cast(Any, anchored), "दफा 5 को परन्तुक", date(2024, 1, 1))
+    r.retrieve_postgres(cast(Any, unanchored), "परन्तुक के हो?", date(2024, 1, 1))
+
+    assert any("c.level = 'proviso'" in sql for sql in anchored.cursor_obj.sqls)
+    assert not any("c.level = 'proviso'" in sql for sql in unanchored.cursor_obj.sqls)
 
 
 def test_both_arms_rrf_merges(monkeypatch: Any) -> None:
