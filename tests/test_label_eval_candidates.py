@@ -182,6 +182,20 @@ def test_label_requires_by(files: Path, monkeypatch: pytest.MonkeyPatch) -> None
         lec.label("t1", "", "u1", None)
 
 
+def test_label_all_skip_without_uris_is_not_labeled(
+    files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_queue(files)
+    monkeypatch.setattr(
+        lec, "retrieve_postgres", lambda *a: pytest.fail("pipeline called")
+    )
+    with pytest.raises(SystemExit):
+        lec.label("t1", "Prakash", None, ["0:skip"])
+    assert not (files / "labeled_traffic.json").exists()
+    assert not (files / "claim_support.json").exists()
+    assert read(files / "_traffic_queue.json")[0]["status"] == "pending"
+
+
 def test_skip_writes_no_goldens_and_leaves_pending_list(
     files: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

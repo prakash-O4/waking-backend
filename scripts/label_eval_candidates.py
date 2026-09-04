@@ -149,7 +149,9 @@ def show(trace_id: str) -> None:
         print(f"[{i}] abstained={item.get('abstained')} claim={item.get('claim')}")
 
 
-def _parse_claims(raw: list[str] | None, count: int) -> list[tuple[int, str]]:
+def _parse_claims(
+    raw: list[str] | None, count: int | None = None
+) -> list[tuple[int, str]]:
     parsed: list[tuple[int, str]] = []
     for item in raw or []:
         try:
@@ -161,7 +163,7 @@ def _parse_claims(raw: list[str] | None, count: int) -> list[tuple[int, str]]:
             raise SystemExit("use IDX:unsupported, not IDX:refutes")
         if verdict not in {"supports", "unsupported", "skip"}:
             raise SystemExit(f"invalid claim verdict: {verdict}")
-        if idx < 0 or idx >= count:
+        if count is not None and (idx < 0 or idx >= count):
             raise SystemExit(f"claim index out of range: {idx}")
         parsed.append((idx, verdict))
     return parsed
@@ -173,11 +175,16 @@ def label(
     if not by:
         raise SystemExit("--by is required")
     expected_uris = [u.strip() for u in (uris or "").split(",") if u.strip()]
-    if not expected_uris and not raw_claims:
+    parsed_claims = _parse_claims(raw_claims)
+    if not expected_uris and not parsed_claims:
         raise SystemExit("at least one of --uris or --claim is required")
+    if not expected_uris and all(verdict == "skip" for _, verdict in parsed_claims):
+        raise SystemExit(
+            "nothing to record — every claim was 'skip' and no --uris given; use --skip if this candidate isn't usable"
+        )
     row = _candidate(trace_id)
     _, claims, rendered = _run_pipeline(row)
-    parsed_claims = _parse_claims(raw_claims, len(claims))
+    _parse_claims(raw_claims, len(claims))
     now = datetime.now(timezone.utc).isoformat()
     if expected_uris:
         traffic = _read_list(LABELED_TRAFFIC_FILE)
