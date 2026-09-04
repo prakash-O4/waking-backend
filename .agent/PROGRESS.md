@@ -1,13 +1,12 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-34 (eval-labeling tooling)** — assigned to Pi, branch
-`agent/eval-labeling-tooling`, `task.md` committed (`d18c8c4`). Awaiting
-Prakash to dispatch.
+**AGENT-34 (eval-labeling tooling)** — round 1 reviewed, **rework
+requested** (`b7d7a4f` on `agent/eval-labeling-tooling`). Not merged yet.
 
 ## Status
-**AGENT-34 assigned, awaiting dispatch.** Roadmap item 2 in progress.
-Items 3-6 remain queued behind it, in agreed order.
+**AGENT-34 in rework.** Roadmap item 2 in progress. Items 3-6 remain
+queued behind it, in agreed order.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -57,9 +56,59 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash dispatches AGENT-34 (branch
-`agent/eval-labeling-tooling`, `task.md` at `d18c8c4`). Items 3-6 stay
-queued behind it, in agreed order.
+**Next action**: Pi fixes the round-1 rework item on
+`agent/eval-labeling-tooling` (`task.md` rework note at `b7d7a4f`). Items
+3-6 stay queued behind item 2, in agreed order.
+
+- **AGENT-34 review round 1 (2026-09-04, rework requested)**: Pi's work
+  (`af7d660` — committed by me after review; was sitting uncommitted in
+  the shared working tree, same recurring pattern as
+  AGENT-15/19/20/22/26/31/32) was mostly correct and closely matched
+  `task.md`: three-step pipeline call (`retrieve_postgres` →
+  `_structured_claims` → `validate_and_render`) exactly as specified, the
+  hash-content trap implemented and correctly refuses `--show`/`--label`
+  before the pipeline ever runs (proved via a test that fails if the
+  pipeline mock is called), `as_of` fallback + `as_of_source` tagging
+  correct, fresh (never-cached) re-runs on every `--label` confirmed by
+  reading `_run_pipeline`'s call sites, append-only writes confirmed by a
+  dedicated test seeding a prior entry and asserting it survives, all 10
+  required tests present and genuinely behavioral. Also gitignored the raw
+  `_traffic_queue.json` (may hold unredacted real user questions
+  pre-review) — not asked for in `task.md`, a good, safety-conscious
+  addition, kept.
+  Independently reproduced rather than trusting the report: `make test`
+  (257 passed, 4 skipped — matches), `make lint` clean. `scripts/label_eval_candidates.py`
+  isn't in the Makefile's fixed `lint` file list (same pre-existing gap
+  noted for every new script/module across this whole session) — ran
+  `ruff check`/`ruff format --check`/`mypy --strict` on it directly;
+  clean.
+  **One disclosed vocabulary change, accepted**: `IDX:refutes` (as written
+  in `task.md`) renamed to `IDX:unsupported` with the old spelling made a
+  hard error rather than silently accepted — maps more directly to the
+  stored `supports: bool` field. Kept, not sent back.
+  **One real bug, reproduced directly (not just read), sent back**:
+  `label()` can reach `_set_status(trace_id, "labeled")` having written
+  zero golden entries anywhere — e.g. `--label t1 --by X --claim "0:skip"`
+  with no `--uris`: `expected_uris` empty, the only claim verdict is
+  `"skip"` so the loop's `continue` means `wrote_claim` never becomes
+  `True`, yet the function falls through to marking the candidate
+  `"labeled"` and prints `"labeled"` regardless. Reproduced this exact
+  call directly against the running code this session (not reasoned about
+  in the abstract): confirmed neither golden file gets created and the
+  queue row's status flips to `"labeled"` permanently — no "unlabel"
+  command exists, so the candidate silently vanishes from
+  `--list --status pending` with nothing recorded. A real data-loss
+  footgun in a tool whose entire purpose is reliably capturing labels — a
+  gap in this brief's own edge-case coverage (my scope gap, not Pi's
+  fault), but wrong regardless of source.
+  Rework note appended to `task.md` (`b7d7a4f`) — required fix: before
+  running the pipeline or writing anything, check whether the invocation
+  will record anything at all (`expected_uris` non-empty, or at least one
+  non-`skip` claim verdict); if not, `SystemExit` pointing at `--skip`
+  instead of silently marking `"labeled"`. Required test: `--label` with
+  only skip-verdicts and no `--uris` raises, writes nothing, and leaves
+  the queue row `"pending"` (still recoverable). Same branch, same
+  engineer, per the Rework Loop — not re-scoped.
 
 - **AGENT-34 scoping (2026-09-04)**: grounded in actual eval infra before
   writing the brief, not the roadmap's one-line description. Found no
