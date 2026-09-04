@@ -204,3 +204,64 @@ noting it's unaffected.
 Every commit on this branch must be authored as
 `Prakash Basnet <basnetprakash090@gmail.com>` — no AI/Claude attribution,
 no `Co-Authored-By` trailer.
+
+---
+
+## Rework note (2026-09-04, round 1)
+
+Reviewed `af7d660`. Most of it is correct and matches this brief closely:
+the three-step pipeline call, dedup-on-`trace_id`, the hash-content trap
+(with two good disclosed additions beyond spec — non-string `trace.input`
+refused, `get_lf_client() is None` refused with a clear message — both
+kept), `as_of` fallback + tagging, fresh (never-cached) re-runs on every
+`--label`, append-only writes, out-of-range claim rejection, and all 10
+required tests present and genuinely behavioral (not canned). `make test`
+(257 passed, 4 skipped) and `make lint` reproduced myself and match. Also
+manually ran `ruff check`/`ruff format --check`/`mypy --strict` on
+`scripts/label_eval_candidates.py` directly, since it isn't in the
+Makefile's fixed `lint` file list (same pre-existing gap noted for every
+other new file across this whole session's history) — clean.
+
+**One disclosed vocabulary change, accepted, not a finding**: `IDX:refutes`
+(as written in this brief) was renamed to `IDX:unsupported`, with the old
+spelling made a hard error rather than silently accepted — `unsupported`
+maps more directly to the stored `supports: bool` field than `refutes`
+did. Keep this; do not revert it.
+
+**One real bug, reproduced directly, required fix**: `label()` can reach
+`_set_status(trace_id, "labeled")` having written **zero** golden entries
+to either file — e.g. `--label t1 --by X --claim "0:skip"` with no
+`--uris`: `expected_uris` is empty (nothing written to
+`labeled_traffic.json`), the only claim verdict is `"skip"` so the loop's
+`continue` means `wrote_claim` never becomes `True` (nothing written to
+`claim_support.json`), yet the function falls through to
+`_set_status(..., "labeled")` and prints `"labeled"` unconditionally.
+Reproduced this exact call directly against the current code this
+session: prints `labeled`, neither golden file is created, and the queue
+row's `status` becomes `"labeled"` — permanently, since there is no
+"unlabel" command. The candidate silently vanishes from
+`--list --status pending` with nothing recorded and no way back short of
+hand-editing `_traffic_queue.json`. This is a real data-loss footgun in a
+tool whose entire purpose is reliably capturing labels — not present in
+the original brief's own spec (a gap in this brief's edge-case coverage,
+not something to blame on the implementation), but wrong regardless of
+who's at fault.
+
+**Required fix**: after computing `expected_uris` and `parsed_claims` in
+`label()`, before running the pipeline or writing anything, determine
+whether this invocation will actually record anything — `expected_uris`
+non-empty, OR at least one parsed claim verdict is `"supports"` or
+`"unsupported"` (i.e. not all `"skip"`). If nothing will be recorded,
+raise `SystemExit` with a message pointing at `--skip` instead (e.g.
+`"nothing to record — every claim was 'skip' and no --uris given; use --skip if this candidate isn't usable"`).
+This check can run before the pipeline call (cheap — it's just inspecting
+the parsed args), so a no-op `--label` also doesn't need to touch the DB
+at all.
+
+**Required test**: add a test proving `--label <id> --by X --claim
+"0:skip"` (no `--uris`) raises `SystemExit`, writes neither golden file,
+and leaves the queue row's `status` as `"pending"` (not `"labeled"`) —
+i.e. the candidate is still recoverable via `--list` afterward.
+
+Same branch, same engineer, per the Rework Loop — not re-scoped. Nothing
+else in this diff needs to change.
