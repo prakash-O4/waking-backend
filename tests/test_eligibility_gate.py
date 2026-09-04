@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import inspect
-from datetime import date
+import os
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any, cast
+
+import psycopg2
+import pytest
 
 import app.retrieval.eligibility_gate as eg
 from app.retrieval.eligibility_gate import eligible_chunk_ids
@@ -47,6 +52,9 @@ class FilteringCursor:
                     and row["effective_date_ad"] <= as_of
                 )
             )
+            and (
+                row.get("component_uri") is None or self._expression_current(row, as_of)
+            )
         ]
 
     def fetchall(self) -> list[tuple[str]]:
@@ -78,6 +86,16 @@ class FilteringCursor:
         )
         return commenced and not terminated
 
+    def _expression_current(self, row: dict[str, Any], as_of: date) -> bool:
+        return not any(
+            effect["effect_type"] == "amend"
+            and effect.get("approval_status", "approved") == "approved"
+            and effect.get("valid_lower") is not None
+            and effect["valid_lower"] <= as_of
+            and effect["transaction_start"] > row["created_at"]
+            for effect in row.get("effects", [])
+        )
+
 
 class FilteringConn:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
@@ -94,6 +112,7 @@ def _row(**extra: Any) -> dict[str, Any]:
         "source_type": "act",
         "effective_date_ad": date(2020, 1, 1),
         "component_uri": "/law/1",
+        "created_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
         "effects": [
             {"effect_type": "commence", "start": date(2020, 1, 1)},
         ],
@@ -180,6 +199,136 @@ def test_eligible_chunk_ids_keeps_unlinked_effective_date_fallback() -> None:
         ]
     )
     assert eligible_chunk_ids(cast(Any, conn), date(2024, 1, 1)) == {"old"}
+
+
+def test_eligible_chunk_ids_excludes_stale_expression_pre_retrieval() -> None:
+    conn = FilteringConn(
+        [
+            _row(
+                effects=[
+                    {"effect_type": "commence", "start": date(2020, 1, 1)},
+                    {
+                        "effect_type": "amend",
+                        "valid_lower": date(2023, 1, 1),
+                        "transaction_start": datetime(2024, 2, 1, tzinfo=timezone.utc),
+                    },
+                ]
+            )
+        ]
+    )
+    assert eligible_chunk_ids(cast(Any, conn), date(2024, 3, 1)) == set()
+
+
+def test_eligible_chunk_ids_keeps_refreshed_expression_after_amend_known() -> None:
+    conn = FilteringConn(
+        [
+            _row(
+                created_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
+                effects=[
+                    {"effect_type": "commence", "start": date(2020, 1, 1)},
+                    {
+                        "effect_type": "amend",
+                        "valid_lower": date(2023, 1, 1),
+                        "transaction_start": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    },
+                ],
+            )
+        ]
+    )
+    assert eligible_chunk_ids(cast(Any, conn), date(2024, 3, 1)) == {"chunk-1"}
+
+
+def test_eligible_chunk_ids_keeps_pending_or_unresolved_amend() -> None:
+    conn = FilteringConn(
+        [
+            _row(
+                id="pending",
+                effects=[
+                    {"effect_type": "commence", "start": date(2020, 1, 1)},
+                    {
+                        "effect_type": "amend",
+                        "approval_status": "pending",
+                        "valid_lower": date(2023, 1, 1),
+                        "transaction_start": datetime(2024, 2, 1, tzinfo=timezone.utc),
+                    },
+                ],
+            ),
+            _row(
+                id="unresolved",
+                effects=[
+                    {"effect_type": "commence", "start": date(2020, 1, 1)},
+                    {
+                        "effect_type": "amend",
+                        "valid_lower": None,
+                        "transaction_start": datetime(2024, 2, 1, tzinfo=timezone.utc),
+                    },
+                ],
+            ),
+        ]
+    )
+    assert eligible_chunk_ids(cast(Any, conn), date(2024, 3, 1)) == {
+        "pending",
+        "unresolved",
+    }
+
+
+def test_is_expression_current_migration_uses_transaction_time_and_empty_safe() -> None:
+    sql = Path("migrations/012_expression_staleness_gate.sql").read_text()
+    assert "CREATE OR REPLACE FUNCTION is_expression_current" in sql
+    assert "lower(transaction_time) > p_chunk_created_at" in sql
+    assert "lower(legal_valid_time) <= p_as_of::timestamptz" in sql
+    assert "effective_date" not in sql
+
+
+@pytest.mark.skipif(not os.getenv("SUPABASE_DB_URL"), reason="SUPABASE_DB_URL not set")
+def test_is_expression_current_live_db_cases() -> None:
+    component = "/test/expression-staleness"
+    with psycopg2.connect(os.environ["SUPABASE_DB_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SAVEPOINT expression_staleness")
+        cur.execute("DELETE FROM lifecycle_effect WHERE component_uri=%s", (component,))
+        cur.execute(
+            """
+            INSERT INTO lifecycle_effect
+                (component_uri, effect_type, approval_status, legal_valid_time, transaction_time)
+            VALUES
+                (%(component)s, 'amend', 'approved', '[2023-01-01,)'::tstzrange,
+                 '[2024-02-01,)'::tstzrange),
+                (%(component)s, 'amend', 'pending', '[2023-01-01,)'::tstzrange,
+                 '[2024-03-01,)'::tstzrange),
+                (%(component)s, 'amend', 'approved', 'empty'::tstzrange,
+                 '[2024-03-01,)'::tstzrange)
+            """,
+            {"component": component},
+        )
+        cur.execute(
+            "SELECT is_expression_current(%s, %s, %s)",
+            (component, datetime(2024, 1, 1, tzinfo=timezone.utc), date(2024, 3, 1)),
+        )
+        assert cur.fetchone() == (False,)
+        cur.execute(
+            "SELECT is_expression_current(%s, %s, %s)",
+            (component, datetime(2024, 2, 2, tzinfo=timezone.utc), date(2024, 3, 1)),
+        )
+        assert cur.fetchone() == (True,)
+        cur.execute("DELETE FROM lifecycle_effect WHERE component_uri=%s", (component,))
+        cur.execute(
+            """
+            INSERT INTO lifecycle_effect
+                (component_uri, effect_type, approval_status, legal_valid_time, transaction_time)
+            VALUES
+                (%(component)s, 'amend', 'pending', '[2023-01-01,)'::tstzrange,
+                 '[2024-03-01,)'::tstzrange),
+                (%(component)s, 'amend', 'approved', 'empty'::tstzrange,
+                 '[2024-03-01,)'::tstzrange)
+            """,
+            {"component": component},
+        )
+        cur.execute(
+            "SELECT is_expression_current(%s, %s, %s)",
+            (component, datetime(2024, 1, 1, tzinfo=timezone.utc), date(2024, 3, 1)),
+        )
+        assert cur.fetchone() == (True,)
+        cur.execute("ROLLBACK TO SAVEPOINT expression_staleness")
 
 
 def test_eligible_compatibility_calls_canonical_sql() -> None:

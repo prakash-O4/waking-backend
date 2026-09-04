@@ -148,6 +148,34 @@ def check_not_yet_effective_as_current_live(
     return int(row[0]) if row else 1
 
 
+def check_stale_expression_as_current_live(
+    conn: connection, os_client: object | None = None
+) -> int:
+    today = date.today()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(DISTINCT c.id)
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE d.ingestion_status = 'approved'
+              AND c.source_type <> 'nkp_case'
+              AND c.component_uri IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM lifecycle_effect le
+                  WHERE le.component_uri = c.component_uri
+                    AND le.effect_type = 'amend'
+                    AND le.approval_status = 'approved'
+                    AND lower(le.legal_valid_time) <= %(today)s::timestamptz
+                    AND lower(le.transaction_time) > c.created_at
+              )
+            """,
+            {"today": today},
+        )
+        row = cur.fetchone()
+    return int(row[0]) if row else 1
+
+
 def check_overruled_as_good_law(
     conn: connection, os_client: object | None = None
 ) -> int:
@@ -210,6 +238,7 @@ def main() -> None:
         print("repealed-as-current-live-corpus: 0")
         print("not-yet-effective-as-current: 0")
         print("not-yet-effective-as-current-live-corpus: 0")
+        print("stale-expression-as-current-live-corpus: 0")
         print("overruled-as-good-law: 0")
         return
     with connect() as conn:
@@ -217,15 +246,19 @@ def main() -> None:
         repealed_live = check_repealed_as_current_live(conn)
         pending = check_not_yet_effective_as_current(conn)
         pending_live = check_not_yet_effective_as_current_live(conn)
+        stale_live = check_stale_expression_as_current_live(conn)
         overruled = check_overruled_as_good_law(conn)
         conn.commit()
     print(f"repealed-as-current: {repealed}")
     print(f"repealed-as-current-live-corpus: {repealed_live}")
     print(f"not-yet-effective-as-current: {pending}")
     print(f"not-yet-effective-as-current-live-corpus: {pending_live}")
+    print(f"stale-expression-as-current-live-corpus: {stale_live}")
     print(f"overruled-as-good-law: {overruled}")
     raise SystemExit(
-        1 if any((repealed, repealed_live, pending, pending_live, overruled)) else 0
+        1
+        if any((repealed, repealed_live, pending, pending_live, stale_live, overruled))
+        else 0
     )
 
 

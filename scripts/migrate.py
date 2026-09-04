@@ -25,6 +25,7 @@ MIGRATIONS: list[tuple[str, str | None]] = [
     ("009_lifecycle_raw_clause", "009_lifecycle_raw_clause.sql"),
     ("010_metadata_provenance_comments", "010_metadata_provenance_comments.sql"),
     ("011_chunk_authority_links", "011_chunk_authority_links.sql"),
+    ("012_expression_staleness_gate", "012_expression_staleness_gate.sql"),
 ]
 
 
@@ -70,6 +71,7 @@ def _seed_existing(cur: Any) -> None:
         "008_work_relations": "SELECT 1 FROM pg_tables WHERE tablename = 'work_relations'",
         "009_lifecycle_raw_clause": "SELECT 1 FROM information_schema.columns WHERE table_name='lifecycle_effect' AND column_name='raw_clause_text'",
         "011_chunk_authority_links": "SELECT 1 FROM information_schema.columns WHERE table_name='chunks' AND column_name='component_uri'",
+        "012_expression_staleness_gate": "SELECT 1 FROM pg_proc WHERE proname = 'is_expression_current'",
     }
     for name, probe in sentinels.items():
         cur.execute("SELECT 1 FROM schema_migrations WHERE name = %s", (name,))
