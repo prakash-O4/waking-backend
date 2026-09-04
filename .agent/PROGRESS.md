@@ -1,13 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-33 (expression-staleness serve/publish gate) is
-**MERGED**. Roadmap item 1 (staleness investigation) is fully closed. Next:
-Prakash decides when to start roadmap item 2 (eval-labeling tooling).
+**AGENT-34 (eval-labeling tooling)** — assigned to Pi, branch
+`agent/eval-labeling-tooling`, `task.md` committed (`d18c8c4`). Awaiting
+Prakash to dispatch.
 
 ## Status
-**IDLE, AGENT-33 merged to `dev`.** Roadmap items 2-6 remain queued, in
-agreed order, behind item 1's closure.
+**AGENT-34 assigned, awaiting dispatch.** Roadmap item 2 in progress.
+Items 3-6 remain queued behind it, in agreed order.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -20,11 +20,13 @@ re-litigate without a reason**:
 1. **Investigate citation/expression staleness — DONE, CLOSED as AGENT-33,
    MERGED** (2026-09-04). Full grounding + review in the dated entries
    below.
-2. **Build eval-labeling tooling** — engineering work (a script/workflow
-   that turns real query traffic + Prakash's review into a golden entry
-   with minimal friction), not new golden data itself. Golden-set
-   expansion responsibly needs Prakash's own legal verification; this step
-   only makes that verification fast, it doesn't do the labeling.
+2. **Build eval-labeling tooling — IN PROGRESS, scoped as AGENT-34**
+   (2026-09-04). Engineering work (a script/workflow that turns real query
+   traffic + Prakash's review into a golden entry with minimal friction),
+   not new golden data itself. Golden-set expansion responsibly needs
+   Prakash's own legal verification; this step only makes that
+   verification fast, it doesn't do the labeling. Full grounding + design
+   in the dated entry below.
 3. **Improve legal reference parser** — extend AGENT-30's दफा/धारा/
    उपदफा/अनुसूची/Act-title lookup: ranges, aliases/colloquial Act names,
    multiple Acts per query, provisos referenced by name. Bounded,
@@ -55,8 +57,63 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash decides when to start roadmap item 2 (eval-labeling
-tooling). Items 3-6 stay queued behind it, in agreed order.
+**Next action**: Prakash dispatches AGENT-34 (branch
+`agent/eval-labeling-tooling`, `task.md` at `d18c8c4`). Items 3-6 stay
+queued behind it, in agreed order.
+
+- **AGENT-34 scoping (2026-09-04)**: grounded in actual eval infra before
+  writing the brief, not the roadmap's one-line description. Found no
+  query-logging table exists in this backend, but every real `/ask` call
+  already creates a Langfuse trace (`rag.query`,
+  `query_graph.py::run_query`) with real question text +
+  `as_of` — `.env` has `LANGFUSE_LOG_CONTENT=true` and live cloud
+  credentials, so this is a genuine, already-flowing traffic source, not
+  something to build from scratch. Also found (and ruled out) an unused
+  Supabase `chat` table — `SupabaseHelper.get_user_chat_history()` is
+  defined but never called by this backend; presumably written by a
+  separate frontend Claude has no visibility into. Put both the traffic-
+  source question and the golden-shape question to Prakash directly
+  (AskUserQuestion) rather than assuming: confirmed Langfuse as the
+  source, and "both in one review pass" (retrieval-recall +
+  claim-support labeling together) as the target shape.
+  Found a real design trap while grounding the claim-support half:
+  `validation_gate.py::validate_and_render()` — the production gate —
+  takes each claim's `quote` as input but drops it from its output dict
+  (only `claim`/`evidence_id`/`abstained`/`citation` survive). Rather than
+  modifying the production gate to leak the quote back out (unjustified
+  scope creep on a labeling tool), locked the design to call the pipeline
+  in three already-existing, unmodified steps directly:
+  `retrieve_postgres()` → `gated_orchestrator._structured_claims()` (the
+  one function that actually carries `quote` alongside `claim`/
+  `evidence_id`, already cross-imported by `query_graph.py` — same
+  precedent followed here) → `validate_and_render()` for the current
+  gate's verdict, shown for comparison only, explicitly not treated as
+  ground truth since measuring where it disagrees with Prakash's own
+  label is the entire point of roadmap item 4.
+  Ran Ponytail (no new table/dependency/abstraction — one new script, two
+  new golden JSON files, reuses `get_lf_client()`/`retrieve_postgres()`/
+  `_structured_claims()`/`validate_and_render()` unmodified) and PS-check
+  (offline, human-invoked tool only, never imported by any serve-path
+  module, so no PS-1..18 item is materially touched — stated explicitly in
+  `task.md` rather than silently assumed) before writing the brief.
+  Locked into `task.md`: the Langfuse SDK's actual `fetch_traces()`
+  signature and trace object shape (confirmed via `TraceWithDetails.__fields__`
+  this session, not guessed); a heuristic + human-review two-layer defense
+  against traces where `LANGFUSE_LOG_CONTENT` was off at capture time
+  (input is a 16-hex-char SHA-256 prefix, not real text — `--show`/
+  `--label` must refuse these, not silently ship a hash string into a
+  golden file); an explicit no-PII-redaction decision (human `--skip` is
+  the safety gate, no evidence yet this is a real problem); fresh
+  (never-cached) pipeline re-runs on every `--label` specifically so a
+  stale `--show` output can't be labeled against a corpus that has since
+  changed — matching AGENT-33's own temporal-correctness discipline.
+  Explicitly forbidden in `task.md`: touching any production/serve-path
+  file (`validation_gate.py`, `query_graph.py`, `gated_orchestrator.py`,
+  `postgres_retriever.py`, `main.py`), touching `SupabaseHelper`/`chat`,
+  any auto-labeling path, any new dependency, wiring into `Makefile`/CI.
+  Branch `agent/eval-labeling-tooling` created off `dev` (clean tree
+  verified first). `task.md` committed there (`d18c8c4`, author
+  `Prakash Basnet`). Assigned to Pi. Awaiting Prakash to dispatch.
 
 - **External review re-verified, roadmap order confirmed (2026-09-04)**:
   Prakash shared an external post-AGENT-33 rating (statute path: 8.0/10
