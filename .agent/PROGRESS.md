@@ -1,12 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-34 (eval-labeling tooling)** — round 1 reviewed, **rework
-requested** (`b7d7a4f` on `agent/eval-labeling-tooling`). Not merged yet.
+None dispatched. AGENT-34 (eval-labeling tooling) is **MERGED**. Roadmap
+item 2 is fully closed. Next: Prakash decides when to start roadmap item 3
+(legal reference parser).
 
 ## Status
-**AGENT-34 in rework.** Roadmap item 2 in progress. Items 3-6 remain
-queued behind it, in agreed order.
+**IDLE, AGENT-34 merged to `dev`.** Roadmap items 3-6 remain queued, in
+agreed order, behind item 2's closure.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -19,13 +20,13 @@ re-litigate without a reason**:
 1. **Investigate citation/expression staleness — DONE, CLOSED as AGENT-33,
    MERGED** (2026-09-04). Full grounding + review in the dated entries
    below.
-2. **Build eval-labeling tooling — IN PROGRESS, scoped as AGENT-34**
+2. **Build eval-labeling tooling — DONE, CLOSED as AGENT-34, MERGED**
    (2026-09-04). Engineering work (a script/workflow that turns real query
    traffic + Prakash's review into a golden entry with minimal friction),
    not new golden data itself. Golden-set expansion responsibly needs
    Prakash's own legal verification; this step only makes that
    verification fast, it doesn't do the labeling. Full grounding + design
-   in the dated entry below.
+   + review in the dated entries below.
 3. **Improve legal reference parser** — extend AGENT-30's दफा/धारा/
    उपदफा/अनुसूची/Act-title lookup: ranges, aliases/colloquial Act names,
    multiple Acts per query, provisos referenced by name. Bounded,
@@ -56,9 +57,38 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Pi fixes the round-1 rework item on
-`agent/eval-labeling-tooling` (`task.md` rework note at `b7d7a4f`). Items
-3-6 stay queued behind item 2, in agreed order.
+**Next action**: Prakash decides when to start roadmap item 3 (legal
+reference parser). Items 4-6 stay queued behind it, in agreed order.
+
+- **AGENT-34 review round 2 (2026-09-04, MERGED)**: Pi's fix (`1520b25` —
+  committed by me after review, same uncommitted-working-tree pattern as
+  round 1) is precise and minimal. `_parse_claims()` now takes an optional
+  `count` — the first call in `label()` (before touching the DB) validates
+  format/verdict only; a second call after `_run_pipeline()` (with the
+  real `len(claims)`) still does the out-of-range check exactly as before,
+  which correctly still requires a live pipeline run (the claim count
+  can't be known any other way — no regression there, the "before
+  pipeline" requirement was specifically about the all-skip case, which
+  doesn't need real claims data). Between those two calls, a new guard
+  (`not expected_uris and all(verdict == "skip" for ...)`) raises
+  `SystemExit` pointing at `--skip`, before `_candidate()`/`_run_pipeline()`
+  are ever reached.
+  Reproduced the exact original repro case directly against the fixed
+  code myself (not just read the diff or trusted the new test): monkeypatched
+  `retrieve_postgres` to raise if called, ran
+  `label("t1", "Prakash", None, ["0:skip"])` — got the expected
+  `SystemExit` with the pointer-to-`--skip` message, `retrieve_postgres`
+  never invoked, neither golden file created, queue row status stayed
+  `"pending"`. New test (`test_label_all_skip_without_uris_is_not_labeled`)
+  covers the same case with the same pipeline-fails-if-called guard.
+  Independently re-ran everything rather than trusting the report: `make
+  test` (258 passed, 4 skipped — matches, +1 for the new test), `make
+  lint` clean, and manually re-ran `ruff check`/`ruff format --check`/
+  `mypy --strict` on `scripts/label_eval_candidates.py` directly (still
+  not in the Makefile's fixed lint list) — clean. No further findings.
+  Merged `agent/eval-labeling-tooling` → `dev` (`--no-ff`) — merge-commit
+  authorship spot-checked (`git log -1 --format="%an <%ae>"`), correct.
+  `task.md` cleared. **This closes roadmap item 2.**
 
 - **AGENT-34 review round 1 (2026-09-04, rework requested)**: Pi's work
   (`af7d660` — committed by me after review; was sitting uncommitted in
