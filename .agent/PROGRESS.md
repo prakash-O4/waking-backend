@@ -1,13 +1,13 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-35 (legal reference parser improvements)** — assigned to Pi,
-branch `agent/legal-reference-parser`, `task.md` committed (`0ca8ff2`).
-Awaiting Prakash to dispatch.
+**AGENT-35 (legal reference parser improvements)** — round 1 reviewed,
+**rework requested** (`e11dbf7` on `agent/legal-reference-parser`). Not
+merged yet.
 
 ## Status
-**AGENT-35 assigned, awaiting dispatch.** Roadmap item 3 in progress.
-Items 4-6 remain queued behind it, in agreed order.
+**AGENT-35 in rework.** Roadmap item 3 in progress. Items 4-6 remain
+queued behind it, in agreed order.
 
 ## Post-AGENT-32 roadmap (agreed with Prakash, 2026-09-04)
 
@@ -58,9 +58,61 @@ re-litigate without a reason**:
    future requirements). Revisit only if the product roadmap actually
    needs it.
 
-**Next action**: Prakash dispatches AGENT-35 (branch
-`agent/legal-reference-parser`, `task.md` at `0ca8ff2`). Items 4-6 stay
-queued behind it, in agreed order.
+**Next action**: Pi fixes the round-1 rework item on
+`agent/legal-reference-parser` (`task.md` rework note at `e11dbf7`). Items
+4-6 stay queued behind item 3, in agreed order.
+
+- **AGENT-35 review round 1 (2026-09-04, rework requested)**: Pi's work
+  (`921161d` — committed by me after review; sitting uncommitted in the
+  shared working tree, same recurring pattern as every prior task this
+  session) implements all four locked sub-features correctly and matches
+  `task.md` closely: range regex + defensive-cast `BETWEEN` SQL (verified
+  the non-range fallback filter is byte-identical to the pre-existing
+  equality filter — no regression), `_resolve_act_titles` plural with
+  `LIMIT 5` and the year-optional Devanagari-digit `regexp_replace` match
+  exactly as specified, `c.work_id = ANY(...)` for multi-Act, proviso
+  filtering correctly anchored (traced the `section_range is not None or
+  section_nums` condition directly — covers the single-number case too,
+  since `section_nums` stays a 1-element list even when the derived
+  `section_num` is also set; not accidental, verified by tracing the
+  assembly logic). Two disclosed additions beyond the brief, both
+  accepted as reasonable, low-risk, well-tested extensions rather than
+  scope creep: discrete multi-section lists ("दफा 5 र 7", capped at 10)
+  as a natural sibling of ranges/multi-Act, and an unprompted oversized-
+  range guard (`_MAX_SECTION_RANGE = 50`) that correctly makes a
+  pathological "दफा 1 देखि 999999" query fall through to no exact-section
+  filter rather than silently misparsing as `section_num="1"` — verified
+  this guard's logic by tracing it directly, not just reading the test.
+  Independently reproduced rather than trusting the report: `make test`
+  (269 passed, 4 skipped — matches), `make lint` clean —
+  `postgres_retriever.py` is already in the Makefile's fixed lint list
+  (unlike the new-script gap noted for AGENT-34/AGENT-32), so no extra
+  manual step was needed, confirmed.
+  **One real bug, reproduced directly (not just read), sent back**:
+  `_load_act_aliases()` fails open (`{}`) for a missing file but lets a
+  malformed JSON file raise **uncaught** — and it runs at **module import
+  time**, so a syntax typo in `act_aliases.json` crashes
+  `postgres_retriever.py`'s import entirely, cascading through
+  `query_graph.py` → `gated_orchestrator.py` → `main.py` — the whole
+  `/ask` endpoint fails to start. Reproduced directly this session:
+  wrote invalid JSON to the file, `import
+  app.retrieval.postgres_retriever` raised `json.JSONDecodeError`
+  uncaught. Considered and rejected reading this as the AGENTS.md "loud
+  refusal beats quiet wrong answer" principle applying in Pi's favor —
+  it doesn't: a broken alias file can't produce a wrong *legal* answer
+  (validation_gate's independent citation/eligibility/staleness checks
+  are unaffected either way), it only silently loses alias matching for
+  that request, exactly like the already-accepted missing-file case. The
+  asymmetry between the two error paths in the same function, with no
+  stated justification for treating them differently, is the actual
+  problem — not "fail loud" as a philosophy in the abstract.
+  Rework note appended to `task.md` (`e11dbf7`) — required fix: catch the
+  parse failure and return `{}`, matching the missing-file behavior.
+  Required test: validate the actual committed `act_aliases.json` parses
+  (keeps Pi's original "catch bad edits early" intent, relocated to
+  `make test`/CI rather than the production import path), plus a test
+  proving a malformed file makes the loader return `{}` rather than
+  raise. Same branch, same engineer, per the Rework Loop — not re-scoped.
 
 - **AGENT-35 scoping (2026-09-04)**: grounded all four sub-features in
   actual code before writing the brief, not the roadmap's one-line
