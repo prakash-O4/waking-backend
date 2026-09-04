@@ -252,3 +252,65 @@ extra manual lint step needed here. `make eval-gates` is not relevant
 Every commit on this branch must be authored as
 `Prakash Basnet <basnetprakash090@gmail.com>` — no AI/Claude attribution,
 no `Co-Authored-By` trailer.
+
+---
+
+## Rework note (2026-09-04, round 1)
+
+Reviewed `921161d`. All four locked sub-features are correct and match
+this brief closely: range regex + `BETWEEN`-with-defensive-cast SQL
+(byte-identical fallback to the original equality filter when no range is
+present — verified), `_resolve_act_titles` plural with `LIMIT 5` and the
+year-optional `regexp_replace(title_ne, ',\s*[०-९]+\s*$', '')` match
+using Devanagari digits exactly as specified, `c.work_id = ANY(...)` for
+multi-Act, and proviso filtering correctly anchored to `section_range is
+not None or section_nums` (covers the single-number case too, since
+`section_nums` stays a 1-element list even when `section_num` is also
+set — traced this interaction directly, it's correct, not accidental).
+Two disclosed additions beyond the brief, both accepted: discrete
+multi-section lists ("दफा 5 र 7", capped at 10 via `_MAX_SECTION_NUMBERS`)
+as a natural sibling of ranges/multi-Act, and an oversized-range guard
+(`_MAX_SECTION_RANGE = 50` — a "दफा 1 देखि 999999" query correctly falls
+through to no exact-section filter rather than silently misparsing as
+`section_num="1"`, verified by tracing the `section_range or
+_SECTION_RANGE_RE.search(query)` guard and by the dedicated
+`test_huge_range_does_not_fallback_to_single_section`). All 7 required
+tests present and behavioral, plus solid coverage of both additions.
+Independently reproduced rather than trusting the report: `make test`
+(269 passed, 4 skipped — matches), `make lint` clean (`postgres_retriever.py`
+is already in the Makefile's fixed lint list, confirmed no extra manual
+step was needed here, unlike prior new-script cases this session).
+
+**One real bug, reproduced directly, required fix**: `_load_act_aliases()`
+returns `{}` for a missing file (fail-open, by design, per its own
+comment) but lets a malformed JSON file raise uncaught — and
+`_ACT_ALIASES = _load_act_aliases()` runs at **module import time**, so a
+syntax typo in `act_aliases.json` crashes the import of
+`postgres_retriever.py` entirely, which cascades through
+`query_graph.py` → `gated_orchestrator.py` → `main.py` — i.e. the whole
+`/ask` endpoint fails to start. Reproduced directly this session: wrote
+`{invalid json` to the file, `import app.retrieval.postgres_retriever`
+raised `json.JSONDecodeError` uncaught. This is inconsistent with the same
+function's own missing-file handling, and disproportionate — this file is
+explicitly meant to be hand-edited incrementally by Prakash per this
+brief's own instruction ("seed it thin... Prakash expands it over time"),
+and a JSON typo during that editing shouldn't be able to take down
+retrieval entirely. This isn't the AGENTS.md "loud refusal beats quiet
+wrong answer" principle applying in Pi's favor here — a broken alias file
+doesn't cause a wrong *legal* answer (validation_gate's citation/
+eligibility/staleness checks are unaffected either way), it only means
+alias matching silently isn't available for that request, exactly like
+the missing-file case already handles it.
+
+**Required fix**: `_load_act_aliases()` should treat a JSON parse failure
+the same as a missing file — catch it and return `{}`, not propagate.
+**Required test**: keep the "catch bad edits early" value Pi was
+reaching for, just relocated to the right layer — add a test that
+validates the actual committed `app/retrieval/act_aliases.json` parses as
+valid JSON (so a bad edit still fails loudly in `make test`/CI, without
+making the production import path itself fragile to it). Also add a test
+proving a malformed file makes `_load_act_aliases()` return `{}` rather
+than raise.
+
+Same branch, same engineer, per the Rework Loop — not re-scoped. Nothing
+else in this diff needs to change.
