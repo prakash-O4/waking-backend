@@ -1,18 +1,81 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None open. AGENT-39 closed (below). Roadmap items 5-6 remain queued
-behind item 4's full closure (labeling + measured decision, not just
-tooling) — see "No real traffic yet" entry below.
+**AGENT-40 — fix broken auth token validation** (side task, not on the
+6-item roadmap; a real, live, production-blocking bug — every
+authenticated `/ask`/`/ask/stream` request currently fails). Branch
+`agent/fix-auth-token-validation`, `task.md` committed. Assigned to
+**Pi** (security-sensitive backend correctness fix). Awaiting Prakash
+to dispatch.
+
+**How this was found**: Prakash used the AGENT-37/38 dev console with a
+real Supabase account for the first time (first real end-to-end auth
+test in this project's history) and got a confusing
+`404 {"detail":"Error fetching user details: 401: Invalid token"}` on
+every request, even with a correct, freshly-obtained token. Extensive
+live diagnosis (not guessed): ruled out console/localStorage staleness,
+wrong API base URL, header transmission/mangling (checked via `curl -v`,
+header arrived byte-for-byte intact), token expiry/clock skew (verified
+via decoded `iat`/`exp` vs system time), and server-process env
+staleness (restarted the server, same failure). Root cause confirmed by
+directly testing `SupabaseHelper` methods in isolation against a real
+token: `validate_token()` calls a **private** method,
+`self.supabase.auth._decode_jwt`, that **does not exist** in the
+`supabase==2.31.0` version pinned in `requirements.txt` and actually
+installed in `.venv` (confirmed via `AttributeError` reproduced
+directly). The `AttributeError` gets swallowed by
+`validate_token`'s own broad `except Exception: return False`, so every
+real token fails validation, always — invisible until now because the
+whole test suite mocks `SupabaseHelper` away entirely, and
+`app/utils/helpers.py` isn't in the Makefile's lint/mypy coverage at
+all (confirmed: zero tests, zero static checks on this file, ever).
+
+Also surfaced along the way (noted, not separately actioned): a bare
+`python3` in some shells on this machine resolves to a different,
+older Python (missing the pinned `supabase` version entirely) than the
+project's actual `.venv` — Claude's own `make test`/`make lint` runs
+this session were against that wrong interpreter for unrelated checks,
+though harmlessly, since none of AGENT-36/37/38/39 touched this file
+and the test suite mocks around it either way. Worth fixing the
+Makefile/environment setup separately at some point, not urgent.
+
+Fix direction (confirmed against the actual installed package source,
+not assumed): replace the private call with the public
+`self.supabase.auth.get_claims(jwt=<raw_token>)`, which already exists
+in this exact installed version and does the job properly (expiry
+check, then either a `get_user()` fallback for HS256 tokens — this
+project's actual token type, confirmed from a real decoded JWT header —
+or full JWKS signature verification for asymmetric algorithms). Two
+non-obvious correctness gotchas baked into the brief: (1) unlike the
+old broken method, `get_claims` needs the "Bearer " prefix stripped
+*before* the call, not after — the old code's stripping order would
+silently break it differently; (2) since `get_claims` already calls
+`get_user()` internally for this project's tokens, the old two-step
+validate-then-fetch pattern must collapse into one call, or the fix
+would introduce a redundant second network round-trip per request.
+Brief also mandates: fix the incidentally-wrong `-> Dict` return type on
+`get_user_id` (actually returns a string), remove a pre-existing dead
+`except jwt.ExpiredSignatureError` clause, add `app/utils/helpers.py` to
+the Makefile's lint/mypy coverage (checked in advance: only 8 mypy / 2
+ruff issues surface, small and bounded), and add the first-ever unit
+tests for this file (`tests/test_helpers.py`) against a mocked
+`get_claims`, including a regression test that it's called exactly once
+per request (not twice).
+
+Ponytail/PS-check: this touches auth (`app/utils/helpers.py`), not any
+of the ingestion/gate/temporal/precedent paths PS-1..18 cover, but
+still security-relevant — kept the fix to the minimum needed (no new
+dependency, `get_claims` already available in the pinned package;
+`check_daily_quota`/chat-history logic explicitly untouched).
 
 ## Status
-**IDLE.** AGENT-36, AGENT-37, AGENT-38, AGENT-39 all merged to `dev`.
-Next action is Prakash's own: use `scripts/dev_console.html` (live
-stage-by-stage progress via `/ask/stream`) to pose real questions —
-across all four query forms now that AGENT-39 improved hybrid/English/
-Roman handling — against a locally running backend, then run the
-AGENT-36 labeling CLI (`--fetch`/`--list`/`--show`/`--label`/`--report`)
-on the resulting traces to start closing roadmap item 4.
+**DISPATCHED, awaiting Pi.** AGENT-36, AGENT-37, AGENT-38, AGENT-39 all
+merged to `dev`. This is now the blocking item — Prakash cannot
+successfully complete a real authenticated `/ask` call (via the console
+or otherwise) until AGENT-40 lands, which also blocks starting real
+Langfuse-traffic generation for roadmap item 4's labeling work. Roadmap
+items 5-6 remain queued behind item 4's full closure regardless — see
+"No real traffic yet" entry below.
 
 ## AGENT-39 — dual-query normalization for English/Roman/hybrid legal queries (closed, merged 2026-09-05)
 
