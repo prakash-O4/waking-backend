@@ -1,13 +1,23 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-38 — /ask/stream, live phase visibility for the dev console**
-(side task, not on the 6-item roadmap; follow-on to AGENT-37). Branch
-`agent/ask-stream`, `task.md` committed. Assigned to **Pi** (correctness/
-safety-sensitive backend work — see rationale below). Awaiting Prakash
-to dispatch.
+None open. AGENT-38 closed (below). Roadmap items 5-6 remain queued
+behind item 4's full closure (labeling + measured decision, not just
+tooling) — see "No real traffic yet" entry below.
 
-Prakash used the AGENT-37 console and wanted more than a final blob —
+## Status
+**IDLE.** AGENT-36, AGENT-37, AGENT-38 all merged to `dev`. Next action
+is Prakash's own: use `scripts/dev_console.html` (now with live
+stage-by-stage progress via `/ask/stream`) to pose real questions
+against a locally running backend, then run the AGENT-36 labeling CLI
+(`--fetch`/`--list`/`--show`/`--label`/`--report`) on the resulting
+traces to start closing roadmap item 4.
+
+## AGENT-38 — /ask/stream, live phase visibility (closed, merged 2026-09-05)
+
+Side task, not on the 6-item roadmap; follow-on to AGENT-37, requested
+after Prakash actually used the console and wanted more than a final
+blob —
 which pipeline stage is running, live, while a question is being
 answered. Grounding: the pipeline is a LangGraph `StateGraph`
 (`query_graph.py:491-518`) with named nodes ending in `answer_composer`
@@ -40,16 +50,35 @@ beats splitting into two branches for a change this size.
 
 Ponytail: no new dependency (`StreamingResponse` already available via
 `fastapi.responses`, LangGraph `.stream()` already available). `/ask`
-itself must have zero observable behavior change — existing
-`tests/test_ask_pipeline.py` must keep passing unmodified as the
-regression check on the auth/quota-extraction refactor.
+itself has zero observable behavior change — existing
+`tests/test_ask_pipeline.py` passed unmodified, confirming the
+auth/quota-extraction refactor changed nothing observable.
 
-## Status
-**DISPATCHED, awaiting Pi.** AGENT-36 and AGENT-37 both merged to `dev`.
-Roadmap items 5-6 remain queued behind item 4's full closure (labeling +
-measured decision, not just tooling) — see "No real traffic yet" entry
-below. Once AGENT-38 lands, `scripts/dev_console.html` is the way
-Prakash generates real Langfuse traffic for that labeling work.
+Delivered (commit `7e47500`): `query_graph.py` gained `stream_query()`
+plus two small extracted helpers (`_start_trace`, `_initial_state`) also
+reused by the untouched `run_query()`; `gated_orchestrator.py` gained a
+one-line `stream_answer()` wrapper mirroring the existing `answer()`;
+`app/main.py` gained `POST /ask/stream` and an extracted `_authorize()`
+helper. Claude independently re-read the full diff line-by-line (not
+just the engineer's report) and confirmed the safety rule holds exactly:
+for every node except `answer_composer`, only the dict *key* (`for stage
+in step`) is ever read — the code never indexes into a non-final node's
+state delta. Only `answer_composer`'s `_response` field is forwarded.
+Pi's test suite includes a dedicated leak test
+(`test_stream_query_does_not_leak_non_final_delta`) that plants a fake
+`all_hits` (raw law text) key on a non-final node and asserts it never
+appears in the yielded event — plus a second check that a `"secret"` key
+placed alongside `_response` in the `answer_composer` delta also never
+leaks, confirming only that one field, not the whole delta, is
+forwarded. `make test` 281 passed/4 skipped, `make lint` clean,
+`query_graph.py` (outside the Makefile's fixed lint list) separately
+re-checked clean by Claude with ruff/mypy --strict. Merged `--no-ff`,
+branch `agent/ask-stream` deleted post-merge.
+
+Manual browser verification (does the console actually render stage
+lines live, end to end against a real backend) was not performed by
+Claude or Pi — worth Prakash's own pass, though nothing in the code
+inspection suggested an issue.
 
 ## AGENT-37 — minimal dev console for /ask (closed, merged 2026-09-05)
 
