@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>/ask dev console</title>
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  label { display: block; margin-top: 1rem; font-weight: bold; }
+  input[type=text], input[type=url], textarea {
+    width: 100%; box-sizing: border-box; font-family: inherit; padding: .4rem;
+  }
+  textarea { height: 6em; }
+  button { margin-top: 1rem; padding: .5rem 1rem; }
+  #log { margin-top: 2rem; }
+  .entry { border: 1px solid #ccc; border-radius: 4px; margin-bottom: 1rem; padding: .5rem; }
+  .entry.error { border-color: #c00; }
+  .entry .meta { color: #555; font-size: .85rem; }
+  .entry .status-error { color: #c00; font-weight: bold; }
+  pre {
+    background: #f4f4f4; padding: .5rem; overflow-x: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+</style>
+</head>
+<body>
+<h1>/ask dev console</h1>
+
+<label for="baseUrl">API base URL</label>
+<input id="baseUrl" type="text" value="http://localhost:8000">
+
+<label for="token">Authorization token (raw JWT, no "Bearer " prefix)</label>
+<input id="token" type="text" autocomplete="off">
+
+<label for="question">Question</label>
+<textarea id="question"></textarea>
+
+<label for="asOf">as_of (YYYY-MM-DD, blank = omit)</label>
+<input id="asOf" type="date">
+
+<div>
+  <button id="submit">Submit</button>
+  <button id="clear">Clear console</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+const LS_BASE = "devConsole.baseUrl";
+const LS_TOKEN = "devConsole.token";
+
+const baseUrlEl = document.getElementById("baseUrl");
+const tokenEl = document.getElementById("token");
+const questionEl = document.getElementById("question");
+const asOfEl = document.getElementById("asOf");
+const logEl = document.getElementById("log");
+
+baseUrlEl.value = localStorage.getItem(LS_BASE) || "http://localhost:8000";
+tokenEl.value = localStorage.getItem(LS_TOKEN) || "";
+
+baseUrlEl.addEventListener("change", () => localStorage.setItem(LS_BASE, baseUrlEl.value));
+tokenEl.addEventListener("change", () => localStorage.setItem(LS_TOKEN, tokenEl.value));
+
+function esc(s) {
+  return s.replace(/[&<>]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c]));
+}
+
+function addEntry(html, isError) {
+  const entry = document.createElement("div");
+  entry.className = "entry" + (isError ? " error" : "");
+  const ts = new Date().toLocaleTimeString();
+  entry.innerHTML = '<div class="meta">[' + ts + "]</div>" + html;
+  logEl.appendChild(entry);
+}
+
+async function submit() {
+  const base = baseUrlEl.value.replace(/\/+$/, "");
+  const token = tokenEl.value.trim();
+  const asOf = asOfEl.value;
+  const payload = {question: questionEl.value};
+  if (asOf) payload.as_of = asOf;
+
+  const url = base + "/ask";
+  let html = "<div><b>POST " + esc(url) + "</b></div>"
+    + "<pre>" + esc(JSON.stringify(payload, null, 2)) + "</pre>";
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    addEntry(html + '<div class="status-error">NETWORK ERROR: ' + esc(String(err)) + "</div>", true);
+    return;
+  }
+
+  let bodyText = await res.text();
+  let bodyPretty = bodyText;
+  try { bodyPretty = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (_) {}
+
+  const statusHtml = res.ok
+    ? "<div>HTTP " + res.status + "</div>"
+    : '<div class="status-error">HTTP ' + res.status + " (error)</div>";
+  addEntry(html + statusHtml + "<pre>" + esc(bodyPretty) + "</pre>", !res.ok);
+}
+
+document.getElementById("submit").addEventListener("click", submit);
+document.getElementById("clear").addEventListener("click", () => { logEl.innerHTML = ""; });
+</script>
+</body>
+</html>
