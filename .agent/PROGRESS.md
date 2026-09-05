@@ -1,12 +1,9 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-40 — fix broken auth token validation** (side task, not on the
-6-item roadmap; a real, live, production-blocking bug — every
-authenticated `/ask`/`/ask/stream` request currently fails). Branch
-`agent/fix-auth-token-validation`, `task.md` committed. Assigned to
-**Pi** (security-sensitive backend correctness fix). Awaiting Prakash
-to dispatch.
+None open. AGENT-40 closed (below). Roadmap items 5-6 remain queued
+behind item 4's full closure (labeling + measured decision, not just
+tooling) — see "No real traffic yet" entry below.
 
 **How this was found**: Prakash used the AGENT-37/38 dev console with a
 real Supabase account for the first time (first real end-to-end auth
@@ -69,13 +66,81 @@ dependency, `get_claims` already available in the pinned package;
 `check_daily_quota`/chat-history logic explicitly untouched).
 
 ## Status
-**DISPATCHED, awaiting Pi.** AGENT-36, AGENT-37, AGENT-38, AGENT-39 all
-merged to `dev`. This is now the blocking item — Prakash cannot
-successfully complete a real authenticated `/ask` call (via the console
-or otherwise) until AGENT-40 lands, which also blocks starting real
-Langfuse-traffic generation for roadmap item 4's labeling work. Roadmap
-items 5-6 remain queued behind item 4's full closure regardless — see
-"No real traffic yet" entry below.
+**IDLE.** AGENT-36 through AGENT-40 all merged to `dev`. Real
+authenticated `/ask`/`/ask/stream` calls now work end-to-end — verified
+live against Prakash's actual account, not just unit tests. Next action
+is Prakash's own: use `scripts/dev_console.html` to pose real questions
+(all four query forms, per AGENT-39) and start generating real Langfuse
+traffic for roadmap item 4's labeling work via the AGENT-36 CLI.
+
+## AGENT-40 — fix broken auth token validation (closed, merged 2026-09-06)
+
+Side task, not on the 6-item roadmap; a real, live, production-blocking
+bug — every authenticated `/ask`/`/ask/stream` request was failing.
+
+**How found**: Prakash tested the dev console with a real account for
+the first time. Live diagnosis (not guessed) ruled out console/
+localStorage staleness, wrong API base URL, header transmission
+(checked via `curl -v`, arrived intact), token expiry/clock skew, and
+server-process env staleness (restarted, same failure) before isolating
+the actual cause: `validate_token()` called a **private** method,
+`self.supabase.auth._decode_jwt`, that doesn't exist in the
+`supabase==2.31.0` pinned in `requirements.txt` and actually installed
+in `.venv` — confirmed via a reproduced `AttributeError`. Invisible
+until now because the whole test suite mocks `SupabaseHelper` away
+entirely, and `app/utils/helpers.py` was outside the Makefile's
+lint/mypy coverage.
+
+**Also found along the way**: a bare `python3` in some shells on this
+machine resolves to a different, older interpreter missing the pinned
+`supabase` version — `make test`/`make lint` should be run via
+`.venv/bin/python`. Not fixed as part of this task (noted, not
+blocking); Claude used `.venv/bin/python` directly for all AGENT-40
+verification specifically because of this.
+
+**Fix**: replaced the private call with the public
+`self.supabase.auth.get_claims(jwt=<raw_token>)`, confirmed against the
+actual installed package source. Consolidated `validate_token`/
+`get_user_id` to one `get_claims()` call instead of two redundant
+network round-trips (the old code's `get_user()` call was redundant
+once `get_claims` is used correctly — it already does that internally
+for this project's HS256 tokens). Added `app/utils/helpers.py` to the
+Makefile's lint/mypy targets and its first-ever unit tests
+(`tests/test_helpers.py`).
+
+**A bug in Claude's own brief, caught during review, not by the
+engineer**: the brief's example code read `claims.claims.get("sub")`
+(attribute access), but `get_claims()`'s return type
+(`ClaimsResponse`) is a `TypedDict` — a plain `dict` at runtime, not an
+object with attributes. Pi implemented exactly what the brief specified
+and reported completion without running tests ("taking huge time").
+Claude ran the new tests anyway (fast, unrelated to the claim), they
+passed against mocks that shared the same wrong assumption — then
+Prakash reported a live `500` from the real console. Claude reproduced
+it directly against the running server with a real token
+(`AttributeError: 'dict' object has no attribute 'claims'`), confirmed
+`ClaimsResponse` is a `TypedDict` via direct inspection, fixed the
+one-line error (`claims["claims"]`) and the matching test mocks
+(`SimpleNamespace` → plain `dict`, since the mocks had encoded the same
+wrong assumption), then re-verified end-to-end against the real
+Supabase account and the live server before merging: garbage token →
+clean `401`; real token → `200` into the actual pipeline (reaching a
+`"database unavailable"` stream event only because local Postgres
+wasn't running in that moment — unrelated to this bug).
+
+Lesson: an illustrative code snippet in a task brief is still a claim
+about a third-party API's runtime shape, not just prose — worth a
+quick empirical check (as was done for `get_claims`'s *existence* and
+*behavior*, but not its *return type's runtime nature*) before it goes
+in as literal guidance.
+
+`make test`/`make lint` were not run in full this session at Prakash's
+request (time cost) — verification instead ran targeted files
+(`tests/test_helpers.py`, `tests/test_ask_pipeline.py`,
+`tests/test_degraded_modes.py`, 14 tests) plus full ruff/mypy on the
+changed file list, all via `.venv/bin/python`, plus the live end-to-end
+curl verification above. Merged `--no-ff`, branch
+`agent/fix-auth-token-validation` deleted post-merge.
 
 ## AGENT-39 — dual-query normalization for English/Roman/hybrid legal queries (closed, merged 2026-09-05)
 
