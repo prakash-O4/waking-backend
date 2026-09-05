@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>/ask dev console</title>
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  label { display: block; margin-top: 1rem; font-weight: bold; }
+  input[type=text], input[type=url], input[type=email], input[type=password], textarea {
+    width: 100%; box-sizing: border-box; font-family: inherit; padding: .4rem;
+  }
+  textarea { height: 6em; }
+  button { margin-top: 1rem; padding: .5rem 1rem; }
+  #log { margin-top: 2rem; }
+  .entry { border: 1px solid #ccc; border-radius: 4px; margin-bottom: 1rem; padding: .5rem; }
+  .entry.error { border-color: #c00; }
+  .entry .meta { color: #555; font-size: .85rem; }
+  .entry .status-error { color: #c00; font-weight: bold; }
+  pre {
+    background: #f4f4f4; padding: .5rem; overflow-x: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+</style>
+</head>
+<body>
+<h1>/ask dev console</h1>
+
+<label for="baseUrl">API base URL</label>
+<input id="baseUrl" type="text" value="http://localhost:8000">
+
+<label for="email">Email</label>
+<input id="email" type="email" autocomplete="username">
+
+<label for="password">Password (never persisted — type it each session)</label>
+<input id="password" type="password" autocomplete="current-password">
+
+<div>
+  <button id="login">Login</button>
+</div>
+
+<label for="question">Question</label>
+<textarea id="question"></textarea>
+
+<label for="asOf">as_of (YYYY-MM-DD, blank = omit)</label>
+<input id="asOf" type="date">
+
+<div>
+  <button id="submit">Submit</button>
+  <button id="clear">Clear console</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+// Supabase anon (public) key — safe for client-side use by design.
+const SUPABASE_URL = "https://bwbrumfbjljuoggbqfjq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3YnJ1bWZiamxqdW9nZ2JxZmpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTkyMjQwNTUsImV4cCI6MjAzNDgwMDA1NX0.cEpbXyKLsI9zOwOIqeGjDbL_Q4CSrrNDNhF_So0-Zx0";
+
+const LS_BASE = "devConsole.baseUrl";
+const LS_EMAIL = "devConsole.email";
+const LS_TOKEN = "devConsole.token"; // session access_token only; password is never persisted
+
+const baseUrlEl = document.getElementById("baseUrl");
+const emailEl = document.getElementById("email");
+const passwordEl = document.getElementById("password");
+const questionEl = document.getElementById("question");
+const asOfEl = document.getElementById("asOf");
+const logEl = document.getElementById("log");
+
+baseUrlEl.value = localStorage.getItem(LS_BASE) || "http://localhost:8000";
+emailEl.value = localStorage.getItem(LS_EMAIL) || "";
+
+baseUrlEl.addEventListener("change", () => localStorage.setItem(LS_BASE, baseUrlEl.value));
+emailEl.addEventListener("change", () => localStorage.setItem(LS_EMAIL, emailEl.value));
+
+function esc(s) {
+  return s.replace(/[&<>]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c]));
+}
+
+function addEntry(html, isError) {
+  const entry = document.createElement("div");
+  entry.className = "entry" + (isError ? " error" : "");
+  const ts = new Date().toLocaleTimeString();
+  entry.innerHTML = '<div class="meta">[' + ts + "]</div>" + html;
+  logEl.appendChild(entry);
+}
+
+function addHttpEntry(requestHtml, res, bodyText) {
+  let bodyPretty = bodyText;
+  try { bodyPretty = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (_) {}
+  const statusHtml = res.ok
+    ? "<div>HTTP " + res.status + "</div>"
+    : '<div class="status-error">HTTP ' + res.status + " (error)</div>";
+  addEntry(requestHtml + statusHtml + "<pre>" + esc(bodyPretty) + "</pre>", !res.ok);
+}
+
+async function login() {
+  const url = SUPABASE_URL + "/auth/v1/token?grant_type=password";
+  const body = JSON.stringify({email: emailEl.value, password: passwordEl.value});
+  const reqHtml = "<div><b>POST " + esc(url) + "</b></div>"
+    + "<pre>" + esc(JSON.stringify({email: emailEl.value, password: "***"}, null, 2)) + "</pre>";
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY},
+      body: body,
+    });
+  } catch (err) {
+    addEntry(reqHtml + '<div class="status-error">NETWORK ERROR: ' + esc(String(err)) + "</div>", true);
+    return;
+  }
+
+  const bodyText = await res.text();
+  if (res.ok) {
+    let accessToken = null;
+    try { accessToken = JSON.parse(bodyText).access_token; } catch (_) {}
+    if (accessToken) {
+      localStorage.setItem(LS_TOKEN, accessToken);
+      // Never print the token into the log.
+      addEntry(reqHtml + "<div>HTTP " + res.status + "</div><div>Login OK</div>", false);
+      return;
+    }
+  }
+  addHttpEntry(reqHtml, res, bodyText);
+}
+
+async function submit() {
+  const base = baseUrlEl.value.replace(/\/+$/, "");
+  const asOf = asOfEl.value;
+  const payload = {question: questionEl.value};
+  if (asOf) payload.as_of = asOf;
+
+  const url = base + "/ask";
+  const reqHtml = "<div><b>POST " + esc(url) + "</b></div>"
+    + "<pre>" + esc(JSON.stringify(payload, null, 2)) + "</pre>";
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + (localStorage.getItem(LS_TOKEN) || ""),
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    addEntry(reqHtml + '<div class="status-error">NETWORK ERROR: ' + esc(String(err)) + "</div>", true);
+    return;
+  }
+
+  addHttpEntry(reqHtml, res, await res.text());
+}
+
+document.getElementById("login").addEventListener("click", login);
+document.getElementById("submit").addEventListener("click", submit);
+document.getElementById("clear").addEventListener("click", () => { logEl.innerHTML = ""; });
+</script>
+</body>
+</html>

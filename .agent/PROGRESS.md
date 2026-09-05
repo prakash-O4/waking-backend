@@ -1,13 +1,38 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None dispatched. AGENT-36 (claim-support gap measurement tooling) is
-**MERGED**. Roadmap item 4's tooling half is done; the measurement itself
-now needs Prakash's own labeling before a verifier decision can be made.
+**AGENT-37 — minimal dev console for /ask** (side task, not on the
+6-item roadmap; supports roadmap item 4 by giving Prakash an easy way to
+pose real test questions instead of curl). Branch `agent/dev-console`.
+Assigned to **Kimi** (UI/frontend work, per engineer-selection rubric).
+
+First pass (commit `50ece58`, `task.md` brief `a63fb23`): single static
+`scripts/dev_console.html`, manual paste-your-own-JWT field. Reviewed by
+Claude — matches spec exactly, `make test` 277 passed/4 skipped, `make
+lint` clean, zero backend files touched, correct authorship. Merge-ready
+but held pending the amendment below (same file, avoid a churny two-step
+merge).
+
+Amendment dispatched (2026-09-05): Prakash asked to remove the manual
+token-paste "facade" and make login real. Grounding done before
+re-dispatch: decoded `SUPABASE_KEY`'s JWT `role` claim (via a local
+one-liner Prakash ran himself — the actual key value was never shared
+with Claude) and confirmed it is `anon`, not `service_role`. The anon key
+is designed to be public/client-embeddable, so hardcoding
+`SUPABASE_URL`/`SUPABASE_ANON_KEY` into the committed HTML and adding a
+real email/password login against Supabase's own
+`/auth/v1/token?grant_type=password` endpoint is safe — this is a
+deliberate, justified exception to the file's normal "never hardcode a
+real value" rule, scoped to the anon key only. `SUPABASE_JWT_SECRET`/any
+service-role key must never appear in this file. Password is explicitly
+required NOT to persist to `localStorage` (only email + the resulting
+session token persist, same trust level as the token already had).
+Full spec appended to `task.md` under "Amendment (2026-09-05)".
 
 ## Status
-**IDLE, AGENT-36 merged to `dev`.** Roadmap items 5-6 remain queued behind
-item 4's full closure (labeling + measured decision, not just tooling).
+**DISPATCHED (amendment), awaiting Kimi.** AGENT-36 merged to `dev`.
+Roadmap items 5-6 remain queued behind item 4's full closure (labeling +
+measured decision, not just tooling).
 
 ## Environment finding (2026-09-04): DB/code drift, now fixed
 
@@ -128,6 +153,47 @@ behind it.
   them (or ignore them; `--list --status pending` will just keep showing
   them until skipped) — not cleaned up automatically here since that file
   is his own labeling data, not something to edit without being asked.
+
+- **AGENT-37 scoping (2026-09-04)**: Prakash asked for a minimal
+  dev-oriented frontend to test `/ask` instead of curl/terminal, with a
+  full raw-response console for debugging. Grounded before writing
+  `task.md`: `/ask` (`app/main.py`) already returns a rich debug payload
+  (`query_type`, `abstained`, `results[]` with per-claim
+  `citation`/`abstained`, `degraded_mode[]`, interrupt state) — no
+  backend change needed to get a useful console. CORS is already
+  `allow_origins=["*"]`, so a fully static page can call it directly
+  from any origin — also no backend change needed for that.
+  Found a real fork before locking the design: `/ask` requires a valid
+  Supabase JWT (`SupabaseHelper.get_user_id`/`check_daily_quota`,
+  `app/utils/helpers.py`) — no way around it without touching auth/quota
+  code. Put it to Prakash directly (AskUserQuestion) rather than
+  assuming: paste-your-own-token field vs. a dev-only auth bypass vs. "I
+  don't have a token." **Decided: paste-your-own-token field**,
+  `localStorage`-only, zero backend changes — explicitly rejected adding
+  any auth-bypass/dev-only endpoint as bigger and riskier than this task
+  needs.
+  Ran Ponytail: one new file (`scripts/dev_console.html` — reuses the
+  existing `scripts/` convention for human-invoked, never-served dev
+  tooling rather than inventing a new top-level directory), no new
+  dependency, no framework/build step, zero backend files touched.
+  PS-check: touches no gate/temporal/ingestion/precedent path — pure
+  static client hitting an already-existing, unmodified, already-
+  reviewed endpoint.
+  Explicitly forbidden in `task.md`: any backend file change, any auth
+  bypass, any JS framework/bundler/dependency, replicating `--show`'s
+  pre-gate debug view (hits/pre-validation claims aren't exposed by
+  `/ask` — would need a new endpoint, separate bigger ask, out of scope).
+  Noted this doubles as the practical way to generate real test traffic
+  for roadmap item 4, now that Langfuse only has placeholder `"q"`
+  traces — posing real questions through this console still hits `/ask`
+  normally, so they land in Langfuse and become fetchable via AGENT-36's
+  tool afterward.
+  Branch `agent/dev-console` created off `dev` (clean tree verified
+  first, up to date with `origin/dev`). `task.md` committed there
+  (`a63fb23`, author `Prakash Basnet`). Assigned to Kimi (UI/frontend
+  work, per this skill's own engineer-selection rubric — Pi is for
+  precise backend/domain work, Kimi is for UI/full-stack). Awaiting
+  Prakash to dispatch.
 
 - **AGENT-36 review (2026-09-04, MERGED)**: Pi's work (`8f9d291`, correct
   author) matched `task.md` precisely. Verified directly rather than
