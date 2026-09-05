@@ -79,8 +79,12 @@ def _is_devanagari(text: str) -> bool:
     return count / max(len(text), 1) > 0.5
 
 
+def _needs_nepali_variant(query: str) -> bool:
+    return any("a" <= c.lower() <= "z" for c in query)
+
+
 def translate_query(query: str) -> str | None:
-    if _is_devanagari(query):
+    if not _needs_nepali_variant(query):
         return None
     s = get_settings()
     if not s.GEMINI_API_KEY:
@@ -157,9 +161,13 @@ def _parse_subsection_reference(query: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _parse_schedule_numbers(query: str) -> list[str]:
+    return re.findall(r"अनुसूची\s*(\d+)", query)
+
+
 def _parse_schedule_reference(query: str) -> str | None:
-    match = re.search(r"अनुसूची\s*(\d+)", query)
-    return match.group(1) if match else None
+    nums = _parse_schedule_numbers(query)
+    return nums[0] if nums else None
 
 
 def _resolve_act_titles(conn: connection, query: str) -> list[str]:
@@ -217,19 +225,35 @@ def retrieve_postgres(
 ) -> list[dict[str, Any]]:
     title_query = unicodedata.normalize("NFC", query)
     query = _preprocess(query)
-    section_range = _parse_section_range(query)
-    section_nums = (
-        []
-        if section_range or _SECTION_RANGE_RE.search(query)
-        else _parse_section_numbers(query)
+    translated_raw = translate_query(query)
+    title_query_ne = (
+        unicodedata.normalize("NFC", translated_raw) if translated_raw else None
     )
+    query_ne = _preprocess(translated_raw) if translated_raw else None
+    query_variants = [query]
+    if query_ne and query_ne != query:
+        query_variants.append(query_ne)
+
+    section_range = next(
+        (match for v in query_variants if (match := _parse_section_range(v))), None
+    )
+    section_nums: list[str] = []
+    if section_range or any(_SECTION_RANGE_RE.search(v) for v in query_variants):
+        section_nums = []
+    else:
+        for v in query_variants:
+            for num in _parse_section_numbers(v):
+                if num not in section_nums:
+                    section_nums.append(num)
+        section_nums = section_nums[:_MAX_SECTION_NUMBERS]
     section_num = section_nums[0] if len(section_nums) == 1 else None
-    schedule_num = _parse_schedule_reference(query)
-    proviso_ref = _parse_proviso_reference(query)
+    schedule_nums: list[str] = []
+    for v in query_variants:
+        for num in _parse_schedule_numbers(v):
+            if num not in schedule_nums:
+                schedule_nums.append(num)
+    proviso_ref = any(_parse_proviso_reference(v) for v in query_variants)
     act_work_ids: list[str] = []
-    query_ne = translate_query(query)
-    if query_ne is not None:
-        query_ne = _preprocess(query_ne)
     retrieval_span = None
     if lf_trace is not None:
         try:
@@ -261,9 +285,16 @@ def retrieve_postgres(
                 pass
         return []
 
-    act_work_ids = _resolve_act_titles(conn, title_query)
+    title_variants = [title_query]
+    if title_query_ne:
+        title_variants.append(title_query_ne)
+    for title_variant in title_variants:
+        for work_id in _resolve_act_titles(conn, title_variant):
+            if work_id not in act_work_ids:
+                act_work_ids.append(work_id)
+    act_work_ids = act_work_ids[:5]
     qvec = _embed_query(query)
-    qvec_ne = _embed_query(query_ne) if query_ne else None
+    qvec_ne = _embed_query(query_ne) if query_ne and query_ne != query else None
     limit = k * 3
     with conn.cursor() as cur:
 
@@ -328,9 +359,14 @@ def retrieve_postgres(
                 params["nums"] = section_nums
             if proviso_ref and (section_range is not None or section_nums):
                 filters.append("c.level = 'proviso'")
-            if schedule_num is not None:
-                filters.append("strpos(c.chunk_text, 'अनुसूची ' || %(schedule_num)s) > 0")
-                params["schedule_num"] = schedule_num
+            if schedule_nums:
+                filters.append(
+                    "EXISTS ("
+                    "SELECT 1 FROM unnest(%(schedule_nums)s) AS sn "
+                    "WHERE strpos(c.chunk_text, 'अनुसूची ' || sn) > 0"
+                    ")"
+                )
+                params["schedule_nums"] = schedule_nums
             cur.execute(
                 f"""
                 SELECT c.id::text, c.chunk_text, c.span_sha256, c.act_name, c.case_id,
@@ -363,7 +399,7 @@ def retrieve_postgres(
         t0 = time.monotonic()
         if lexical_ran:
             lexical_rows = lexical_search(query)
-        if query_ne is not None:
+        if query_ne is not None and query_ne != query:
             lexical_rows_ne = lexical_search(query_ne)
         _end_span(
             retrieval_span,
@@ -373,7 +409,7 @@ def retrieve_postgres(
             latency_ms=int((time.monotonic() - t0) * 1000),
         )
 
-        exact_ran = bool(section_range or section_nums or schedule_num or act_work_ids)
+        exact_ran = bool(section_range or section_nums or schedule_nums or act_work_ids)
         exact_rows: list[tuple[Any, ...]] = []
         t0 = time.monotonic()
         if exact_ran:
@@ -402,7 +438,7 @@ def retrieve_postgres(
     ranked_lists = [[str(r[0]) for r in vector_rows], [str(r[0]) for r in lexical_rows]]
     if qvec_ne is not None:
         ranked_lists.append([str(r[0]) for r in vector_rows_ne])
-    if query_ne is not None:
+    if query_ne is not None and query_ne != query:
         ranked_lists.append([str(r[0]) for r in lexical_rows_ne])
     if exact_ran:
         ranked_lists.append([str(r[0]) for r in exact_rows])
