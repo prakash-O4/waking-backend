@@ -47,7 +47,7 @@ def get_lf_client() -> Any | None:
     global _lf_client
     if _lf_client is None:
         try:
-            from langfuse import Langfuse  # type: ignore[import-not-found]
+            from langfuse import Langfuse
         except ImportError:
             return None
         s = get_settings()

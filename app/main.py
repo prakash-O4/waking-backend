@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import date
-from typing import Any, Iterator, Optional, cast
+from typing import Any, Iterator, Optional
 
 import psycopg2
 
@@ -53,7 +53,7 @@ def _authorize(authorization: Optional[str]) -> str:
             status_code=404,
             detail={"message": "Daily quota reached."},
         )
-    return cast(str, user_id)
+    return user_id
 
 
 @app.post("/ask")
