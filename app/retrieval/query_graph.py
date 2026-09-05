@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib as _hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -521,26 +521,37 @@ def build_graph() -> Any:
 _graph = build_graph()
 
 
-def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
+def _start_trace(question: str, session_as_of: date) -> Any:
     _lf = _get_lf_client()
-    lf_trace = None
+    if _lf is None:
+        return None
+    try:
+        s = _orch.get_settings()
+        trace_input = (
+            question
+            if s.LANGFUSE_LOG_CONTENT
+            else _hashlib.sha256(question.encode()).hexdigest()[:16]
+        )
+        return _lf.trace(
+            name="rag.query",
+            input=trace_input,
+            metadata={"as_of": session_as_of.isoformat()},
+        )
+    except Exception:
+        return None
+
+
+def _flush_langfuse() -> None:
+    _lf = _get_lf_client()
     if _lf is not None:
         try:
-            s = _orch.get_settings()
-            trace_input = (
-                question
-                if s.LANGFUSE_LOG_CONTENT
-                else _hashlib.sha256(question.encode()).hexdigest()[:16]
-            )
-            lf_trace = _lf.trace(
-                name="rag.query",
-                input=trace_input,
-                metadata={"as_of": session_as_of.isoformat()},
-            )
+            _lf.flush()
         except Exception:
             pass
 
-    initial: QueryState = {
+
+def _initial_state(question: str, session_as_of: date) -> QueryState:
+    return {
         "raw_query": question,
         "session_as_of": session_as_of,
         "subqueries": [],
@@ -556,18 +567,55 @@ def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
         "_pending_results": [],
         "_response": {},
     }
+
+
+def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
+    lf_trace = _start_trace(question, session_as_of)
     result = _graph.invoke(
-        initial,
+        _initial_state(question, session_as_of),
         config={
             "configurable": {"conn": conn, "lf_trace": lf_trace},
             "recursion_limit": 10,
         },
     )
 
-    if _lf is not None:
-        try:
-            _lf.flush()
-        except Exception:
-            pass
+    _flush_langfuse()
 
     return cast(dict[str, Any], result["_response"])
+
+
+def stream_query(
+    question: str, session_as_of: date, conn: Any
+) -> Iterator[dict[str, Any]]:
+    lf_trace = _start_trace(question, session_as_of)
+    last = _orch.time.monotonic()
+    flushed = False
+    try:
+        for step in _graph.stream(
+            _initial_state(question, session_as_of),
+            config={
+                "configurable": {"conn": conn, "lf_trace": lf_trace},
+                "recursion_limit": 10,
+            },
+            stream_mode="updates",
+        ):
+            for stage in step:
+                if stage == "answer_composer":
+                    response = step["answer_composer"]["_response"]
+                    _flush_langfuse()
+                    flushed = True
+                    yield {"stage": "final", "status": "done", "response": response}
+                else:
+                    now = _orch.time.monotonic()
+                    yield {
+                        "stage": stage,
+                        "status": "done",
+                        "latency_ms": int((now - last) * 1000),
+                    }
+                    last = now
+        if not flushed:
+            _flush_langfuse()
+    except Exception:
+        if not flushed:
+            _flush_langfuse()
+            yield {"stage": "error", "status": "error", "detail": "query failed"}

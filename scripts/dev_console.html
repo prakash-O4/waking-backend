@@ -83,6 +83,7 @@ function addEntry(html, isError) {
   const ts = new Date().toLocaleTimeString();
   entry.innerHTML = '<div class="meta">[' + ts + "]</div>" + html;
   logEl.appendChild(entry);
+  return entry;
 }
 
 function addHttpEntry(requestHtml, res, bodyText) {
@@ -132,9 +133,18 @@ async function submit() {
   const payload = {question: questionEl.value};
   if (asOf) payload.as_of = asOf;
 
-  const url = base + "/ask";
+  const url = base + "/ask/stream";
   const reqHtml = "<div><b>POST " + esc(url) + "</b></div>"
     + "<pre>" + esc(JSON.stringify(payload, null, 2)) + "</pre>";
+  const entry = addEntry(reqHtml + '<div class="stream"></div>', false);
+  const streamEl = entry.querySelector(".stream");
+
+  function appendLine(html, isError) {
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    if (isError) entry.classList.add("error");
+    streamEl.appendChild(div);
+  }
 
   let res;
   try {
@@ -147,11 +157,46 @@ async function submit() {
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    addEntry(reqHtml + '<div class="status-error">NETWORK ERROR: ' + esc(String(err)) + "</div>", true);
+    appendLine('<span class="status-error">NETWORK ERROR: ' + esc(String(err)) + "</span>", true);
     return;
   }
 
-  addHttpEntry(reqHtml, res, await res.text());
+  if (!res.ok) {
+    let bodyText = await res.text();
+    try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (_) {}
+    appendLine('<span class="status-error">HTTP ' + res.status + " (error)</span>", true);
+    const pre = document.createElement("pre");
+    pre.textContent = bodyText;
+    streamEl.appendChild(pre);
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.split("\n").find(l => l.startsWith("data: "));
+      if (!line) continue;
+      let event;
+      try { event = JSON.parse(line.slice(6)); } catch (_) { continue; }
+      if (event.stage === "final") {
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(event.response, null, 2);
+        streamEl.appendChild(pre);
+      } else if (event.status === "error") {
+        appendLine('<span class="status-error">' + esc(event.stage) + ": " + esc(event.detail || "error") + "</span>", true);
+      } else {
+        appendLine(esc(event.stage) + ": " + esc(event.status) + " (" + Number(event.latency_ms || 0) + "ms)", false);
+      }
+    }
+  }
 }
 
 document.getElementById("login").addEventListener("click", login);

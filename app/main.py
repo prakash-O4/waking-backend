@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Iterator, Optional, cast
 
 import psycopg2
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.authority.writer import connect
-from app.retrieval.gated_orchestrator import answer as orchestrator_answer
+from app.retrieval.gated_orchestrator import (
+    answer as orchestrator_answer,
+    stream_answer,
+)
 from app.utils.helpers import SupabaseHelper
 from app.utils.loggers import logger
 
@@ -41,10 +45,7 @@ class AskRequest(BaseModel):
     as_of: Optional[date] = None
 
 
-@app.post("/ask")
-async def ask_question(
-    req: AskRequest, authorization: Optional[str] = Header(default=None)
-) -> Any:
+def _authorize(authorization: Optional[str]) -> str:
     supabase_helper = SupabaseHelper()
     user_id = supabase_helper.get_user_id(authorization)
     if supabase_helper.check_daily_quota(user_id):
@@ -52,7 +53,14 @@ async def ask_question(
             status_code=404,
             detail={"message": "Daily quota reached."},
         )
+    return cast(str, user_id)
 
+
+@app.post("/ask")
+async def ask_question(
+    req: AskRequest, authorization: Optional[str] = Header(default=None)
+) -> Any:
+    _authorize(authorization)
     as_of = req.as_of or date.today()
     try:
         with connect() as conn:
@@ -65,6 +73,34 @@ async def ask_question(
                 "retry_after": 60,
             },
         )
+
+
+@app.post("/ask/stream")
+async def ask_question_stream(
+    req: AskRequest, authorization: Optional[str] = Header(default=None)
+) -> StreamingResponse:
+    _authorize(authorization)
+    as_of = req.as_of or date.today()
+
+    def event_gen() -> Iterator[str]:
+        try:
+            with connect() as conn:
+                for event in stream_answer(req.question, as_of, conn):
+                    yield f"data: {json.dumps(event)}\n\n"
+        except psycopg2.OperationalError:
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "stage": "error",
+                        "status": "error",
+                        "detail": "database unavailable",
+                    }
+                )
+                + "\n\n"
+            )
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
 @app.get("/")
