@@ -1,12 +1,23 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-**AGENT-39 — dual-query normalization for English/Roman/hybrid legal
-queries** (side task, not on the 6-item roadmap; a retrieval-quality
-fix, raised by Prakash before he starts real console-driven testing).
-Branch `agent/dual-query-retrieval`, `task.md` committed. Assigned to
-**Pi** (precise, correctness-heavy retrieval-layer work). Awaiting
-Prakash to dispatch.
+None open. AGENT-39 closed (below). Roadmap items 5-6 remain queued
+behind item 4's full closure (labeling + measured decision, not just
+tooling) — see "No real traffic yet" entry below.
+
+## Status
+**IDLE.** AGENT-36, AGENT-37, AGENT-38, AGENT-39 all merged to `dev`.
+Next action is Prakash's own: use `scripts/dev_console.html` (live
+stage-by-stage progress via `/ask/stream`) to pose real questions —
+across all four query forms now that AGENT-39 improved hybrid/English/
+Roman handling — against a locally running backend, then run the
+AGENT-36 labeling CLI (`--fetch`/`--list`/`--show`/`--label`/`--report`)
+on the resulting traces to start closing roadmap item 4.
+
+## AGENT-39 — dual-query normalization for English/Roman/hybrid legal queries (closed, merged 2026-09-05)
+
+Side task, not on the 6-item roadmap; a retrieval-quality fix, raised by
+Prakash before he starts real console-driven testing.
 
 Prakash supplied an initial spec (translation-trigger fix + parse
 exact-lookup refs across original+translated query variants). Grounding
@@ -47,14 +58,41 @@ keeps its external signature (5 call sites across
 `gated_orchestrator.py`, eval slices, and scripts depend on it
 unchanged).
 
-## Status
-**DISPATCHED, awaiting Pi.** AGENT-36, AGENT-37, AGENT-38 all merged to
-`dev`. Roadmap items 5-6 remain queued behind item 4's full closure
-(labeling + measured decision, not just tooling) — see "No real traffic
-yet" entry below. `scripts/dev_console.html` (with live stage-by-stage
-progress via `/ask/stream`) is ready for Prakash to generate real
-Langfuse traffic for that labeling work whenever he's ready — AGENT-39
-is a retrieval-quality fix he wants landed first.
+Delivered (commit `8efb158`, merged `dev` as part of this merge): added
+`_needs_nepali_variant()` alongside the untouched `_is_devanagari()`;
+`translate_query()`'s guard swapped to the new trigger; `query_ne`
+computation moved earlier so exact-lookup parsing can see it;
+`_parse_schedule_reference` became a thin wrapper over new
+`_parse_schedule_numbers()` (mirrors the existing
+`_parse_section_reference`/`_parse_section_numbers` pattern);
+section/schedule/proviso parsing and `_resolve_act_titles()` calls now
+run across `query_variants`/`title_variants` and merge
+dedup-preserve-order; multi-schedule SQL uses the `EXISTS (SELECT 1 FROM
+unnest(...))` form. `title_query_ne` correctly gets the same NFC-only
+(non-digit-folded) treatment as `title_query`, preserving
+Nepali-numeral-year title matching. `query_ne == query` (identical
+translation) correctly skips a duplicate embed/lexical-search call, with
+a dedicated test.
+
+Claude independently re-read the full diff (not just Pi's report):
+confirmed `_is_devanagari`, `_resolve_act_titles`'s signature, and
+`retrieve_postgres()`'s external signature all untouched; confirmed
+every pre-existing exact-lookup test that exercises the `query_ne is
+None` path was left unmodified (the regression guarantee — merging
+across a single variant is a no-op); spot-checked one new test
+(`test_dual_path_uses_four_lists_when_translated`, renamed) that shows
+the fix genuinely changes behavior in a previously-passing scenario —
+exact-lookup now correctly fires from a translated-variant section
+reference that the original English query didn't contain, appending a
+5th ranked list where the old code produced exactly 4. `make test` 287
+passed/4 skipped (6 net new tests), `make lint`/mypy --strict all
+independently reproduced clean.
+
+Process note: Pi's changes were left uncommitted in the working tree
+(no commit hash in the completion report, unlike AGENT-36/37/38).
+Claude verified and committed them directly rather than re-dispatching
+for a trivial commit step. Merged `--no-ff`, branch
+`agent/dual-query-retrieval` deleted post-merge.
 
 ## AGENT-38 — /ask/stream, live phase visibility (closed, merged 2026-09-05)
 
