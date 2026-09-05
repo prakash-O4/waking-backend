@@ -1,17 +1,60 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None open. AGENT-38 closed (below). Roadmap items 5-6 remain queued
-behind item 4's full closure (labeling + measured decision, not just
-tooling) — see "No real traffic yet" entry below.
+**AGENT-39 — dual-query normalization for English/Roman/hybrid legal
+queries** (side task, not on the 6-item roadmap; a retrieval-quality
+fix, raised by Prakash before he starts real console-driven testing).
+Branch `agent/dual-query-retrieval`, `task.md` committed. Assigned to
+**Pi** (precise, correctness-heavy retrieval-layer work). Awaiting
+Prakash to dispatch.
+
+Prakash supplied an initial spec (translation-trigger fix + parse
+exact-lookup refs across original+translated query variants). Grounding
+pass against the real `app/retrieval/postgres_retriever.py` confirmed
+most of it but corrected two things before handing it to an engineer:
+
+1. The spec's own SQL suggestion for multi-schedule lookup
+   (`strpos(..., 'अनुसूची ' || ANY(...))`) is not valid Postgres — `ANY()`
+   can't be spliced into a string concatenation. Replaced with an
+   `EXISTS (SELECT 1 FROM unnest(%(schedule_nums)s) ...)` form (the
+   "boring" fallback the spec itself allowed for).
+2. The spec proposed replacing `_is_devanagari`'s role as the
+   translation-trigger check, but `_is_devanagari` itself is directly
+   called by `tests/stress/test_romanized_eligibility.py:27` — a file
+   outside this task's stated scope (`postgres_retriever.py` +
+   `tests/test_retrieval.py` only). Brief now explicitly forbids
+   touching `_is_devanagari`; the new `_needs_nepali_variant()` trigger
+   is added alongside it instead.
+
+Also flagged for the engineer: `title_query` (used for
+`_resolve_act_titles`) deliberately skips digit-folding because
+`work.title_ne` values contain Nepali-numeral years — a translated
+variant used for title-matching must get the same NFC-only treatment,
+not the digit-folded form used for section/schedule regex parsing, or
+title matching against Nepali-numeral-year Acts would silently break.
+And: `tests/stress/test_romanized_eligibility.py` imports `Conn`,
+`Cursor`, `ROW1`, `patch_common` from `tests.test_retrieval` — those
+names must stay compatible even though that stress file is out of
+scope to edit directly.
+
+Ponytail/PS-check: retrieval already does dual vector+lexical search
+today (not rebuilding that) — the actual gap is narrower, exact-lookup
+parsing (section/range/schedule/proviso/act-title) only reading the
+original query. Eligibility gate call and its `c.id::text =
+ANY(%(eligible)s)` filter on every SQL path are unchanged; new filter
+clauses must append to that list, never bypass it. `retrieve_postgres()`
+keeps its external signature (5 call sites across
+`gated_orchestrator.py`, eval slices, and scripts depend on it
+unchanged).
 
 ## Status
-**IDLE.** AGENT-36, AGENT-37, AGENT-38 all merged to `dev`. Next action
-is Prakash's own: use `scripts/dev_console.html` (now with live
-stage-by-stage progress via `/ask/stream`) to pose real questions
-against a locally running backend, then run the AGENT-36 labeling CLI
-(`--fetch`/`--list`/`--show`/`--label`/`--report`) on the resulting
-traces to start closing roadmap item 4.
+**DISPATCHED, awaiting Pi.** AGENT-36, AGENT-37, AGENT-38 all merged to
+`dev`. Roadmap items 5-6 remain queued behind item 4's full closure
+(labeling + measured decision, not just tooling) — see "No real traffic
+yet" entry below. `scripts/dev_console.html` (with live stage-by-stage
+progress via `/ask/stream`) is ready for Prakash to generate real
+Langfuse traffic for that labeling work whenever he's ready — AGENT-39
+is a retrieval-quality fix he wants landed first.
 
 ## AGENT-38 — /ask/stream, live phase visibility (closed, merged 2026-09-05)
 

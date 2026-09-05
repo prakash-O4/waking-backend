@@ -6,6 +6,8 @@ import re
 import sys
 import types
 from datetime import date
+
+import pytest
 from pathlib import Path
 from typing import Any, cast
 
@@ -174,6 +176,13 @@ def test_is_devanagari_mixed_romanized() -> None:
     assert r._is_devanagari("muluki ain ko dafa") is False
 
 
+def test_needs_nepali_variant() -> None:
+    assert r._needs_nepali_variant("दफा १") is False
+    assert r._needs_nepali_variant("what is section 1") is True
+    assert r._needs_nepali_variant("muluki ain ko dafa") is True
+    assert r._needs_nepali_variant("श्रम ऐन section 5") is True
+
+
 def test_parse_section_reference() -> None:
     assert r._parse_section_reference("दफा 94") == "94"
     assert r._parse_section_reference("धारा 51") == "51"
@@ -208,6 +217,7 @@ def test_parse_subsection_reference() -> None:
 def test_parse_schedule_reference() -> None:
     assert r._parse_schedule_reference("अनुसूची 3") == "3"
     assert r._parse_schedule_reference("ordinary query") is None
+    assert r._parse_schedule_numbers("अनुसूची 3 र अनुसूची 4") == ["3", "4"]
 
 
 def test_resolve_act_titles_longest_match_wins() -> None:
@@ -266,6 +276,36 @@ def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
     monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
     monkeypatch.setattr(r, "get_settings", lambda: Settings())
     assert r.translate_query("दफा १") is None
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["what is section 1", "muluki ain ko dafa", "श्रम ऐन section 5"],
+)
+def test_translate_query_calls_llm_for_ascii(monkeypatch: Any, query: str) -> None:
+    class Settings:
+        GEMINI_API_KEY = "key"
+
+    class Response:
+        content = "दफा १"
+
+    module = types.ModuleType("langchain_google_genai")
+    calls = []
+
+    class GoodLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: list[dict[str, str]]) -> Response:
+            calls.append(messages)
+            return Response()
+
+    setattr(module, "ChatGoogleGenerativeAI", GoodLLM)
+    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    monkeypatch.setattr(r, "get_settings", lambda: Settings())
+
+    assert r.translate_query(query) == "दफा १"
+    assert len(calls) == 1
 
 
 def test_translate_query_returns_none_on_api_failure(monkeypatch: Any) -> None:
@@ -466,7 +506,63 @@ def test_relevance_gate_returns_empty(monkeypatch: Any) -> None:
     )
 
 
-def test_dual_path_uses_four_lists_when_translated(monkeypatch: Any) -> None:
+def test_exact_lookup_uses_translated_variant(monkeypatch: Any) -> None:
+    monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: {"c3"})
+    monkeypatch.setattr(r, "translate_query", lambda query: "श्रम ऐन दफा ५")
+    embedded = []
+
+    def embed(query: str) -> list[float]:
+        embedded.append(query)
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(r, "_embed_query", embed)
+    monkeypatch.setattr(r, "rerank", lambda query, hits, k: hits[:k])
+    conn = Conn([], [], exact=[EXACT_ROW], works=[("work-1", "श्रम ऐन")])
+
+    out = r.retrieve_postgres(
+        cast(Any, conn), "Labor Act section 5", date(2024, 1, 1), k=5
+    )
+
+    assert [h["component_uri"] for h in out] == ["c3"]
+    assert embedded == ["Labor Act section 5", "श्रम ऐन दफा 5"]
+    assert any(
+        params.get("work_ids") == ["work-1"] and params.get("num") == "5"
+        for params in conn.cursor_obj.params_history
+    )
+    lexical_queries = [
+        params.get("query")
+        for params in conn.cursor_obj.params_history
+        if "query" in params
+    ]
+    assert "Labor Act section 5" in lexical_queries
+    assert "श्रम ऐन दफा 5" in lexical_queries
+
+
+def test_identical_translation_is_not_searched_twice(monkeypatch: Any) -> None:
+    monkeypatch.setattr(r, "eligible_chunk_ids", lambda conn, as_of: {"c1"})
+    monkeypatch.setattr(r, "translate_query", lambda query: query)
+    embedded: list[str] = []
+
+    def embed(query: str) -> list[float]:
+        embedded.append(query)
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(r, "_embed_query", embed)
+    monkeypatch.setattr(r, "rerank", lambda query, hits, k: hits[:k])
+    conn = Conn([ROW1], [])
+
+    r.retrieve_postgres(cast(Any, conn), "section 1", date(2024, 1, 1))
+
+    assert embedded == ["section 1"]
+    lexical_queries = [
+        params.get("query")
+        for sql, params in zip(conn.cursor_obj.sqls, conn.cursor_obj.params_history)
+        if "ts_rank_cd" in sql
+    ]
+    assert lexical_queries == ["section 1"]
+
+
+def test_dual_path_uses_both_query_variants_when_translated(monkeypatch: Any) -> None:
     patch_common(monkeypatch, {"c1", "c2"})
     monkeypatch.setattr(r, "translate_query", lambda query: "दफा १")
     captured = []
@@ -478,7 +574,7 @@ def test_dual_path_uses_four_lists_when_translated(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(r, "_rrf", rrf)
     r.retrieve_postgres(cast(Any, Conn([ROW1], [ROW2])), "section 1", date(2024, 1, 1))
-    assert len(captured) == 4
+    assert captured[:4] == [["c1"], ["c2"], ["c1"], ["c2"]]
 
 
 def test_dual_path_falls_back_to_single_when_translation_none(monkeypatch: Any) -> None:
