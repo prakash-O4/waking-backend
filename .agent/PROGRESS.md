@@ -1,16 +1,55 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None open. AGENT-37 closed (below). Roadmap items 5-6 remain queued
-behind item 4's full closure (labeling + measured decision, not just
-tooling) — see "No real traffic yet" entry below.
+**AGENT-38 — /ask/stream, live phase visibility for the dev console**
+(side task, not on the 6-item roadmap; follow-on to AGENT-37). Branch
+`agent/ask-stream`, `task.md` committed. Assigned to **Pi** (correctness/
+safety-sensitive backend work — see rationale below). Awaiting Prakash
+to dispatch.
+
+Prakash used the AGENT-37 console and wanted more than a final blob —
+which pipeline stage is running, live, while a question is being
+answered. Grounding: the pipeline is a LangGraph `StateGraph`
+(`query_graph.py:491-518`) with named nodes ending in `answer_composer`
+on every path (interrupted or not); a compiled graph's `.stream(...,
+stream_mode="updates")` yields `{node_name: state_delta}` per node as it
+finishes, natively, no new dependency.
+
+Real risk identified before scoping: Core Invariant 4 (`system-
+design.md` §2) — "no answer bypasses the validation gate" — and
+Invariant 7 (abstention is server-owned). Streaming a node's *raw
+output* (retrieved chunks, unvalidated claims/quotes) before
+`validate`/`answer_composer` runs would be a second, ungated path to
+see answer-shaped content. Prakash independently confirmed this same
+read and gave explicit safe/unsafe event-shape examples before
+approving — matches. Resolved via a hard rule baked into `task.md`: for
+every node except `answer_composer`, the code may read the state dict's
+*key* (node name) only, never its value; only `answer_composer`'s
+single `_response` field (already fully gated) may ever be forwarded.
+Mandated a specific unit test that asserts this directly (feed a fake
+non-final node a deliberately sensitive payload key, assert it never
+appears in the yielded event) so the safety property is enforced by a
+test, not just code review.
+
+Assigned to **Pi**, not Kimi, despite touching the console file too —
+the backend half (`query_graph.py`, `gated_orchestrator.py`,
+`app/main.py`) is the delicate, correctness/leak-avoidance-critical part
+and the console-side change is fully specified/mechanical (fetch +
+ReadableStream parsing), so one engineer doing both under a precise spec
+beats splitting into two branches for a change this size.
+
+Ponytail: no new dependency (`StreamingResponse` already available via
+`fastapi.responses`, LangGraph `.stream()` already available). `/ask`
+itself must have zero observable behavior change — existing
+`tests/test_ask_pipeline.py` must keep passing unmodified as the
+regression check on the auth/quota-extraction refactor.
 
 ## Status
-**IDLE.** AGENT-36 and AGENT-37 both merged to `dev`. Next action is
-Prakash's own: use `scripts/dev_console.html` to pose real questions
-against a locally running backend, then run the AGENT-36 labeling CLI
-(`--fetch`/`--list`/`--show`/`--label`/`--report`) on the resulting
-traces to start closing roadmap item 4.
+**DISPATCHED, awaiting Pi.** AGENT-36 and AGENT-37 both merged to `dev`.
+Roadmap items 5-6 remain queued behind item 4's full closure (labeling +
+measured decision, not just tooling) — see "No real traffic yet" entry
+below. Once AGENT-38 lands, `scripts/dev_console.html` is the way
+Prakash generates real Langfuse traffic for that labeling work.
 
 ## AGENT-37 — minimal dev console for /ask (closed, merged 2026-09-05)
 
