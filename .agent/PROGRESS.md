@@ -3,15 +3,36 @@
 ## Current task
 **AGENT-37 — minimal dev console for /ask** (side task, not on the
 6-item roadmap; supports roadmap item 4 by giving Prakash an easy way to
-pose real test questions instead of curl). Branch `agent/dev-console`,
-`task.md` committed (`a63fb23`, author Prakash Basnet). Assigned to
-**Kimi** (UI/frontend work, per engineer-selection rubric). Awaiting
-Prakash to dispatch.
+pose real test questions instead of curl). Branch `agent/dev-console`.
+Assigned to **Kimi** (UI/frontend work, per engineer-selection rubric).
+
+First pass (commit `50ece58`, `task.md` brief `a63fb23`): single static
+`scripts/dev_console.html`, manual paste-your-own-JWT field. Reviewed by
+Claude — matches spec exactly, `make test` 277 passed/4 skipped, `make
+lint` clean, zero backend files touched, correct authorship. Merge-ready
+but held pending the amendment below (same file, avoid a churny two-step
+merge).
+
+Amendment dispatched (2026-09-05): Prakash asked to remove the manual
+token-paste "facade" and make login real. Grounding done before
+re-dispatch: decoded `SUPABASE_KEY`'s JWT `role` claim (via a local
+one-liner Prakash ran himself — the actual key value was never shared
+with Claude) and confirmed it is `anon`, not `service_role`. The anon key
+is designed to be public/client-embeddable, so hardcoding
+`SUPABASE_URL`/`SUPABASE_ANON_KEY` into the committed HTML and adding a
+real email/password login against Supabase's own
+`/auth/v1/token?grant_type=password` endpoint is safe — this is a
+deliberate, justified exception to the file's normal "never hardcode a
+real value" rule, scoped to the anon key only. `SUPABASE_JWT_SECRET`/any
+service-role key must never appear in this file. Password is explicitly
+required NOT to persist to `localStorage` (only email + the resulting
+session token persist, same trust level as the token already had).
+Full spec appended to `task.md` under "Amendment (2026-09-05)".
 
 ## Status
-**DISPATCHED, awaiting Kimi.** AGENT-36 merged to `dev`. Roadmap items 5-6
-remain queued behind item 4's full closure (labeling + measured decision,
-not just tooling).
+**DISPATCHED (amendment), awaiting Kimi.** AGENT-36 merged to `dev`.
+Roadmap items 5-6 remain queued behind item 4's full closure (labeling +
+measured decision, not just tooling).
 
 ## Environment finding (2026-09-04): DB/code drift, now fixed
 

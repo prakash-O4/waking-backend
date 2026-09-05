@@ -135,3 +135,96 @@ Claude` trailer, no "Generated with Claude" line. Use:
 ## Branch
 
 `agent/dev-console`, off `dev`.
+
+---
+
+## Amendment (2026-09-05): replace manual token paste with real Supabase login
+
+Kimi's first pass (commit `50ece58`) is done and reviewed — matches the
+spec above exactly, `make test`/`make lint` clean, scope correct. Do not
+redo that part. This amendment replaces one piece of it: the manual
+"paste a raw JWT" field, per Prakash's follow-up request ("remove that
+token facade... make it compatible").
+
+### Grounding (already done, don't re-derive)
+
+- Confirmed with Prakash: `SUPABASE_KEY` in `.env` decodes (JWT `role`
+  claim) to `anon`, not `service_role`. The anon/public key is
+  *designed* to be embedded in client-side code — that's its entire
+  purpose, same trust level as it already has in any real frontend for
+  this project. It is safe to hardcode into the committed HTML file.
+  `SUPABASE_URL` is a public project endpoint, also safe to hardcode.
+- **Do NOT** ever use `SUPABASE_JWT_SECRET` or any service-role key in
+  this file. Those are not client-safe. This task only ever touches the
+  anon key.
+- Supabase's own login endpoint is
+  `POST {SUPABASE_URL}/auth/v1/token?grant_type=password` with header
+  `apikey: {SUPABASE_ANON_KEY}` and JSON body `{"email", "password"}`.
+  Success response contains `access_token` (this is the JWT to send as
+  `Authorization: Bearer` on `/ask`, exactly as before — `/ask` itself
+  does not change and does not care how the token was obtained).
+
+### What to change in `scripts/dev_console.html`
+
+1. Hardcode two new JS constants, `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY`, read from `.env`'s `SUPABASE_URL` /
+   `SUPABASE_KEY` values at implementation time. This is the one
+   deliberate exception to "never hardcode a real value" — justified
+   above, anon key only.
+2. **Remove** the existing "Authorization token" raw-paste input field
+   entirely — that's the facade being removed.
+3. Add **Email** and **Password** fields (`type=email`, `type=password`)
+   and a **Login** button.
+   - Persist **email** in `localStorage` (not sensitive).
+   - Do **NOT** persist password in `localStorage` under any
+     circumstance — unlike a session token, a password is a reusable
+     master credential; typing it once per browser session is an
+     acceptable tradeoff for not leaving it sitting in plaintext
+     storage indefinitely. Read it from the input field only, at the
+     moment Login is clicked.
+   - Login button calls the Supabase endpoint above. On success, store
+     the returned `access_token` as the token used for `/ask` calls
+     (this replaces the old manually-set `token` value — same
+     `localStorage` key/mechanism as before is fine, since a session
+     JWT is exactly what was already being persisted). Show a short
+     confirmation entry in the existing log pane ("Login OK" is
+     enough, do not print the token itself into the log).
+   - On failure, show the error response in the same log pane, same
+     pattern as a failed `/ask` call (clearly marked, not silent).
+4. `/ask` submit behavior is otherwise unchanged: still sends whatever
+   token is currently held, Bearer-prefixed, still appends to the same
+   log pane, still shows non-2xx and network errors the same way. If
+   there is no token yet (never logged in), let the `/ask` call go out
+   anyway and show the resulting 401 in the log pane — do not invent
+   client-side pre-validation that isn't already there.
+
+### Explicitly forbidden (same as before, plus)
+
+- No change to any backend file (`app/**`) — this is still a pure
+  client-side change to one static HTML file.
+- No token refresh/auto-relogin-on-401 logic — out of scope, adds
+  complexity nobody asked for. If the token expires, Prakash clicks
+  Login again.
+- No persisting the password, in localStorage or anywhere else.
+- No use of any Supabase key other than the anon key confirmed above.
+
+### Required checks
+
+Same as before — `make test && make lint` (trivially clean, zero
+Python files touched). Manual verification to describe in the
+completion report:
+- Log in with a real dev-account email/password against a locally
+  running backend + real Supabase project — confirm a token is
+  obtained and a subsequent `/ask` call succeeds.
+- Log in with a wrong password — confirm the error renders visibly in
+  the log pane.
+- Reload the page — confirm email and base URL persisted, password
+  field is empty, and you must click Login again before `/ask` will
+  succeed with a fresh token (or reuse a still-valid persisted token if
+  you chose to keep persisting `access_token` — either is fine as long
+  as password itself was never persisted).
+
+### Commit authorship
+
+Same rule as before: every commit authored `Prakash Basnet
+<basnetprakash090@gmail.com>`, no AI attribution.
