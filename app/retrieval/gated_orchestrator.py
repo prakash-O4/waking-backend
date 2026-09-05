@@ -4,7 +4,7 @@ import json
 import re
 import time
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 from psycopg2.extensions import connection
 
@@ -601,3 +601,11 @@ def answer(question: str, session_as_of: date, conn: connection) -> dict[str, An
     from app.retrieval.query_graph import run_query
 
     return cast(dict[str, Any], run_query(question, session_as_of, conn))
+
+
+def stream_answer(
+    question: str, session_as_of: date, conn: connection
+) -> Iterator[dict[str, Any]]:
+    from app.retrieval.query_graph import stream_query
+
+    yield from stream_query(question, session_as_of, conn)
