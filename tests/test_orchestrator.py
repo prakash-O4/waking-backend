@@ -60,6 +60,7 @@ def test_simple_query_uses_single_session_as_of(monkeypatch: Any) -> None:
             ]
         },
     )
+    monkeypatch.setattr(orchestrator, "_compose_answer", lambda *a, **kw: None)
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
 
     conn: Any = object()
@@ -113,6 +114,7 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
         validate_as_ofs.append(as_of)
         return _validating_gate(claims, as_of, conn)
 
+    monkeypatch.setattr(orchestrator, "_compose_answer", lambda *a, **kw: None)
     monkeypatch.setattr(orchestrator, "validate_and_render", validate)
 
     conn: Any = object()
@@ -124,6 +126,13 @@ def test_complex_query_validates_each_subquery_as_of(monkeypatch: Any) -> None:
 
 
 def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as query_graph
+
+    # This test freezes time.monotonic() globally (see below). A real Langfuse
+    # client's background thread relies on real elapsed time for its own
+    # queueing/backoff and hangs when fed a frozen clock, so keep tracing
+    # disabled here regardless of the real LANGFUSE_PUBLIC_KEY in the env.
+    monkeypatch.setattr(query_graph, "_get_lf_client", lambda: None)
     monkeypatch.setattr(
         orchestrator,
         "_fact_extract",
@@ -137,8 +146,7 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
         },
     )
     # Yield the wall-clock cap once, then continue returning a large value so
-    # background threads (e.g. Langfuse flush) do not exhaust the generator and
-    # hang waiting on a dead consumer thread.
+    # code using a real generator-backed clock does not raise StopIteration.
     times = chain(
         [0.0, 0.0, orchestrator.WALL_CLOCK_CAP + 0.1],
         repeat(orchestrator.WALL_CLOCK_CAP + 0.1),
@@ -168,6 +176,7 @@ def test_wall_clock_cap_returns_validated_so_far(monkeypatch: Any) -> None:
             ]
         },
     )
+    monkeypatch.setattr(orchestrator, "_compose_answer", lambda *a, **kw: None)
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
 
     conn: Any = object()
@@ -211,6 +220,7 @@ def test_graph_compiles_and_returns_expected_shape(monkeypatch: Any) -> None:
             ]
         },
     )
+    monkeypatch.setattr(orchestrator, "_compose_answer", lambda *a, **kw: None)
     monkeypatch.setattr(orchestrator, "validate_and_render", _validating_gate)
 
     conn: Any = object()
@@ -253,29 +263,37 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
     import json
 
     class FakeResp:
-        content = json.dumps(
+        content = [
             {
-                "facts": {
-                    "parties": ["landlord"],
-                    "events": ["eviction"],
-                    "dates": [],
-                    "location": None,
-                },
-                "missing_facts": [{"fact": "written agreement?", "type": "clarifying"}],
-                "issue_queries": [
+                "type": "text",
+                "text": "```json\n" + json.dumps(
                     {
-                        "query": "भाडा सम्झौता सम्बन्धी कानून",
-                        "as_of": "2024-01-01",
-                        "work_type_hint": "Act",
-                    },
-                    {
-                        "query": "घर खाली गराउने प्रक्रिया",
-                        "as_of": None,
-                        "work_type_hint": None,
-                    },
-                ],
+                        "facts": {
+                            "parties": ["landlord"],
+                            "events": ["eviction"],
+                            "dates": [],
+                            "location": None,
+                        },
+                        "missing_facts": [
+                            {"fact": "written agreement?", "type": "clarifying"}
+                        ],
+                        "issue_queries": [
+                            {
+                                "query": "भाडा सम्झौता सम्बन्धी कानून",
+                                "as_of": "2024-01-01",
+                                "work_type_hint": "Act",
+                            },
+                            {
+                                "query": "घर खाली गराउने प्रक्रिया",
+                                "as_of": None,
+                                "work_type_hint": None,
+                            },
+                        ],
+                    }
+                ) + "\n```",
+                "extras": {},
             }
-        )
+        ]
 
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
@@ -284,16 +302,19 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
         def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
-    langchain_google_genai = ModuleType("langchain_google_genai")
-    setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeLLM)
+    langchain_openai = ModuleType("langchain_openai")
+    setattr(langchain_openai, "AzureChatOpenAI", FakeLLM)
     monkeypatch.setitem(
-        __import__("sys").modules, "langchain_google_genai", langchain_google_genai
+        __import__("sys").modules, "langchain_openai", langchain_openai
     )
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
         lambda: SimpleNamespace(
-            GEMINI_API_KEY="key",
+            AZURE_OPENAI_LLM_KEY="key",
+            AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
+            AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
+            AZURE_OPENAI_API_VERSION="2023-05-15",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -310,11 +331,11 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
 
 
 def test_fact_extract_failure_returns_single_query_fallback(monkeypatch: Any) -> None:
-    """_fact_extract falls back to single raw query when Gemini is unavailable."""
+    """_fact_extract falls back to single raw query when the LLM is unavailable."""
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY="", LANGFUSE_PUBLIC_KEY=""),
+        lambda: SimpleNamespace(AZURE_OPENAI_LLM_KEY="", LANGFUSE_PUBLIC_KEY=""),
     )
 
     result = orchestrator._fact_extract("what is the notice period?", date(2024, 6, 1))
@@ -324,6 +345,40 @@ def test_fact_extract_failure_returns_single_query_fallback(monkeypatch: Any) ->
     assert len(result["issue_queries"]) == 1
     assert result["issue_queries"][0]["query"] == "what is the notice period?"
     assert result["issue_queries"][0]["as_of"] == date(2024, 6, 1)
+
+
+def test_fact_extract_logs_api_failure(monkeypatch: Any) -> None:
+    class BadLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: Any, config: Any = None) -> Any:
+            raise RuntimeError("boom")
+
+    langchain_openai = ModuleType("langchain_openai")
+    setattr(langchain_openai, "AzureChatOpenAI", BadLLM)
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_openai", langchain_openai
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AZURE_OPENAI_LLM_KEY="key",
+            AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
+            AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
+            AZURE_OPENAI_API_VERSION="2023-05-15",
+            LANGFUSE_PUBLIC_KEY="",
+        ),
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(orchestrator.logger, "warning", warnings.append)
+
+    result = orchestrator._fact_extract("what is the notice period?", date(2024, 6, 1))
+
+    assert result["issue_queries"][0]["query"] == "what is the notice period?"
+    assert warnings and "_fact_extract failed: boom" in warnings[0]
+
 
 
 def test_authority_rank_hits_sorts_by_tier() -> None:
@@ -582,29 +637,35 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
     import json as _json
 
     class FakeResp:
-        content = (
-            "```json\n"
-            + _json.dumps(
-                {
-                    "relevant_sections": [
+        content = [
+            {
+                "type": "text",
+                "text": (
+                    "```json\n"
+                    + _json.dumps(
                         {
-                            "section": "Muluki Dewani Samhita, दफा 456",
-                            "why_applicable": "governs residential tenancy notice period",
-                            "applicability": "high",
-                            "condition": "written tenancy agreement exists",
-                            "citation": {},
+                            "relevant_sections": [
+                                {
+                                    "section": "Muluki Dewani Samhita, दफा 456",
+                                    "why_applicable": "governs residential tenancy notice period",
+                                    "applicability": "high",
+                                    "condition": "written tenancy agreement exists",
+                                    "citation": {},
+                                }
+                            ],
+                            "missing_facts": ["Is there a written tenancy agreement?"],
+                            "conflicts": [],
+                            "plain_language": "घर बहालमा लिनेलाई ३५ दिनको सूचना दिनुपर्छ।",
+                            "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",
+                            "as_of": "2024-01-01",
+                            "abstained": False,
                         }
-                    ],
-                    "missing_facts": ["Is there a written tenancy agreement?"],
-                    "conflicts": [],
-                    "plain_language": "घर बहालमा लिनेलाई ३५ दिनको सूचना दिनुपर्छ।",
-                    "disclaimer": "यो कानुनी जानकारी हो, कानुनी सल्लाह होइन।",
-                    "as_of": "2024-01-01",
-                    "abstained": False,
-                }
-            )
-            + "\n```"
-        )
+                    )
+                    + "\n```"
+                ),
+                "extras": {},
+            }
+        ]
 
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
@@ -613,15 +674,21 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
         def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
-    langchain_google_genai = ModuleType("langchain_google_genai")
-    setattr(langchain_google_genai, "ChatGoogleGenerativeAI", FakeLLM)
+    langchain_openai = ModuleType("langchain_openai")
+    setattr(langchain_openai, "AzureChatOpenAI", FakeLLM)
     monkeypatch.setitem(
-        __import__("sys").modules, "langchain_google_genai", langchain_google_genai
+        __import__("sys").modules, "langchain_openai", langchain_openai
     )
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY="key", LANGFUSE_PUBLIC_KEY=""),
+        lambda: SimpleNamespace(
+            AZURE_OPENAI_LLM_KEY="key",
+            AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
+            AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
+            AZURE_OPENAI_API_VERSION="2023-05-15",
+            LANGFUSE_PUBLIC_KEY="",
+        ),
     )
 
     all_results = [
@@ -813,11 +880,11 @@ def test_answer_composer_node_fallback_abstains_when_all_results_abstain(
 
 
 def test_compose_answer_no_key_returns_none(monkeypatch: Any) -> None:
-    """_compose_answer returns None immediately when GEMINI_API_KEY is unset."""
+    """_compose_answer returns None immediately when AZURE_OPENAI_LLM_KEY is unset."""
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
-        lambda: SimpleNamespace(GEMINI_API_KEY=""),
+        lambda: SimpleNamespace(AZURE_OPENAI_LLM_KEY=""),
     )
 
     result = orchestrator._compose_answer(
@@ -829,6 +896,46 @@ def test_compose_answer_no_key_returns_none(monkeypatch: Any) -> None:
     )
 
     assert result is None
+
+
+def test_compose_answer_logs_api_failure(monkeypatch: Any) -> None:
+    class BadLLM:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def invoke(self, messages: Any, config: Any = None) -> Any:
+            raise RuntimeError("boom")
+
+    langchain_openai = ModuleType("langchain_openai")
+    setattr(langchain_openai, "AzureChatOpenAI", BadLLM)
+    monkeypatch.setitem(
+        __import__("sys").modules, "langchain_openai", langchain_openai
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AZURE_OPENAI_LLM_KEY="key",
+            AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
+            AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
+            AZURE_OPENAI_API_VERSION="2023-05-15",
+            LANGFUSE_PUBLIC_KEY="",
+        ),
+    )
+    warnings: list[str] = []
+    monkeypatch.setattr(orchestrator.logger, "warning", warnings.append)
+
+    result = orchestrator._compose_answer(
+        None,
+        [],
+        [{"claim": "ok", "evidence_id": "x", "abstained": False, "citation": {}}],
+        [],
+        date(2024, 1, 1),
+    )
+
+    assert result is None
+    assert warnings and "_compose_answer failed: boom" in warnings[0]
+
 
 
 def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) -> None:

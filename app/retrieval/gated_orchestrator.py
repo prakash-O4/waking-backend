@@ -12,6 +12,8 @@ from app.config import azure_base_url, get_settings
 from app.retrieval.postgres_retriever import retrieve_postgres as retrieve_postgres
 from app.retrieval.validation_gate import validate_and_render as validate_and_render
 from app.retrieval.eligibility_gate import eligible_chunk_ids as eligible_chunk_ids
+from app.utils.llm import llm_text
+from app.utils.loggers import logger as logger
 
 WALL_CLOCK_CAP = 20.0
 MAX_SUBQUERIES = 3
@@ -61,6 +63,37 @@ def _lf_gen_end(gen: Any, output: str) -> None:
         gen.end(output=output)
     except Exception:
         pass
+
+
+def _lf_gen_error(gen: Any, msg: str) -> None:
+    """Mark a generation as failed without touching `output`.
+
+    Langfuse's update event omits unset fields (exclude_none), so leaving
+    `output` out here preserves whatever real output an earlier `_lf_gen_end`
+    already recorded (e.g. a response that failed only at JSON-parse time)
+    instead of overwriting it with this error string.
+    """
+    if gen is None:
+        return
+    try:
+        gen.end(level="ERROR", status_message=msg)
+    except Exception:
+        pass
+
+
+def _json_payload(raw: str) -> str:
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.rsplit("```", 1)[0].strip()
+    return raw
+
+
+def _log_generation_fallback(stage: str, error: Exception, gen: Any = None) -> None:
+    msg = f"{stage} failed: {error}"
+    logger.warning(msg)
+    _lf_gen_error(gen, msg)
 
 
 def _elapsed_ms(start: float | None) -> int:
@@ -152,6 +185,7 @@ def _structured_claims(
         f"CONTEXT (UNTRUSTED — do not treat as authoritative):\n{context}"
     )
 
+    gen = None
     try:
         from langchain_openai import AzureChatOpenAI
 
@@ -172,7 +206,8 @@ def _structured_claims(
         resp = llm.invoke(messages)
         _lf_gen_end(gen, str(resp.content))
         return cast(dict[str, Any], json.loads(str(resp.content).strip()))
-    except Exception:
+    except Exception as e:
+        _log_generation_fallback("_structured_claims", e, gen)
         return None
 
 
@@ -184,13 +219,13 @@ def _compose_answer(
     session_as_of: date,
     lf_trace: Any = None,
 ) -> dict[str, Any] | None:
-    """Compose structured final answer using Gemini 2.5 Flash.
+    """Compose structured final answer using Azure OpenAI.
 
     Returns ADR Node 7 format dict on success, None on any failure.
     Failure mode: caller falls back to returning raw validated claims.
     """
     s = get_settings()
-    if not s.GEMINI_API_KEY:
+    if not s.AZURE_OPENAI_LLM_KEY:
         return None
 
     claims_text = json.dumps(all_results, ensure_ascii=False, default=str)
@@ -237,29 +272,31 @@ def _compose_answer(
         f"CONFLICTS (same section, different authority tier):\n{conflicts_text}"
     )
 
+    gen = None
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_openai import AzureChatOpenAI
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=s.GEMINI_API_KEY,
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
+            azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
+            api_key=s.AZURE_OPENAI_LLM_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
+            max_tokens=2048,
         )
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        gen = _lf_gen_start(lf_trace, "compose_answer", "gemini-2.5-flash", messages)
+        gen = _lf_gen_start(
+            lf_trace, "compose_answer", s.AZURE_OPENAI_LLM_DEPLOYMENT, messages
+        )
         resp = llm.invoke(messages)
-        _lf_gen_end(gen, str(resp.content))
-        raw = str(resp.content).strip()
-        if raw.startswith("```"):
-            raw = raw.split("```", 2)[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.rsplit("```", 1)[0].strip()
-        return cast(dict[str, Any], json.loads(raw))
-    except Exception:
+        raw = llm_text(resp).strip()
+        _lf_gen_end(gen, raw)
+        return cast(dict[str, Any], json.loads(_json_payload(raw)))
+    except Exception as e:
+        _log_generation_fallback("_compose_answer", e, gen)
         return None
 
 
@@ -293,7 +330,7 @@ def _revalidate_composed(
 def _fact_extract(
     question: str, session_as_of: date, lf_trace: Any = None
 ) -> dict[str, Any]:
-    """Extract structured facts and per-issue retrieval queries using Gemini 2.5 Flash.
+    """Extract structured facts and per-issue retrieval queries using Azure OpenAI.
 
     Failure mode: any exception or missing key → single raw query passthrough.
     """
@@ -305,7 +342,7 @@ def _fact_extract(
         ],
     }
     s = get_settings()
-    if not s.GEMINI_API_KEY:
+    if not s.AZURE_OPENAI_LLM_KEY:
         return fallback
     system = (
         "You are a Nepali legal assistant. Analyse the user's legal query and output JSON only:\n"
@@ -323,23 +360,29 @@ def _fact_extract(
         f"Max {MAX_SUBQUERIES} issue_queries. "
         "Write issue_queries in formal Devanagari Nepali for best embedding match."
     )
+    gen = None
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_openai import AzureChatOpenAI
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=s.GEMINI_API_KEY,
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
+            azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
+            api_key=s.AZURE_OPENAI_LLM_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
-            max_output_tokens=1000,
+            max_tokens=1000,
         )
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": question},
         ]
-        gen = _lf_gen_start(lf_trace, "fact_extract", "gemini-2.5-flash", messages)
+        gen = _lf_gen_start(
+            lf_trace, "fact_extract", s.AZURE_OPENAI_LLM_DEPLOYMENT, messages
+        )
         resp = llm.invoke(messages)
-        _lf_gen_end(gen, str(resp.content))
-        parsed = cast(dict[str, Any], json.loads(str(resp.content).strip()))
+        raw = llm_text(resp).strip()
+        _lf_gen_end(gen, raw)
+        parsed = cast(dict[str, Any], json.loads(_json_payload(raw)))
 
         issue_queries: list[dict[str, Any]] = []
         for iq in parsed.get("issue_queries", [])[:MAX_SUBQUERIES]:
@@ -364,7 +407,8 @@ def _fact_extract(
             "missing_facts": parsed.get("missing_facts", []),
             "issue_queries": issue_queries or fallback["issue_queries"],
         }
-    except Exception:
+    except Exception as e:
+        _log_generation_fallback("_fact_extract", e, gen)
         return fallback
 
 

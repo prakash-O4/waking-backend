@@ -46,6 +46,17 @@ def test_model_down_uses_extractive_claim_still_validated(monkeypatch: Any) -> N
     hit = {"component_uri": "/law/1", "text_ne": "abcdef" * 100}
     seen: dict[str, Any] = {}
     monkeypatch.setattr(
+        orchestrator,
+        "_fact_extract",
+        lambda question, as_of, **kw: {
+            "facts": None,
+            "missing_facts": [],
+            "issue_queries": [
+                {"query": question, "as_of": as_of, "work_type_hint": None}
+            ],
+        },
+    )
+    monkeypatch.setattr(
         orchestrator, "retrieve_postgres", lambda conn, q, a, k=5, **kw: [hit]
     )
     monkeypatch.setattr(
@@ -53,6 +64,7 @@ def test_model_down_uses_extractive_claim_still_validated(monkeypatch: Any) -> N
         "_structured_claims",
         lambda facts, issue_queries, hits, **kw: None,
     )
+    monkeypatch.setattr(orchestrator, "_compose_answer", lambda *a, **kw: None)
 
     def validate(
         claims: list[dict[str, str]], as_of: date, conn: object
