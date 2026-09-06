@@ -266,7 +266,8 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
         content = [
             {
                 "type": "text",
-                "text": "```json\n" + json.dumps(
+                "text": "```json\n"
+                + json.dumps(
                     {
                         "facts": {
                             "parties": ["landlord"],
@@ -290,23 +291,24 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
                             },
                         ],
                     }
-                ) + "\n```",
+                )
+                + "\n```",
                 "extras": {},
             }
         ]
 
+    llm_kwargs: list[dict[str, Any]] = []
+
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
-            pass
+            llm_kwargs.append(kwargs)
 
         def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
     langchain_openai = ModuleType("langchain_openai")
     setattr(langchain_openai, "AzureChatOpenAI", FakeLLM)
-    monkeypatch.setitem(
-        __import__("sys").modules, "langchain_openai", langchain_openai
-    )
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", langchain_openai)
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
@@ -315,6 +317,7 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
             AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
             AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
             AZURE_OPENAI_API_VERSION="2023-05-15",
+            AZURE_OPENAI_LLM_API_VERSION="2024-10-21",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -328,6 +331,8 @@ def test_fact_extract_success_populates_issue_queries(monkeypatch: Any) -> None:
     assert result["issue_queries"][1]["as_of"] == date(
         2024, 1, 1
     )  # null → session_as_of
+    assert llm_kwargs[0]["api_version"] == "2024-10-21"
+    assert llm_kwargs[0]["model_kwargs"] == {"response_format": {"type": "json_object"}}
 
 
 def test_fact_extract_failure_returns_single_query_fallback(monkeypatch: Any) -> None:
@@ -357,9 +362,7 @@ def test_fact_extract_logs_api_failure(monkeypatch: Any) -> None:
 
     langchain_openai = ModuleType("langchain_openai")
     setattr(langchain_openai, "AzureChatOpenAI", BadLLM)
-    monkeypatch.setitem(
-        __import__("sys").modules, "langchain_openai", langchain_openai
-    )
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", langchain_openai)
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
@@ -368,6 +371,7 @@ def test_fact_extract_logs_api_failure(monkeypatch: Any) -> None:
             AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
             AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
             AZURE_OPENAI_API_VERSION="2023-05-15",
+            AZURE_OPENAI_LLM_API_VERSION="2024-10-21",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -378,7 +382,6 @@ def test_fact_extract_logs_api_failure(monkeypatch: Any) -> None:
 
     assert result["issue_queries"][0]["query"] == "what is the notice period?"
     assert warnings and "_fact_extract failed: boom" in warnings[0]
-
 
 
 def test_authority_rank_hits_sorts_by_tier() -> None:
@@ -578,9 +581,11 @@ def test_structured_claims_success(monkeypatch: Any) -> None:
             }
         )
 
+    llm_kwargs: list[dict[str, Any]] = []
+
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
-            pass
+            llm_kwargs.append(kwargs)
 
         def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
@@ -596,6 +601,7 @@ def test_structured_claims_success(monkeypatch: Any) -> None:
             AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com/",
             AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
             AZURE_OPENAI_API_VERSION="2023-05-15",
+            AZURE_OPENAI_LLM_API_VERSION="2024-10-21",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -613,6 +619,8 @@ def test_structured_claims_success(monkeypatch: Any) -> None:
     assert result["abstain"] is False
     assert result["claims"][0]["evidence_id"] == "chunk-abc"
     assert result["claims"][0]["applicability"] == "high"
+    assert llm_kwargs[0]["api_version"] == "2024-10-21"
+    assert llm_kwargs[0]["model_kwargs"] == {"response_format": {"type": "json_object"}}
 
 
 def test_structured_claims_no_key_returns_none(monkeypatch: Any) -> None:
@@ -667,18 +675,18 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
             }
         ]
 
+    llm_kwargs: list[dict[str, Any]] = []
+
     class FakeLLM:
         def __init__(self, **kwargs: Any) -> None:
-            pass
+            llm_kwargs.append(kwargs)
 
         def invoke(self, messages: Any, config: Any = None) -> FakeResp:
             return FakeResp()
 
     langchain_openai = ModuleType("langchain_openai")
     setattr(langchain_openai, "AzureChatOpenAI", FakeLLM)
-    monkeypatch.setitem(
-        __import__("sys").modules, "langchain_openai", langchain_openai
-    )
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", langchain_openai)
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
@@ -687,6 +695,7 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
             AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
             AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
             AZURE_OPENAI_API_VERSION="2023-05-15",
+            AZURE_OPENAI_LLM_API_VERSION="2024-10-21",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -716,6 +725,8 @@ def test_compose_answer_success(monkeypatch: Any) -> None:
     assert len(result["relevant_sections"]) == 1
     assert result["relevant_sections"][0]["applicability"] == "high"
     assert "plain_language" in result
+    assert llm_kwargs[0]["api_version"] == "2024-10-21"
+    assert llm_kwargs[0]["model_kwargs"] == {"response_format": {"type": "json_object"}}
 
 
 def test_revalidate_composed_replaces_model_citation_and_drops_bad_sections() -> None:
@@ -908,9 +919,7 @@ def test_compose_answer_logs_api_failure(monkeypatch: Any) -> None:
 
     langchain_openai = ModuleType("langchain_openai")
     setattr(langchain_openai, "AzureChatOpenAI", BadLLM)
-    monkeypatch.setitem(
-        __import__("sys").modules, "langchain_openai", langchain_openai
-    )
+    monkeypatch.setitem(__import__("sys").modules, "langchain_openai", langchain_openai)
     monkeypatch.setattr(
         orchestrator,
         "get_settings",
@@ -919,6 +928,7 @@ def test_compose_answer_logs_api_failure(monkeypatch: Any) -> None:
             AZURE_OPENAI_LLM_ENDPOINT="https://example.openai.azure.com",
             AZURE_OPENAI_LLM_DEPLOYMENT="gpt-4.1-mini",
             AZURE_OPENAI_API_VERSION="2023-05-15",
+            AZURE_OPENAI_LLM_API_VERSION="2024-10-21",
             LANGFUSE_PUBLIC_KEY="",
         ),
     )
@@ -935,7 +945,6 @@ def test_compose_answer_logs_api_failure(monkeypatch: Any) -> None:
 
     assert result is None
     assert warnings and "_compose_answer failed: boom" in warnings[0]
-
 
 
 def test_required_missing_fact_returns_interrupted_response(monkeypatch: Any) -> None:

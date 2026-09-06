@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     AZURE_OPENAI_LLM_KEY: str = ""
     AZURE_OPENAI_LLM_ENDPOINT: str = ""  # full deployment URL or base URL
     AZURE_OPENAI_LLM_DEPLOYMENT: str = "gpt-4.1-mini"
+    AZURE_OPENAI_LLM_API_VERSION: str = "2024-10-21"
 
     class Config:
         env_file = ".env"

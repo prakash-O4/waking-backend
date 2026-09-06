@@ -198,8 +198,9 @@ def _structured_claims(
             azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
             azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
             api_key=s.AZURE_OPENAI_LLM_KEY,
-            api_version=s.AZURE_OPENAI_API_VERSION,
+            api_version=s.AZURE_OPENAI_LLM_API_VERSION,
             temperature=0.0,
+            model_kwargs={"response_format": {"type": "json_object"}},
         )
         messages = [
             {"role": "system", "content": system},
@@ -209,8 +210,9 @@ def _structured_claims(
             lf_trace, "structured_claims", s.AZURE_OPENAI_LLM_DEPLOYMENT, messages
         )
         resp = llm.invoke(messages)
-        _lf_gen_end(gen, str(resp.content))
-        return cast(dict[str, Any], json.loads(str(resp.content).strip()))
+        raw = llm_text(resp).strip()
+        _lf_gen_end(gen, raw)
+        return cast(dict[str, Any], json.loads(_json_payload(raw)))
     except Exception as e:
         _log_generation_fallback("_structured_claims", e, gen)
         return None
@@ -285,9 +287,10 @@ def _compose_answer(
             azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
             azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
             api_key=s.AZURE_OPENAI_LLM_KEY,
-            api_version=s.AZURE_OPENAI_API_VERSION,
+            api_version=s.AZURE_OPENAI_LLM_API_VERSION,
             temperature=0.0,
             max_tokens=2048,
+            model_kwargs={"response_format": {"type": "json_object"}},
         )
         messages = [
             {"role": "system", "content": system},
@@ -373,9 +376,10 @@ def _fact_extract(
             azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
             azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
             api_key=s.AZURE_OPENAI_LLM_KEY,
-            api_version=s.AZURE_OPENAI_API_VERSION,
+            api_version=s.AZURE_OPENAI_LLM_API_VERSION,
             temperature=0.0,
             max_tokens=1000,
+            model_kwargs={"response_format": {"type": "json_object"}},
         )
         messages = [
             {"role": "system", "content": system},
@@ -652,7 +656,9 @@ def answer(
 ) -> dict[str, Any]:
     from app.retrieval.query_graph import run_query
 
-    return cast(dict[str, Any], run_query(question, session_as_of, conn, user_id=user_id))
+    return cast(
+        dict[str, Any], run_query(question, session_as_of, conn, user_id=user_id)
+    )
 
 
 def stream_answer(
