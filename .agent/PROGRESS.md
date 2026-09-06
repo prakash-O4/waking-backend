@@ -1,6 +1,9 @@
 # Wakil-G — Orchestration Progress
 
-## Current task — AGENT-44, stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (assigned, awaiting dispatch)
+## Current task
+None open. AGENT-44 closed (below).
+
+## AGENT-44 — stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (closed, merged 2026-09-06)
 
 Follow-on to the OTel export timeout Prakash hit while debugging
 AGENT-43 (flagged then as queued, unscoped — now scoped). Prakash's own
@@ -44,11 +47,47 @@ mechanism, touching Langfuse client construction/timeout config
 there — short-lived CLI script, real risk of losing a trace on early
 exit — a different situation entirely).
 
-Branch `agent/async-langfuse-flush` created off `dev` (clean tree
-verified first, up to date with `origin/dev`). `task.md` committed
-there (`e03b252`, author `Prakash Basnet`). Assigned to **Pi** (precise
-backend/domain change, small and self-contained). Awaiting Prakash to
-dispatch.
+**Delivered** (commit `2fa7d77`, includes a correction — see below):
+`_flush_langfuse()` and all five call sites removed exactly as
+specified. `_get_lf_client`/`_start_trace`/`_trace_error` untouched.
+
+**Review caught a bug in Claude's own `task.md`, not in Pi's
+implementation** — Pi matched the brief exactly, but the brief itself
+had a flaw: the original `stream_query()` nested its final error yield
+inside `if not flushed:` — meaning once the `"final"` event (the real
+answer) had already been sent, a later exception would NOT also yield
+a conflicting `"error"` event. `task.md`'s target code (written by
+Claude) dropped that guard entirely as a side effect of removing the
+`flushed` bookkeeping, which would have let a client that already
+received a valid answer also receive a spurious trailing error event
+on some later exception. No existing test covered this corner. Fixed
+directly before merging: restored the guard under a new name
+(`final_sent`, no longer tied to flushing) so the original
+error-suppression behavior is preserved with the flush call still
+gone.
+
+Independently verified rather than trusting the report: `.venv/bin/python
+-m pytest tests/` — 301 passed/4 skipped (0 failures this run — the
+known order-dependent flake noted in every prior entry is
+nondeterministic, reappeared on the post-merge run below); `ruff
+check`/`ruff format --check`/`mypy --strict` (exact Makefile list, via
+`.venv/bin/python`) clean. Pi's smoke test was blocked by a real
+401 (no Supabase token available to Pi) — verified the actual fix
+myself instead by calling `run_query()`/`stream_query()` directly
+against the real DB/Azure/Langfuse stack (bypassing the auth layer,
+which this fix doesn't touch): both completed successfully with
+correct `"final"` events and no exception. Per-stage timing on
+`stream_query` showed no flush-shaped delay anywhere in the trace — the
+`reasoner` stage's own real Azure LLM call time (13.67s that run)
+dominates, confirming remaining latency is genuine pipeline work, not
+leftover flush blocking.
+
+No further findings. Merged `agent/async-langfuse-flush` → `dev`
+(`--no-ff`, `42d80a4`), author/committer both `Prakash Basnet
+<basnetprakash090@gmail.com>`. Re-ran `pytest tests/` on merged `dev` —
+300 passed/4 skipped/1 flake (same known test, order-dependent as
+always). `task.md` cleared, branch `agent/async-langfuse-flush` pending
+deletion.
 
 ## AGENT-43 — fix needless abstention from the quote-support check (closed, merged 2026-09-06)
 
@@ -251,16 +290,15 @@ No blocking findings. Merged `agent/fix-reasoner-json-mode` → `dev`
 identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
 cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
 
-## Next action (superseded by AGENT-44 above, kept for continuity)
-Once AGENT-44 merges: use `scripts/dev_console.html` to generate real
-Langfuse traffic for roadmap item 4's labeling work — translation,
-fact-extraction, and answer composition all now actually run, reliably
-parse, no longer needlessly abstain on genuinely answerable questions,
-and responses should no longer carry a spurious up-to-5s delay from
-trace-export waits.
+## Next action
+Use `scripts/dev_console.html` to generate real Langfuse traffic for
+roadmap item 4's labeling work — translation, fact-extraction, and
+answer composition all now actually run, reliably parse, no longer
+needlessly abstain on genuinely answerable questions, and responses no
+longer carry a spurious up-to-5s delay from trace-export waits.
 
 ## Status
-**Healthy.** AGENT-36 through AGENT-43 merged to `dev`. Auth, the
+**Healthy.** AGENT-36 through AGENT-44 merged to `dev`. Auth, the
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
 
