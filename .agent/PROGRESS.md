@@ -12,6 +12,24 @@ now actually run, so real traffic should look qualitatively different
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
 
+## Direct fix (2026-09-06, no task brief — additive observability only)
+Prakash pasted a real Langfuse trace where the `retrieval` span (and its
+early-exit `.end()` calls) carried only `metadata` (counts/hashes), never
+`input`/`output` — unlike the `GENERATION` spans, so there was no way to
+see the actual query text or which chunks came back to debug an
+off-topic answer. Fixed directly (small, additive, no retrieval-logic
+change; Prakash chose direct fix over a task brief):
+`app/retrieval/postgres_retriever.py` — `retrieval` span now gets
+`input={query, query_ne, as_of, k}` at creation and `output=[{work_title_ne,
+section_number, score, text_snippet}, ...]` at `.end()` (both early-exit
+`.end()` calls now pass `output=[]` too, so a zero-hit abstain is explicit
+rather than blank). Verified with a scripted fake-trace call and targeted
+pytest/ruff/mypy on the one file; two pre-existing unrelated
+`test_helpers.py` Supabase-key failures confirmed present on pristine
+`dev` too (not caused by this change). Next real query through the dev
+console will now show actual retrieved chunk titles/scores in Langfuse —
+use that to diagnose why a given retrieval looked out of context.
+
 ## AGENT-41 — fix silently-failing Gemini calls (closed, merged 2026-09-06)
 
 **How this was found**: Prakash ran a real question through the console
