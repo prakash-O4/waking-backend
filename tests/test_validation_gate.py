@@ -134,6 +134,30 @@ def test_claim_support_exact_substring_passes(monkeypatch: Any) -> None:
     assert out[0]["citation"] is not None
 
 
+def test_claim_support_ignores_bold_dafa_heading_markup() -> None:
+    chunk = "**३. रोजगारीको अधिकार:** (१) प्रत्येक नागरिकलाई रोजगारी पाउने अधिकार हुनेछ ।"
+    quote = "३. रोजगारीको अधिकार: (१) प्रत्येक नागरिकलाई रोजगारी पाउने अधिकार हुनेछ ।"
+    assert gate._claim_supported(quote, chunk)
+
+
+def test_claim_support_ignores_trailing_chapter_marker() -> None:
+    chunk = (
+        "रोजगार सेवा केन्द्रले तोकिए बमोजिम अभिलेख राख्नु पर्नेछ ।\n\n"
+        "## परिच्छेद-३\n\nरोजगार सेवा केन्द्र"
+    )
+    quote = "रोजगार सेवा केन्द्रले तोकिए बमोजिम अभिलेख राख्नु पर्नेछ ।"
+    assert gate._claim_supported(quote, chunk)
+
+
+def test_normalize_keeps_tariff_dashes() -> None:
+    assert gate._normalize("-दुरम गहुँ:\n--बिउ") == "-दुरम गहुँ: --बिउ"
+
+
+def test_normalize_keeps_provenance_markup() -> None:
+    text = "<amend>संशोधित पाठ</amend> ✂ बाँकी पाठ"
+    assert gate._normalize(text) == text
+
+
 class GateCursor:
     def __init__(self, conn: "GateConn") -> None:
         self.conn = conn

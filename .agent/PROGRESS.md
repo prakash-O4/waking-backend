@@ -1,7 +1,84 @@
 # Wakil-G — Orchestration Progress
 
-## Current task
-None open. AGENT-42 closed (below).
+## Current task — AGENT-43, fix needless abstention from the quote-support check (assigned, awaiting dispatch)
+
+Direct follow-on to AGENT-42, found the moment its fix went live:
+Prakash asked "List me the basic rights of labor" and got a full
+abstain (`abstained: true, relevant_sections: []`) even though
+`_structured_claims` had correctly found three on-topic claims (दफा ३,
+९, १५३). `validation` showed `claims_passed: 0, claims_abstained: 3` —
+every claim rejected. The gate did its job correctly (Core Invariant 4)
+— but the underlying law existed and should have been answerable. Two
+independent, unrelated root causes, both confirmed empirically (not
+guessed), bundled into one task per Prakash's choice:
+
+1. **Reasoner splices non-adjacent text with `...`.** For दफा ३, the
+   quote read `"...(१) ... हुनेछ । (२) ... हुनेछ ।"` — the real chunk
+   has full words between the subsections, not literal `...`, so it's
+   not a genuine contiguous substring. Reproduced 3x by replaying the
+   exact real production chunk (pulled verbatim from the live `chunks`
+   table) through `_structured_claims`: 2/3 runs truncated to only
+   subsection (१), 1/3 spliced both with `...` — a real, reproducible
+   prompt-following weakness, not a one-off.
+
+2. **The quote-support check chokes on the corpus's own markdown — the
+   more foundational bug, likely affecting most दफा-heading citations
+   corpus-wide, not just this case.** Every दफा heading in
+   `chunks.chunk_text` is stored with literal `**N. Title:**` bold
+   markdown (confirmed live against the real DB row) —
+   `app/ingestion/laws_chunker.py`'s `_DAFA_HEADING_RE`/`_DAFA_ANCHOR_RE`
+   makes this a reserved, ingestion-enforced structural marker
+   (documents lacking it are rejected at ingestion), never real legal
+   content. `## परिच्छेद-N`/`## भाग-N` chapter markers can also appear
+   trailing inside a दफा's `chunk_text` when a chapter boundary falls
+   mid-chunk. The LLM naturally omits this decoration when quoting
+   (it's formatting, not content) but `_normalize()`
+   (`app/retrieval/validation_gate.py`) does zero markdown-stripping —
+   so even a perfectly honest, fully verbatim, non-spliced quote of a
+   दफा heading fails the exact-substring check. Confirmed directly: a
+   clean quote of the real दफा ३ text failed until `**` was stripped
+   from the chunk side, then passed.
+
+Fix verified empirically against the live model (not assumed): tested
+a tightened `"quote"` field prompt (drops the word "short" — it was
+nudging brevity/splicing — and explicitly forbids `...`-joining,
+instructing separate claim objects per non-adjacent part instead)
+together with the `_normalize()` fix (plain `str.replace("**",
+"").replace("##", "")` — no regex, since both are confirmed to never
+appear in real content) on the exact real दफा ३ chunk that originally
+failed: 3/3 clean runs, full two-subsection answer, no truncation, no
+splicing, passes the fixed check.
+
+**What must not be touched, confirmed via chunker/test-fixture
+grounding**: `<amend>`/`</amend>` tags and `✂` elision marks
+(`laws_chunker.py`, PS-10 provenance — must survive in `chunk_text`);
+leading `-`/`--` inside tariff goods-description cells (real HS-code
+indentation content, confirmed via `tests/test_tariff_chunker.py`
+fixtures like `-दुरम गहुँ:`) — none of these are touched by a
+`**`/`##`-only literal strip.
+
+Explicitly forbidden in `task.md`: touching `_MIN_QUOTE_CHARS` or
+`_claim_supported()`'s exact-substring semantics (this is a
+normalization correction, not a loosening), touching any
+ingestion/chunker code (storage format is intentional and correct;
+only the comparison side changes), touching `_extractive_claim()`
+(separate, already-deferred question from AGENT-42),
+`_compose_answer`/`_fact_extract` prompts (unaffected), any
+regex/fuzzy-matching approach.
+
+Branch `agent/fix-quote-support-check` created off `dev` (clean tree
+verified first, up to date with `origin/dev`). `task.md` committed
+there (`86d8c1d`, author `Prakash Basnet`). Assigned to **Pi** (precise
+backend/domain debugging, per this skill's engineer-selection rubric).
+Awaiting Prakash to dispatch.
+
+Still separately queued, not part of this task: the Langfuse `flush()`
+call is synchronous and inline in both `/ask` and `/ask/stream`'s
+response path (confirmed via code trace — `finally: _flush_langfuse()`
+in `run_query`, and inline before the final SSE event in
+`stream_query`), with an unconfigured default 5s SDK timeout — a slow
+Langfuse Cloud add up to ~5s of dead latency to every real request.
+Not yet scoped as a task; Prakash hasn't decided priority on it yet.
 
 ## AGENT-42 — fix reasoner JSON-parse fallback (closed, merged 2026-09-06)
 
@@ -101,15 +178,15 @@ No blocking findings. Merged `agent/fix-reasoner-json-mode` → `dev`
 identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
 cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
 
-## Next action
-Use `scripts/dev_console.html` to generate real Langfuse traffic for
-roadmap item 4's labeling work — translation, fact-extraction, and
-answer composition all now actually run *and* reliably parse, so real
-traffic should look qualitatively different (no more spurious
-`reasoner_fallback:extractive` from JSON-escaping glitches).
+## Next action (superseded by AGENT-43 above, kept for continuity)
+Once AGENT-43 merges: use `scripts/dev_console.html` to generate real
+Langfuse traffic for roadmap item 4's labeling work — translation,
+fact-extraction, and answer composition all now actually run, reliably
+parse, and no longer needlessly abstain on genuinely answerable
+questions, so real traffic should look qualitatively different again.
 
 ## Status
-**Healthy.** AGENT-36 through AGENT-41 merged to `dev`. Auth, the
+**Healthy.** AGENT-36 through AGENT-42 merged to `dev`. Auth, the
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
 

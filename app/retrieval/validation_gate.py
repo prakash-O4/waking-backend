@@ -16,7 +16,11 @@ _MIN_QUOTE_CHARS = 15
 
 def _normalize(text: str) -> str:
     return " ".join(
-        unicodedata.normalize("NFC", text).translate(_DEVANAGARI_DIGITS).split()
+        unicodedata.normalize("NFC", text)
+        .replace("**", "")
+        .replace("##", "")
+        .translate(_DEVANAGARI_DIGITS)
+        .split()
     )
 
 

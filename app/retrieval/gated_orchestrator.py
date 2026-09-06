@@ -177,9 +177,13 @@ def _structured_claims(
         "Prefer higher-authority tiers (lower tier number = higher authority). "
         "Output JSON only:\n"
         '{"claims": [{"claim": "<answer in Nepali>", "evidence_id": "<chunk id from [id: ...]>", '
-        '"quote": "<short exact contiguous substring copied verbatim from the CONTEXT chunk '
-        "you cite in evidence_id — not a paraphrase, not a translation, not assembled from "
-        'multiple places — that supports the claim>", '
+        '"quote": "<exact contiguous substring copied verbatim, character-for-character, from '
+        "the CONTEXT chunk you cite in evidence_id — not a paraphrase, not a translation. "
+        "Never use '...' or any other joiner to skip words inside a quote: quote one "
+        "single unbroken run of text exactly as it appears, even if that means including "
+        "a few extra words. If the supporting text comes from two or more non-adjacent "
+        "parts of the same chunk (e.g. two different subsections), output a SEPARATE "
+        'claim object for each part instead of combining them into one quote>", '
         '"issue": "<issue label>", "applicability": "high|medium|low", '
         '"condition": "<condition or null>"}], "abstain": false}\n'
         'If context is insufficient to answer: {"claims": [], "abstain": true}'
