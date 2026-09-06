@@ -1,7 +1,65 @@
 # Wakil-G — Orchestration Progress
 
-## Current task
-None open. AGENT-44 closed (below).
+## Current task — AGENT-45, add input/output visibility to remaining blind Langfuse spans (assigned, awaiting dispatch)
+
+Prakash noticed `co_retrieve_parent_resolution`/`cross_ref_resolution`/
+`enabling_power_resolution` always show `input`/`output` as undefined
+in real traces, only a bare count, and asked "are they there just for
+vibes?" Investigated the actual code (not guessed): all three are
+real, narrow-purpose mechanisms (fragment reassembly for oversized
+दफा splits, in-text "दफा N" cross-reference following, regulation→
+enabling-Act linkage via `work_relations`) — not vestigial — but each
+is gated on corpus conditions (oversized-section splits, literal
+back-references, regulation-vs-Act distinction) that whole,
+self-contained Act sections mostly don't trigger, so zero-across-the-
+board on a typical query is expected, not a bug. The trace blindness
+itself, though, is real and confirmed to be the exact same gap the
+`retrieval` span had until it was fixed today (commit `e4457cf`) — just
+never extended to these three. Prakash then pointed out the same
+pattern covers the retrieval sub-stages (`stage.eligibility_gate`
+through `stage.rerank`) and asked for a comprehensive fix. Widening the
+sweep found two more with the identical gap: `authority_ranking` and
+`validation`.
+
+**12 spans in scope total** (full list, file:line, and exact per-span
+`input`/`output` shape in `task.md`): 7 `stage.*` sub-spans in
+`postgres_retriever.py::retrieve_postgres()` (all via the shared
+`_end_span()` helper, extended to accept optional keyword-only
+`input`/`output`), plus `authority_ranking`,
+`co_retrieve_parent_resolution`, `cross_ref_resolution`,
+`enabling_power_resolution`, and `validation` in `query_graph.py`
+(each gets `input`/`output` added inline, no new helper — 5 call sites
+doesn't justify one). `eligibility_gate` deliberately excluded and left
+metadata-only — its only real data is a list of thousands of bare
+UUIDs with no other structure, not useful as trace output.
+
+Every addition stays ID/score/section-number only — **never**
+`chunk_text`/`text_ne`/raw legal content, per PS-14 ("traces store
+IDs/hashes by default; raw content in a separate short-retention
+store") and matching the precedent the `retrieval` span fix already
+set. Ponytail: no new dependency, no new abstraction beyond extending
+one existing helper function; this is purely additive tracing, zero
+change to retrieval/gate logic or any function's return shape.
+
+Branch `agent/trace-visibility-sweep` created off `dev` (clean tree
+verified first, up to date with `origin/dev`). `task.md` committed
+there (`85023ca`, author `Prakash Basnet`). Assigned to **Pi** (precise,
+mechanical backend change across a well-specified list of call sites).
+Awaiting Prakash to dispatch.
+
+**Also raised by Prakash this session, explicitly deferred, recorded
+for later evaluation, not started**: a single orchestrating "brain"
+agent that decides *how* to handle a query (routing to the right
+retrieval/reasoning strategy — e.g. broad enumerate-style vs. narrow
+lookup — rather than every query running the identical fixed pipeline)
+would be the properly general fix for the "list me X" retrieval-breadth
+gap below, instead of a special-cased "list all X" heuristic. Prakash's
+own words: "maybe not now but we need to do this in future by
+evaluating the usecase." Not scoped, not started — the immediate
+retrieval-breadth fix below (AGENT-46) is a deliberately narrow interim
+fix, not this. Revisit only once real usage data justifies the bigger
+architecture change (same "measure, don't guess" discipline as the
+existing roadmap item 4/5 entries below).
 
 ## AGENT-44 — stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (closed, merged 2026-09-06)
 
