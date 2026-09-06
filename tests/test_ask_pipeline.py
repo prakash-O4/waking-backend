@@ -30,7 +30,9 @@ def client(monkeypatch: Any) -> TestClient:
 
 
 def test_ask_delegates_to_orchestrator(monkeypatch: Any) -> None:
-    def fake_answer(question: str, as_of: object, conn: object) -> dict[str, Any]:
+    def fake_answer(
+        question: str, as_of: object, conn: object, user_id: str | None = None
+    ) -> dict[str, Any]:
         return {
             "as_of": "2024-01-01",
             "query_type": "simple",
@@ -68,7 +70,7 @@ def test_ask_quota_still_blocks(monkeypatch: Any) -> None:
 
 def test_ask_stream_delegates_to_orchestrator(monkeypatch: Any) -> None:
     def fake_stream_answer(
-        question: str, as_of: object, conn: object
+        question: str, as_of: object, conn: object, user_id: str | None = None
     ) -> Iterator[dict[str, Any]]:
         yield {"stage": "retrieve", "status": "done", "latency_ms": 1}
         yield {

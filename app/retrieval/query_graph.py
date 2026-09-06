@@ -574,6 +574,23 @@ def _start_trace(question: str, session_as_of: date) -> Any:
         return None
 
 
+def _propagation_scope(user_id: str | None) -> Any:
+    """Context manager propagating `user_id` to every observation created within it.
+
+    Must wrap the root span's own creation (not just later children) — Langfuse
+    aggregations by user_id only include observations created after this context
+    is entered. Falls back to a no-op if langfuse isn't installed, matching the
+    rest of this module's graceful-degradation-without-langfuse behavior.
+    """
+    try:
+        from langfuse import propagate_attributes
+    except ImportError:
+        from contextlib import nullcontext
+
+        return nullcontext()
+    return propagate_attributes(user_id=user_id)
+
+
 def _flush_langfuse() -> None:
     _lf = _get_lf_client()
     if _lf is not None:
@@ -602,58 +619,62 @@ def _initial_state(question: str, session_as_of: date) -> QueryState:
     }
 
 
-def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
-    lf_trace = _start_trace(question, session_as_of)
-    try:
-        result = _graph.invoke(
-            _initial_state(question, session_as_of),
-            config={
-                "configurable": {"conn": conn, "lf_trace": lf_trace},
-                "recursion_limit": 10,
-            },
-        )
-    except Exception as e:
-        _trace_error(lf_trace, "query_pipeline", e, fatal=True)
-        raise
-    finally:
-        _flush_langfuse()
+def run_query(
+    question: str, session_as_of: date, conn: Any, user_id: str | None = None
+) -> dict[str, Any]:
+    with _propagation_scope(user_id):
+        lf_trace = _start_trace(question, session_as_of)
+        try:
+            result = _graph.invoke(
+                _initial_state(question, session_as_of),
+                config={
+                    "configurable": {"conn": conn, "lf_trace": lf_trace},
+                    "recursion_limit": 10,
+                },
+            )
+        except Exception as e:
+            _trace_error(lf_trace, "query_pipeline", e, fatal=True)
+            raise
+        finally:
+            _flush_langfuse()
 
     return cast(dict[str, Any], result["_response"])
 
 
 def stream_query(
-    question: str, session_as_of: date, conn: Any
+    question: str, session_as_of: date, conn: Any, user_id: str | None = None
 ) -> Iterator[dict[str, Any]]:
-    lf_trace = _start_trace(question, session_as_of)
-    last = _orch.time.monotonic()
-    flushed = False
-    try:
-        for step in _graph.stream(
-            _initial_state(question, session_as_of),
-            config={
-                "configurable": {"conn": conn, "lf_trace": lf_trace},
-                "recursion_limit": 10,
-            },
-            stream_mode="updates",
-        ):
-            for stage in step:
-                if stage == "answer_composer":
-                    response = step["answer_composer"]["_response"]
-                    _flush_langfuse()
-                    flushed = True
-                    yield {"stage": "final", "status": "done", "response": response}
-                else:
-                    now = _orch.time.monotonic()
-                    yield {
-                        "stage": stage,
-                        "status": "done",
-                        "latency_ms": int((now - last) * 1000),
-                    }
-                    last = now
-        if not flushed:
-            _flush_langfuse()
-    except Exception as e:
-        _trace_error(lf_trace, "stream_query_pipeline", e, fatal=True)
-        if not flushed:
-            _flush_langfuse()
-            yield {"stage": "error", "status": "error", "detail": "query failed"}
+    with _propagation_scope(user_id):
+        lf_trace = _start_trace(question, session_as_of)
+        last = _orch.time.monotonic()
+        flushed = False
+        try:
+            for step in _graph.stream(
+                _initial_state(question, session_as_of),
+                config={
+                    "configurable": {"conn": conn, "lf_trace": lf_trace},
+                    "recursion_limit": 10,
+                },
+                stream_mode="updates",
+            ):
+                for stage in step:
+                    if stage == "answer_composer":
+                        response = step["answer_composer"]["_response"]
+                        _flush_langfuse()
+                        flushed = True
+                        yield {"stage": "final", "status": "done", "response": response}
+                    else:
+                        now = _orch.time.monotonic()
+                        yield {
+                            "stage": stage,
+                            "status": "done",
+                            "latency_ms": int((now - last) * 1000),
+                        }
+                        last = now
+            if not flushed:
+                _flush_langfuse()
+        except Exception as e:
+            _trace_error(lf_trace, "stream_query_pipeline", e, fatal=True)
+            if not flushed:
+                _flush_langfuse()
+                yield {"stage": "error", "status": "error", "detail": "query failed"}

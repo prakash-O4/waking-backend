@@ -55,13 +55,41 @@ Evaluators/legacy rules, and Blob Storage/Mixpanel/PostHog export
 config — all reported as blocked/manual action, not silently assumed
 fine.
 
-Found but NOT changed (flagged, not fixed — out of scope for an SDK
-migration): `app/main.py`'s `_authorize()` computes a real Supabase
-`user_id` per request that is never forwarded to Langfuse — no trace
-today can be filtered/aggregated by user. Wiring it through would mean
-new parameters on `answer()`/`stream_answer()`/`run_query()`/
-`stream_query()` (cascading into several tests) — a real instrumentation
-gap worth a future task, not a rename this migration should smuggle in.
+Found but NOT changed at the time (flagged, not fixed — out of scope for
+an SDK migration): `app/main.py`'s `_authorize()` computes a real
+Supabase `user_id` per request that is never forwarded to Langfuse — no
+trace could be filtered/aggregated by user. Prakash asked for this fixed
+as a follow-up the same day — see below.
+
+## Direct fix (2026-09-06, no task brief — propagate user_id to Langfuse)
+Follow-up to the v4 migration above. Threaded `user_id` from
+`app/main.py`'s `_authorize()` through `gated_orchestrator.answer()` /
+`.stream_answer()` into `query_graph.run_query()` / `.stream_query()`
+(all as a new optional `user_id: str | None = None` param — no existing
+caller breaks). v4 has no `user_id=` kwarg on `start_observation()`;
+correlating attributes (user_id, session_id, tags, ...) only attach via
+`propagate_attributes()`, an OTEL-context-based mechanism, and per the
+SDK's own docs must wrap the root span's *creation* — attaching it only
+to later children silently excludes the root (and therefore the whole
+trace) from user_id aggregations. Added `_propagation_scope(user_id)` in
+`query_graph.py` (lazy `from langfuse import propagate_attributes`,
+`contextlib.nullcontext()` fallback if langfuse isn't installed — matches
+this module's existing graceful-degradation pattern) and wrapped the
+entire body of both `run_query`/`stream_query` in it, opened before
+`_start_trace()`.
+
+Verified empirically against the real v4 SDK (not just read from docs):
+confirmed via the SDK's own `_get_propagated_attributes_from_context`
+helper that the context carries `{"user.id": "user-42"}` inside the
+`with` block and is empty when `user_id=None`; then confirmed the
+**actual root span's own OTEL attributes** end up with `user.id` set
+(inspected `lf_trace._otel_span.attributes` directly) — the
+propagation reaches the root observation itself, not just descendants.
+Two tests in `test_ask_pipeline.py` had fixed 3-arg fake
+`answer`/`stream_answer` signatures and needed the new optional
+`user_id` param added; full `pytest tests/` re-run: 296 passed, same
+one pre-existing unrelated flake as before. Scoped `ruff`/`mypy --strict`
+clean.
 
 ## Direct fix (2026-09-06, no task brief — additive observability only)
 Prakash pasted a real Langfuse trace where the `retrieval` span (and its

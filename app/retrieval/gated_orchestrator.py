@@ -647,15 +647,17 @@ def _emit_answer_trace_from_state(
         pass
 
 
-def answer(question: str, session_as_of: date, conn: connection) -> dict[str, Any]:
+def answer(
+    question: str, session_as_of: date, conn: connection, user_id: str | None = None
+) -> dict[str, Any]:
     from app.retrieval.query_graph import run_query
 
-    return cast(dict[str, Any], run_query(question, session_as_of, conn))
+    return cast(dict[str, Any], run_query(question, session_as_of, conn, user_id=user_id))
 
 
 def stream_answer(
-    question: str, session_as_of: date, conn: connection
+    question: str, session_as_of: date, conn: connection, user_id: str | None = None
 ) -> Iterator[dict[str, Any]]:
     from app.retrieval.query_graph import stream_query
 
-    yield from stream_query(question, session_as_of, conn)
+    yield from stream_query(question, session_as_of, conn, user_id=user_id)

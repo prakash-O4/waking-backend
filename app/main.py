@@ -60,11 +60,11 @@ def _authorize(authorization: Optional[str]) -> str:
 async def ask_question(
     req: AskRequest, authorization: Optional[str] = Header(default=None)
 ) -> Any:
-    _authorize(authorization)
+    user_id = _authorize(authorization)
     as_of = req.as_of or date.today()
     try:
         with connect() as conn:
-            return orchestrator_answer(req.question, as_of, conn)
+            return orchestrator_answer(req.question, as_of, conn, user_id=user_id)
     except psycopg2.OperationalError:
         return JSONResponse(
             status_code=503,
@@ -79,13 +79,13 @@ async def ask_question(
 async def ask_question_stream(
     req: AskRequest, authorization: Optional[str] = Header(default=None)
 ) -> StreamingResponse:
-    _authorize(authorization)
+    user_id = _authorize(authorization)
     as_of = req.as_of or date.today()
 
     def event_gen() -> Iterator[str]:
         try:
             with connect() as conn:
-                for event in stream_answer(req.question, as_of, conn):
+                for event in stream_answer(req.question, as_of, conn, user_id=user_id):
                     yield f"data: {json.dumps(event)}\n\n"
         except psycopg2.OperationalError:
             yield (
