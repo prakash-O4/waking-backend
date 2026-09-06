@@ -1,6 +1,9 @@
 # Wakil-G — Orchestration Progress
 
-## Current task — AGENT-42, fix reasoner JSON-parse fallback (assigned, awaiting dispatch)
+## Current task
+None open. AGENT-42 closed (below).
+
+## AGENT-42 — fix reasoner JSON-parse fallback (closed, merged 2026-09-06)
 
 Real bug, found the moment Prakash used the new console/traffic (from
 the "Next action" note below this one): a labor-rights question got a
@@ -54,18 +57,56 @@ call, not bundled here), touching the shared `AZURE_OPENAI_API_VERSION`
 or any of its other call sites, any retry/backoff logic, any new
 dependency.
 
-Branch `agent/fix-reasoner-json-mode` created off `dev` (clean tree
-verified first, up to date with `origin/dev`). `task.md` committed
-there (`c69d422`, author `Prakash Basnet`). Assigned to **Pi** (precise
-backend/domain debugging, per this skill's engineer-selection rubric).
-Awaiting Prakash to dispatch.
+**Delivered** (commit `32a05f3`, correct author): matched `task.md`
+exactly — `app/config.py` gained `AZURE_OPENAI_LLM_API_VERSION =
+"2024-10-21"`; all three `AzureChatOpenAI(...)` constructions in
+`gated_orchestrator.py` (`_structured_claims`, `_compose_answer`,
+`_fact_extract`) switched to it and added
+`model_kwargs={"response_format": {"type": "json_object"}}`;
+`_structured_claims` now parses via `llm_text()` + `_json_payload()`
+like its siblings. `tests/test_orchestrator.py` got new assertions
+confirming `api_version`/`model_kwargs` are actually passed to
+`AzureChatOpenAI` for all three functions. `_extractive_claim()`,
+`query_graph.py`, the shared `AZURE_OPENAI_API_VERSION`, and its other
+call sites (ingestion, eval, `translate_query`/`_embed_query`) — all
+correctly left untouched.
 
-## Next action (superseded by AGENT-42 above, kept for continuity)
-Once AGENT-42 merges: use `scripts/dev_console.html` to generate real
-Langfuse traffic for roadmap item 4's labeling work — translation and
-answer composition now actually run, so real traffic should look
-qualitatively different (no more `reasoner_fallback:extractive` on
-every response, once this bug's fix lands).
+**Review found Pi's own check report was environmentally wrong, not
+their diff** (same recurring pattern this session — reproduce
+independently, never trust the report): Pi reported `make test` failing
+on `tests/test_helpers.py` Supabase-JWT errors and `make lint` failing
+on a missing Langfuse mypy stub. Root cause confirmed directly: this
+repo's `Makefile` invokes bare `python3`, which resolves to
+`/usr/bin/python3` (system Python 3.9.6, missing the pinned
+dependencies) — the exact trap already flagged in AGENT-40's entry
+below, evidently still live. Re-ran everything via `.venv/bin/python`
+instead: `ruff check`/`ruff format --check`/`mypy --strict` (exact
+Makefile file list) all clean; full `pytest tests/` — 296 passed, 4
+skipped, 1 failure (`test_wall_clock_cap_returns_validated_so_far`) —
+confirmed via `git stash` to reproduce byte-identically on pristine
+`dev`, an order-dependent flake (passes in isolation) unrelated to this
+diff, matching the exact test already flagged in the AGENT-41 entry
+below.
+
+Independently verified the fix against the **real** Azure resource —
+not just Pi's claimed smoke test — by calling the actual wired-in
+`_structured_claims()` directly with a synthetic chunk whose text
+deliberately contained an embedded `"` character (the exact shape that
+broke the original trace): came back as valid, correctly-escaped JSON,
+parsed cleanly.
+
+No blocking findings. Merged `agent/fix-reasoner-json-mode` → `dev`
+(`--no-ff`, `8f6c86f`), author/committer both `Prakash Basnet
+<basnetprakash090@gmail.com>`. Re-ran `pytest tests/` on merged `dev` —
+identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
+cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
+
+## Next action
+Use `scripts/dev_console.html` to generate real Langfuse traffic for
+roadmap item 4's labeling work — translation, fact-extraction, and
+answer composition all now actually run *and* reliably parse, so real
+traffic should look qualitatively different (no more spurious
+`reasoner_fallback:extractive` from JSON-escaping glitches).
 
 ## Status
 **Healthy.** AGENT-36 through AGENT-41 merged to `dev`. Auth, the
