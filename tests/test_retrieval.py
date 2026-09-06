@@ -349,6 +349,47 @@ def test_translate_query_skips_when_key_unset(monkeypatch: Any) -> None:
     assert r.translate_query("section 1") is None
 
 
+def test_end_span_records_capped_io_without_none_values() -> None:
+    class Span:
+        def __init__(self) -> None:
+            self.output: Any = None
+            self.ended = False
+
+        def update(self, **kwargs: Any) -> None:
+            self.output = kwargs.get("output")
+
+        def end(self) -> None:
+            self.ended = True
+
+    class Trace:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, Any] = {}
+            self.span = Span()
+
+        def start_observation(self, **kwargs: Any) -> Span:
+            self.kwargs = kwargs
+            return self.span
+
+    trace = Trace()
+
+    r._end_span(
+        trace,
+        "vector_search",
+        input={"q": "hash"},
+        output=[{"chunk_id": "c1"}],
+        count=1,
+    )
+
+    assert trace.kwargs == {
+        "name": "stage.vector_search",
+        "as_type": "span",
+        "metadata": {"count": 1},
+        "input": {"q": "hash"},
+    }
+    assert trace.span.output == [{"chunk_id": "c1"}]
+    assert trace.span.ended
+
+
 def test_empty_eligible_set_returns_empty(monkeypatch: Any) -> None:
     called = False
 

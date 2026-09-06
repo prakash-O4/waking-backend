@@ -61,14 +61,28 @@ def get_lf_client() -> Any | None:
     return _lf_client
 
 
-def _end_span(trace: Any, stage: str, **metadata: Any) -> None:
+def _end_span(
+    trace: Any,
+    stage: str,
+    *,
+    input: Any = None,
+    output: Any = None,
+    **metadata: Any,
+) -> None:
     """Create a span and immediately end it so Langfuse records endTime."""
     if trace is None:
         return
     try:
-        span = trace.start_observation(
-            name=f"stage.{stage}", as_type="span", metadata=metadata
-        )
+        kwargs: dict[str, Any] = {
+            "name": f"stage.{stage}",
+            "as_type": "span",
+            "metadata": metadata,
+        }
+        if input is not None:
+            kwargs["input"] = input
+        span = trace.start_observation(**kwargs)
+        if output is not None:
+            span.update(output=output)
         span.end()
     except Exception:
         pass
@@ -401,6 +415,24 @@ def retrieve_postgres(
         _end_span(
             retrieval_span,
             "vector_search",
+            output={
+                "query": [
+                    {
+                        "chunk_id": row[0],
+                        "section_number": row[6],
+                        "score": round(float(row[-1]), 4),
+                    }
+                    for row in vector_rows[:3]
+                ],
+                "query_ne": [
+                    {
+                        "chunk_id": row[0],
+                        "section_number": row[6],
+                        "score": round(float(row[-1]), 4),
+                    }
+                    for row in vector_rows_ne[:3]
+                ],
+            },
             candidate_count=len(vector_rows) + len(vector_rows_ne),
             top_score=float(vector_rows[0][8 if len(vector_rows[0]) > 8 else 7])
             if vector_rows
@@ -419,6 +451,24 @@ def retrieve_postgres(
         _end_span(
             retrieval_span,
             "lexical_search",
+            output={
+                "query": [
+                    {
+                        "chunk_id": row[0],
+                        "section_number": row[6],
+                        "score": round(float(row[-1]), 4),
+                    }
+                    for row in lexical_rows[:3]
+                ],
+                "query_ne": [
+                    {
+                        "chunk_id": row[0],
+                        "section_number": row[6],
+                        "score": round(float(row[-1]), 4),
+                    }
+                    for row in lexical_rows_ne[:3]
+                ],
+            },
             ran=lexical_ran or query_ne is not None,
             candidate_count=len(lexical_rows) + len(lexical_rows_ne),
             latency_ms=int((time.monotonic() - t0) * 1000),
@@ -432,6 +482,17 @@ def retrieve_postgres(
         _end_span(
             retrieval_span,
             "exact_lookup",
+            input={
+                "section_range": section_range,
+                "section_num": section_num,
+                "section_nums": section_nums,
+                "schedule_nums": schedule_nums,
+                "act_work_ids": act_work_ids,
+                "proviso_ref": proviso_ref,
+            },
+            output=[
+                {"chunk_id": row[0], "section_number": row[6]} for row in exact_rows[:3]
+            ],
             ran=exact_ran,
             candidate_count=len(exact_rows),
             latency_ms=int((time.monotonic() - t0) * 1000),
@@ -462,6 +523,10 @@ def retrieve_postgres(
     _end_span(
         retrieval_span,
         "rrf_fusion",
+        output=[
+            {"chunk_id": chunk_id, "rrf_score": round(score, 4)}
+            for chunk_id, score in rrf_scores[:5]
+        ],
         merged_count=len(rrf_scores),
         top_rrf_score=rrf_scores[0][1] if rrf_scores else 0.0,
         latency_ms=int((time.monotonic() - t0) * 1000),
@@ -476,6 +541,13 @@ def retrieve_postgres(
     _end_span(
         retrieval_span,
         "relevance_gate",
+        output=[
+            {
+                "chunk_id": c["component_uri"],
+                "score": round(c.get("score", 0.0), 4),
+            }
+            for c in candidates[:3]
+        ],
         passed_count=len(candidates),
         abstained=not candidates,
         latency_ms=int((time.monotonic() - t0) * 1000),
@@ -495,6 +567,13 @@ def retrieve_postgres(
     _end_span(
         retrieval_span,
         "rerank",
+        output=[
+            {
+                "chunk_id": r["component_uri"],
+                "score": round(r.get("score", 0.0), 4),
+            }
+            for r in ranked[:3]
+        ],
         tier=reranker_tier,
         final_count=len(ranked),
         top_score=float(ranked[0].get("score", 0.0)) if ranked else 0.0,
