@@ -264,6 +264,12 @@ def retrieve_postgres(
         try:
             retrieval_span = lf_trace.span(
                 name="retrieval",
+                input={
+                    "query": query,
+                    "query_ne": query_ne,
+                    "as_of": str(as_of),
+                    "k": k,
+                },
                 metadata={
                     "query_hash": hashlib.sha256(query.encode()).hexdigest()[:16],
                     "as_of": str(as_of),
@@ -285,7 +291,7 @@ def retrieve_postgres(
     if not eligible:
         if retrieval_span:
             try:
-                retrieval_span.end()
+                retrieval_span.end(output=[])
             except Exception:
                 pass
         return []
@@ -473,7 +479,7 @@ def retrieve_postgres(
     if not candidates:
         if retrieval_span:
             try:
-                retrieval_span.end()
+                retrieval_span.end(output=[])
             except Exception:
                 pass
         return []
@@ -518,11 +524,20 @@ def retrieve_postgres(
     if retrieval_span is not None:
         try:
             retrieval_span.end(
+                output=[
+                    {
+                        "work_title_ne": h.get("work_title_ne", ""),
+                        "section_number": h.get("section_number", ""),
+                        "score": round(h.get("score", 0.0), 4),
+                        "text_snippet": str(h.get("text_ne", ""))[:160],
+                    }
+                    for h in result_hits
+                ],
                 metadata={
                     "eligible_count": len(eligible),
                     "final_count": len(result_hits),
                     "top_vector_score": round(top_vec, 4),
-                }
+                },
             )
         except Exception:
             pass
