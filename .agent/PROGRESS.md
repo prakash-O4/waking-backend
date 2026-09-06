@@ -1,6 +1,9 @@
 # Wakil-G — Orchestration Progress
 
-## Current task — AGENT-43, fix needless abstention from the quote-support check (assigned, awaiting dispatch)
+## Current task
+None open. AGENT-43 closed (below).
+
+## AGENT-43 — fix needless abstention from the quote-support check (closed, merged 2026-09-06)
 
 Direct follow-on to AGENT-42, found the moment its fix went live:
 Prakash asked "List me the basic rights of labor" and got a full
@@ -66,11 +69,34 @@ only the comparison side changes), touching `_extractive_claim()`
 `_compose_answer`/`_fact_extract` prompts (unaffected), any
 regex/fuzzy-matching approach.
 
-Branch `agent/fix-quote-support-check` created off `dev` (clean tree
-verified first, up to date with `origin/dev`). `task.md` committed
-there (`86d8c1d`, author `Prakash Basnet`). Assigned to **Pi** (precise
-backend/domain debugging, per this skill's engineer-selection rubric).
-Awaiting Prakash to dispatch.
+**Delivered** (commit `e01fe42`, correct author): matched `task.md`
+exactly — `validation_gate.py::_normalize()` now strips `**` and `##`
+via plain `str.replace` (no regex); `gated_orchestrator.py`'s
+`_structured_claims` system prompt tightened to forbid `...`-splicing
+and require separate claim objects per non-adjacent excerpt;
+`tests/test_validation_gate.py` gained all four required cases — bold
+दफा heading stripped correctly, trailing chapter marker stripped
+correctly, tariff dashes (`-दुरम गहुँ:`) left untouched, `<amend>`/`✂`
+provenance markup left untouched.
+
+Independently reproduced rather than trusting the report (same
+standard as AGENT-42): `.venv/bin/python -m pytest tests/` — 300
+passed (4 new), 4 skipped, 1 failure
+(`test_wall_clock_cap_returns_validated_so_far`) — the same
+order-dependent pre-existing flake documented in AGENT-41/AGENT-42's
+entries, passes in isolation, unrelated to this diff. `ruff
+check`/`ruff format --check`/`mypy --strict` (exact Makefile file list,
+via `.venv/bin/python`) all clean. Independently re-verified the fully
+wired-in fix against the real Azure endpoint myself (not just Pi's
+claim) by replaying the exact real दफा ३ chunk through the actual
+`_structured_claims()` + `_claim_supported()` three times: 3/3 clean,
+no splicing, all claims supported — matches Pi's own report.
+
+No blocking findings. Merged `agent/fix-quote-support-check` → `dev`
+(`--no-ff`, `88d565b`), author/committer both `Prakash Basnet
+<basnetprakash090@gmail.com>`. Re-ran `pytest tests/` on merged `dev` —
+identical result. `task.md` cleared, branch
+`agent/fix-quote-support-check` pending deletion.
 
 Still separately queued, not part of this task: the Langfuse `flush()`
 call is synchronous and inline in both `/ask` and `/ask/stream`'s
@@ -178,15 +204,18 @@ No blocking findings. Merged `agent/fix-reasoner-json-mode` → `dev`
 identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
 cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
 
-## Next action (superseded by AGENT-43 above, kept for continuity)
-Once AGENT-43 merges: use `scripts/dev_console.html` to generate real
-Langfuse traffic for roadmap item 4's labeling work — translation,
-fact-extraction, and answer composition all now actually run, reliably
-parse, and no longer needlessly abstain on genuinely answerable
-questions, so real traffic should look qualitatively different again.
+## Next action
+Use `scripts/dev_console.html` to generate real Langfuse traffic for
+roadmap item 4's labeling work — translation, fact-extraction, and
+answer composition all now actually run, reliably parse, and no longer
+needlessly abstain on genuinely answerable questions, so real traffic
+should look qualitatively different again. Separately, Prakash still
+hasn't decided priority on the Langfuse `flush()` blocking-latency
+finding noted above (AGENT-43 entry) — worth raising again if it
+doesn't come up on its own.
 
 ## Status
-**Healthy.** AGENT-36 through AGENT-42 merged to `dev`. Auth, the
+**Healthy.** AGENT-36 through AGENT-43 merged to `dev`. Auth, the
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
 
