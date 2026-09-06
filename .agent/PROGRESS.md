@@ -1,6 +1,12 @@
 # Wakil-G — Orchestration Progress
 
-## Current task — AGENT-45, add input/output visibility to remaining blind Langfuse spans (assigned, awaiting dispatch)
+## Current task
+None open. AGENT-45 closed (below). AGENT-46 (`agent/scale-retrieval-breadth`)
+still open, branched off the same `dev` point as AGENT-45 was —
+re-synced against this merge before it's dispatched (see its own entry
+below).
+
+## AGENT-45 — add input/output visibility to remaining blind Langfuse spans (closed, merged 2026-09-06)
 
 Prakash noticed `co_retrieve_parent_resolution`/`cross_ref_resolution`/
 `enabling_power_resolution` always show `input`/`output` as undefined
@@ -41,11 +47,40 @@ set. Ponytail: no new dependency, no new abstraction beyond extending
 one existing helper function; this is purely additive tracing, zero
 change to retrieval/gate logic or any function's return shape.
 
-Branch `agent/trace-visibility-sweep` created off `dev` (clean tree
-verified first, up to date with `origin/dev`). `task.md` committed
-there (`85023ca`, author `Prakash Basnet`). Assigned to **Pi** (precise,
-mechanical backend change across a well-specified list of call sites).
-Awaiting Prakash to dispatch.
+**Delivered** (commit `9345297`, correct author — Pi committed this
+time rather than leaving it in the working tree, first time this
+session): matched `task.md` exactly across all 12 spans.
+`postgres_retriever.py::_end_span()` extended with keyword-only
+`input`/`output` params, omitted (not passed as `None`) when unset;
+`eligibility_gate` correctly left untouched. All 5 `query_graph.py`
+inline spans updated in place, same capped ID/score-only shape. One
+new unit test (`test_end_span_records_capped_io_without_none_values`)
+covers the helper's own None-omission mechanism.
+
+Independently reproduced rather than trusting the report: `.venv/bin/python
+-m pytest tests/` — 302 passed/4 skipped (0 failures this run — same
+order-dependent flake as always, nondeterministic); `ruff check`/`ruff
+format --check`/`mypy --strict` (exact Makefile list) clean. Pi
+couldn't run the live trace check (no LANGFUSE_*/DB env in their
+shell, honestly flagged rather than skipped silently) — verified it
+myself instead: ran a real query through `run_query()` against the
+live DB/Azure stack, waited for the background batch export (AGENT-44's
+fix), then pulled the actual trace back from Langfuse Cloud via the
+API and inspected every observation directly. All 11 non-eligibility
+spans populated correctly — including confirming `exact_lookup`'s new
+`input` correctly shows *why* it didn't fire
+(`section_range`/`section_num`/etc. all null/empty) and that spans
+with genuinely empty results (`cross_ref_resolution`,
+`co_retrieve_parent_resolution`, `enabling_power_resolution`,
+`exact_lookup`'s output) correctly show `output: []`, not a missing
+field — `eligibility_gate` correctly still has both `input`/`output`
+as `None`.
+
+No blocking findings. Merged `agent/trace-visibility-sweep` → `dev`
+(`--no-ff`, `0508fde`), author/committer both `Prakash Basnet
+<basnetprakash090@gmail.com>`. Re-ran `pytest tests/` on merged `dev` —
+301 passed/4 skipped/1 flake (same known test). `task.md` cleared,
+branch `agent/trace-visibility-sweep` pending deletion.
 
 **Also raised by Prakash this session, explicitly deferred, recorded
 for later evaluation, not started**: a single orchestrating "brain"
@@ -349,16 +384,22 @@ identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
 cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
 
 ## Next action
-Use `scripts/dev_console.html` to generate real Langfuse traffic for
-roadmap item 4's labeling work — translation, fact-extraction, and
-answer composition all now actually run, reliably parse, no longer
-needlessly abstain on genuinely answerable questions, and responses no
-longer carry a spurious up-to-5s delay from trace-export waits.
+AGENT-46 (`agent/scale-retrieval-breadth`) is still open, branched off
+`dev` before this AGENT-45 merge — re-sync it against current `dev`
+before dispatching Pi on it (low conflict risk expected: AGENT-45
+touched span-creation code in `query_graph.py`'s resolver/authority/
+validation nodes, AGENT-46 touches `reasoner_node`'s body — different
+functions in the same file). Once AGENT-46 merges too: use
+`scripts/dev_console.html` to generate real Langfuse traffic for
+roadmap item 4's labeling work — the pipeline should now run reliably,
+answer broad questions with genuine breadth instead of 1-2 citations,
+and traces should be fully legible end-to-end for debugging.
 
 ## Status
-**Healthy.** AGENT-36 through AGENT-44 merged to `dev`. Auth, the
+**Healthy.** AGENT-36 through AGENT-45 merged to `dev`. Auth, the
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
+AGENT-46 in flight (open branch, not yet dispatched).
 
 ## Direct fix (2026-09-06, no task brief — Langfuse SDK v2 → v4 migration)
 Prakash asked directly (code-only mode, no Langfuse project/CLI access
