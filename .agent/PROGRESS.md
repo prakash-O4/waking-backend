@@ -1,7 +1,75 @@
 # Wakil-G — Orchestration Progress
 
-## Current task
-None open. AGENT-44 closed (below).
+## Current task — AGENT-46, scale retrieval breadth for enumerate/list-style questions (assigned, awaiting dispatch)
+
+**Two branches open in parallel right now** — this one
+(`agent/scale-retrieval-breadth`) and `agent/trace-visibility-sweep`
+(AGENT-45, scoped in the same session, pushed first, not yet merged as
+of this branch's creation). Both branched off `dev` at `ff7d4dc`. Both
+touch `query_graph.py` but in different functions (AGENT-45: span
+creation code in the resolver/authority/validation nodes; AGENT-46:
+`reasoner_node`'s body) — low conflict risk, but merge AGENT-45 first
+(it was scoped first) and re-sync this branch before merging AGENT-46,
+same as always.
+
+Root cause: `k=5` (top-5 retrieval) is a hardcoded constant applied
+identically regardless of query phrasing, and `_fact_extract`'s
+issue-query decomposition caps at `MAX_SUBQUERIES = 3` with no
+mechanism anywhere that detects "list all X" / enumerate-style
+phrasing and scales breadth. Confirmed via the "List me the basic
+rights of labor" trace: only 2 citations came back despite श्रम ऐन
+२०७४ having 150+ sections — a narrow lookup and a broad enumerate
+question are retrieved by the identical mechanism today.
+
+Prakash's own framing: not just a "list all X" special case — the
+properly general fix would be a single orchestrating "brain" agent
+that decides *how* to handle each query and routes to the right
+strategy. Explicitly deferred: "maybe not now but we need to do this
+in future by evaluating the usecase." AGENT-46 is a deliberately
+narrow interim fix, not that — it teaches the *existing* `_fact_extract`
+LLM call to decompose more aggressively for broad questions, reusing
+infrastructure that already exists rather than building a new routing
+layer. Recorded as a parked future direction, not started.
+
+**Design verified empirically before writing the brief** (established
+practice this session — never assume a prompt change works): a soft
+"split into multiple queries for broad questions" instruction was
+tried first and the model ignored it (still 1 issue_query for the
+labor-rights question). A stronger, directive version — explicit
+"MUST split into 4-6 issue_queries... a single issue_query is WRONG for
+this question type" — worked correctly against the real API: 6 topic-
+specific sub-queries (wages, hours, leave, safety, termination, dispute
+resolution) for the broad question, exactly 1 for a narrow control
+question ("what is the notice period for termination").
+
+**Real cost identified and addressed, not ignored**: `reasoner_node`
+currently calls `_structured_claims()` sequentially, one Azure LLM call
+per issue_query (each already taking 3-14s against the real API per
+this session's own verification runs) — going to 6 issue_queries
+unparallelized would multiply reasoner latency up to 6x. Fixed by
+extending `retrieve_node`'s existing, already-proven
+`ThreadPoolExecutor` parallel-fan-out pattern (same `MAX_RETRIEVER_FANOUT`
+constant, same "don't pass `lf_trace` into parallel workers — not
+assumed thread-safe" convention, same exception-falls-back-to-sequential
+behavior) to `reasoner_node` — no new concurrency primitive, no new
+dependency, reusing what already works and is already tested
+(`test_orchestrator.py::test_parallel_retrieve_preserves_issue_order_and_closes_pool`
+is the existing precedent test for the pattern being mirrored).
+
+Explicitly forbidden in `task.md`: changing `k`, touching
+`retrieve_node`'s own implementation, touching `_compose_answer`,
+adding any new concurrency primitive/dependency, building any form of
+query-routing/orchestrator agent (that's the deferred bigger vision
+above, not this task), touching `validate_node`/gate logic.
+
+Branch `agent/scale-retrieval-breadth` created off `dev` (clean tree
+verified first, up to date with `origin/dev`). `task.md` committed
+there (`abd68b4`, author `Prakash Basnet`). Assigned to **Pi** (precise
+backend/domain change: prompt tuning + a concurrency refactor mirroring
+an existing pattern). Awaiting Prakash to dispatch — **after AGENT-45
+merges first**, per the parallel-branch note above.
+
+## AGENT-44 — stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (closed, merged 2026-09-06)
 
 ## AGENT-44 — stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (closed, merged 2026-09-06)
 
