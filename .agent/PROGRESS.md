@@ -1,6 +1,15 @@
 # Wakil-G — Orchestration Progress
 
-## Current task — AGENT-46, scale retrieval breadth for enumerate/list-style questions (assigned, awaiting dispatch)
+## Current task — none in flight, awaiting Prakash's next direction
+
+AGENT-46 (below) merged to `dev` 2026-09-06. Nothing assigned or
+in-progress. One informational item surfaced during this close-out,
+not a task unless asked: an untracked `docs/legal_rag_ingestion_best_practices.md`
+(tariff-schedule ingestion notes, unrelated to AGENT-46's scope) was
+found sitting in the working tree at session start — left untracked
+per Prakash's instruction, not committed to any branch.
+
+## AGENT-46 — scale retrieval breadth for enumerate/list-style questions (closed, merged into dev 2026-09-06)
 
 Branched off `dev` before AGENT-45 merged; re-synced against `dev`
 after AGENT-45's merge (`git merge dev` — only `.agent/PROGRESS.md`
@@ -63,8 +72,57 @@ Branch `agent/scale-retrieval-breadth` created off `dev` (clean tree
 verified first, up to date with `origin/dev`). `task.md` committed
 there (`abd68b4`, author `Prakash Basnet`). Assigned to **Pi** (precise
 backend/domain change: prompt tuning + a concurrency refactor mirroring
-an existing pattern). Awaiting Prakash to dispatch — branch is now
-synced against `dev` post-AGENT-45, ready to go.
+an existing pattern).
+
+**Implementation matched `task.md` exactly** — `MAX_SUBQUERIES` raised
+3→6, `_fact_extract` prompt strengthened with the empirically-verified
+directive wording, `reasoner_node` parallelized mirroring
+`retrieve_node`'s `ThreadPoolExecutor` pattern verbatim (no new import,
+no new concurrency primitive). `k`, `retrieve_node`'s own
+implementation, `_compose_answer`, and `validate_node` all untouched,
+as forbidden.
+
+**Claude Review Gate (2026-09-06):**
+- 4 new tests added to `tests/test_orchestrator.py` mirroring
+  `test_parallel_retrieve_preserves_issue_order_and_closes_pool`'s
+  structure: single-issue stays sequential, multi-issue preserves
+  order or `query_type`, one `_structured_claims`-returns-`None` among
+  several still yields `"extractive"` + keeps the other results, a
+  mocked exception in parallel dispatch falls back to sequential.
+- `.venv/bin/python -m pytest tests/` — 306 passed, 4 skipped.
+- `.venv/bin/python -m ruff check` / `ruff format --check` / `mypy
+  --strict` on the Makefile's lint file list — all green (note:
+  `app/retrieval/query_graph.py` itself is not in that file list — a
+  pre-existing gap, not introduced by this task).
+- **Live verification** against the real Azure deployment (Postgres
+  container `wakilg-postgres` and a `uvicorn app.main:app --reload`
+  process were already running at session start):
+  - `_fact_extract("श्रमिकका आधारभूत अधिकारहरू के के हुन्...")` → 6
+    topic-specific issue_queries (wages/hours/leave/safety/termination/
+    dispute), reproducing the brief's own verification.
+  - `reasoner_node` given those 6 issue_queries: 6 real
+    `_structured_claims` calls at 2.9–5.5s each (≈26s if sequential)
+    completed in 6.6s wall time — confirms the parallelization actually
+    eliminates the ~6x latency multiplication, not just in unit-test
+    mocks.
+  - Full `answer()` run on the same question: `_pending_results` had
+    claims from all 6 issues, but the final `relevant_sections` in the
+    composed answer only surfaced 3 — `_compose_answer`'s synthesis
+    (or corpus coverage — most laws still not ingested per the
+    "Operational steps still pending" list below) is the likely
+    bottleneck, not this task's reasoner change. Both `_compose_answer`
+    and corpus completeness are explicitly out of this task's scope;
+    recorded here as a parked observation, not a new task unless
+    Prakash wants one opened.
+- Hygiene: no stray `.md` files committed to the branch (`task.md`
+  cleared before merge, per convention); the unrelated
+  `docs/legal_rag_ingestion_best_practices.md` found in the working
+  tree was explicitly left untracked, not committed to this or any
+  branch, per Prakash's direction.
+
+Commits: `a0c7550` (implementation), `9d9d33e` (chore: clear task.md),
+merged to `dev` with `--no-ff` (merge commit on `dev`, 2026-09-06).
+Both branch and `dev` pushed to `origin`.
 
 ## AGENT-45 — add input/output visibility to remaining blind Langfuse spans (closed, merged 2026-09-06)
 
