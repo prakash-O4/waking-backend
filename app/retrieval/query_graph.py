@@ -12,9 +12,26 @@ import app.retrieval.gated_orchestrator as _orch
 from app.retrieval.eligibility_gate import eligible_chunk_ids
 from app.retrieval.postgres_retriever import get_lf_client as _get_lf_client
 from app.retrieval.query_state import QueryState
+from app.utils.loggers import logger
 
 _ASCII_TO_DEVA = str.maketrans("0123456789", "०१२३४५६७८९")
 MAX_RETRIEVER_FANOUT = 5
+
+
+def _trace_error(
+    lf_trace: Any, stage: str, error: Exception, *, fatal: bool = False
+) -> None:
+    msg = f"{stage} failed: {error}"
+    logger.warning(msg)
+    if lf_trace is None:
+        return
+    try:
+        span = lf_trace.span(name=f"error.{stage}", metadata={"error": msg})
+        span.end()
+        if fatal:
+            lf_trace.update(output={"error": msg}, end_time=datetime.now())
+    except Exception:
+        pass
 
 
 def _issue_queries_for_state(state: QueryState) -> list[dict[str, Any]]:
@@ -65,7 +82,8 @@ def fact_extractor_node(state: QueryState, config: RunnableConfig) -> dict[str, 
             probe = _orch.retrieve_postgres(
                 conn, state["raw_query"], state["session_as_of"], k=3, lf_trace=lf_trace
             )
-        except Exception:
+        except Exception as e:
+            _trace_error(lf_trace, "coverage_probe", e)
             probe = []
         if probe:
             interrupted = False
@@ -144,7 +162,8 @@ def retrieve_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
             "all_hits": [h for hits in per_issue for h in hits],
             "_pending_results": [],
         }
-    except Exception:
+    except Exception as e:
+        _trace_error(lf_trace, "parallel_retrieval", e)
         return {"all_hits": sequential(), "_pending_results": []}
     finally:
         if pool is not None:
@@ -357,8 +376,9 @@ def enabling_power_resolver_node(
             if enabling and enabling["component_uri"] not in existing_ids:
                 existing_ids.add(enabling["component_uri"])
                 additional.append(enabling)
-    except Exception:
+    except Exception as e:
         # DB or eligibility-gate failure must not break the query path.
+        _trace_error(lf_trace, "enabling_power_resolution", e)
         additional = []
 
     if lf_trace is not None:
@@ -571,15 +591,19 @@ def _initial_state(question: str, session_as_of: date) -> QueryState:
 
 def run_query(question: str, session_as_of: date, conn: Any) -> dict[str, Any]:
     lf_trace = _start_trace(question, session_as_of)
-    result = _graph.invoke(
-        _initial_state(question, session_as_of),
-        config={
-            "configurable": {"conn": conn, "lf_trace": lf_trace},
-            "recursion_limit": 10,
-        },
-    )
-
-    _flush_langfuse()
+    try:
+        result = _graph.invoke(
+            _initial_state(question, session_as_of),
+            config={
+                "configurable": {"conn": conn, "lf_trace": lf_trace},
+                "recursion_limit": 10,
+            },
+        )
+    except Exception as e:
+        _trace_error(lf_trace, "query_pipeline", e, fatal=True)
+        raise
+    finally:
+        _flush_langfuse()
 
     return cast(dict[str, Any], result["_response"])
 
@@ -615,7 +639,8 @@ def stream_query(
                     last = now
         if not flushed:
             _flush_langfuse()
-    except Exception:
+    except Exception as e:
+        _trace_error(lf_trace, "stream_query_pipeline", e, fatal=True)
         if not flushed:
             _flush_langfuse()
             yield {"stage": "error", "status": "error", "detail": "query failed"}

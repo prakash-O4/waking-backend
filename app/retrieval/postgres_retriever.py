@@ -15,6 +15,8 @@ from psycopg2.extensions import connection
 from app.config import azure_base_url, get_settings
 from app.retrieval.eligibility_gate import eligible_chunk_ids
 from app.retrieval.reranker import rerank
+from app.utils.llm import llm_text
+from app.utils.loggers import logger as logger
 
 _DIGIT_MAP = str.maketrans("०१२३४५६७८९", "0123456789")
 _RELEVANCE_THRESHOLD = 0.005
@@ -87,16 +89,18 @@ def translate_query(query: str) -> str | None:
     if not _needs_nepali_variant(query):
         return None
     s = get_settings()
-    if not s.GEMINI_API_KEY:
+    if not s.AZURE_OPENAI_LLM_KEY:
         return None
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_openai import AzureChatOpenAI
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=s.GEMINI_API_KEY,
+        llm = AzureChatOpenAI(
+            azure_endpoint=azure_base_url(s.AZURE_OPENAI_LLM_ENDPOINT),
+            azure_deployment=s.AZURE_OPENAI_LLM_DEPLOYMENT,
+            api_key=s.AZURE_OPENAI_LLM_KEY,
+            api_version=s.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
-            max_output_tokens=300,
+            max_tokens=1000,
         )
         resp = llm.invoke(
             [
@@ -110,9 +114,10 @@ def translate_query(query: str) -> str | None:
                 {"role": "user", "content": query},
             ]
         )
-        translated = str(resp.content).strip()
+        translated = llm_text(resp).strip()
         return translated if translated else None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"translate_query failed: {e}")
         return None
 
 

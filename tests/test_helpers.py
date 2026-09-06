@@ -98,3 +98,25 @@ def test_get_user_id_calls_get_claims_once(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert h.get_user_id("token") == "user-1"
     assert calls == 1
+
+
+def test_llm_text_reads_list_content_blocks() -> None:
+    from app.utils.llm import llm_text
+
+    class Resp:
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": "hello ", "extras": {}},
+            {"type": "text", "text": "world"},
+        ]
+
+    assert llm_text(Resp()) == "hello world"
+
+
+def test_llm_text_prefers_text_property() -> None:
+    from app.utils.llm import llm_text
+
+    class Resp:
+        text = "plain"
+        content: list[dict[str, Any]] = []
+
+    assert llm_text(Resp()) == "plain"

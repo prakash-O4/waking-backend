@@ -264,16 +264,16 @@ def test_resolve_act_titles_returns_multiple_acts(monkeypatch: Any) -> None:
 
 def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
     class Settings:
-        GEMINI_API_KEY = "key"
+        AZURE_OPENAI_LLM_KEY = "key"
 
-    module = types.ModuleType("langchain_google_genai")
+    module = types.ModuleType("langchain_openai")
 
     class BadLLM:
         def __init__(self, **kwargs: Any) -> None:
             raise AssertionError("LLM should not be called")
 
-    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
-    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    setattr(module, "AzureChatOpenAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_openai", module)
     monkeypatch.setattr(r, "get_settings", lambda: Settings())
     assert r.translate_query("दफा १") is None
 
@@ -284,12 +284,15 @@ def test_translate_query_skips_devanagari(monkeypatch: Any) -> None:
 )
 def test_translate_query_calls_llm_for_ascii(monkeypatch: Any, query: str) -> None:
     class Settings:
-        GEMINI_API_KEY = "key"
+        AZURE_OPENAI_LLM_KEY = "key"
+        AZURE_OPENAI_LLM_ENDPOINT = "https://example.openai.azure.com"
+        AZURE_OPENAI_LLM_DEPLOYMENT = "gpt-4.1-mini"
+        AZURE_OPENAI_API_VERSION = "2023-05-15"
 
     class Response:
-        content = "दफा १"
+        content = [{"type": "text", "text": "दफा १", "extras": {}}]
 
-    module = types.ModuleType("langchain_google_genai")
+    module = types.ModuleType("langchain_openai")
     calls = []
 
     class GoodLLM:
@@ -300,8 +303,8 @@ def test_translate_query_calls_llm_for_ascii(monkeypatch: Any, query: str) -> No
             calls.append(messages)
             return Response()
 
-    setattr(module, "ChatGoogleGenerativeAI", GoodLLM)
-    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    setattr(module, "AzureChatOpenAI", GoodLLM)
+    monkeypatch.setitem(sys.modules, "langchain_openai", module)
     monkeypatch.setattr(r, "get_settings", lambda: Settings())
 
     assert r.translate_query(query) == "दफा १"
@@ -310,32 +313,38 @@ def test_translate_query_calls_llm_for_ascii(monkeypatch: Any, query: str) -> No
 
 def test_translate_query_returns_none_on_api_failure(monkeypatch: Any) -> None:
     class Settings:
-        GEMINI_API_KEY = "key"
+        AZURE_OPENAI_LLM_KEY = "key"
+        AZURE_OPENAI_LLM_ENDPOINT = "https://example.openai.azure.com"
+        AZURE_OPENAI_LLM_DEPLOYMENT = "gpt-4.1-mini"
+        AZURE_OPENAI_API_VERSION = "2023-05-15"
 
-    module = types.ModuleType("langchain_google_genai")
+    module = types.ModuleType("langchain_openai")
 
     class BadLLM:
         def __init__(self, **kwargs: Any) -> None:
             raise RuntimeError("boom")
 
-    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
-    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    setattr(module, "AzureChatOpenAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_openai", module)
+    warnings = []
+    monkeypatch.setattr(r.logger, "warning", lambda message: warnings.append(message))
     monkeypatch.setattr(r, "get_settings", lambda: Settings())
     assert r.translate_query("what is section 1") is None
+    assert warnings and "translate_query failed: boom" in warnings[0]
 
 
 def test_translate_query_skips_when_key_unset(monkeypatch: Any) -> None:
     class Settings:
-        GEMINI_API_KEY = ""
+        AZURE_OPENAI_LLM_KEY = ""
 
-    module = types.ModuleType("langchain_google_genai")
+    module = types.ModuleType("langchain_openai")
 
     class BadLLM:
         def __init__(self, **kwargs: Any) -> None:
             raise AssertionError("LLM should not be called")
 
-    setattr(module, "ChatGoogleGenerativeAI", BadLLM)
-    monkeypatch.setitem(sys.modules, "langchain_google_genai", module)
+    setattr(module, "AzureChatOpenAI", BadLLM)
+    monkeypatch.setitem(sys.modules, "langchain_openai", module)
     monkeypatch.setattr(r, "get_settings", lambda: Settings())
     assert r.translate_query("section 1") is None
 
