@@ -191,30 +191,60 @@ def reasoner_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         }
     ]
     facts = state["facts"]
-    query_type = state["query_type"]
-    pending_results: list[dict[str, Any]] = []
+    base_query_type = state["query_type"]
 
     hits_by_issue: dict[int, list[dict[str, Any]]] = {}
     for h in all_hits:
         idx = h.get("_issue_idx", 0)
         hits_by_issue.setdefault(idx, []).append(h)
 
-    for idx, iq in enumerate(issue_queries):
+    def run_one(
+        idx: int, iq: dict[str, Any], trace: Any
+    ) -> tuple[int, dict[str, Any] | None]:
         issue_hits = hits_by_issue.get(idx, [])
         if not issue_hits:
-            continue
+            return idx, None
 
-        parsed = _orch._structured_claims(facts, [iq], issue_hits, lf_trace=lf_trace)
+        parsed = _orch._structured_claims(facts, [iq], issue_hits, lf_trace=trace)
         if parsed is None:
             claims = _orch._extractive_claim(issue_hits)
-            query_type = "extractive"
-        elif parsed.get("abstain") or not parsed.get("claims"):
+            return idx, {"claims": claims, "as_of": iq["as_of"], "extractive": True}
+        if parsed.get("abstain") or not parsed.get("claims"):
+            return idx, None
+        return idx, {
+            "claims": parsed["claims"],
+            "as_of": iq["as_of"],
+            "extractive": False,
+        }
+
+    def sequential() -> list[tuple[int, dict[str, Any] | None]]:
+        return [run_one(idx, iq, lf_trace) for idx, iq in enumerate(issue_queries)]
+
+    if len(issue_queries) <= 1:
+        results = sequential()
+    else:
+        try:
+            max_workers = min(len(issue_queries), MAX_RETRIEVER_FANOUT)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Langfuse trace objects are not assumed thread-safe; node-level traces stay on main thread.
+                futures = [
+                    executor.submit(run_one, idx, iq, None)
+                    for idx, iq in enumerate(issue_queries)
+                ]
+                results = [f.result() for f in futures]
+        except Exception as e:
+            _trace_error(lf_trace, "parallel_reasoning", e)
+            results = sequential()
+
+    pending_results: list[dict[str, Any]] = []
+    used_extractive = False
+    for idx, res in sorted(results, key=lambda r: r[0]):
+        if res is None:
             continue
-        else:
-            claims = parsed["claims"]
+        used_extractive = used_extractive or res.pop("extractive")
+        pending_results.append(res)
 
-        pending_results.append({"claims": claims, "as_of": iq["as_of"]})
-
+    query_type = "extractive" if used_extractive else base_query_type
     return {"query_type": query_type, "_pending_results": pending_results}
 
 
