@@ -1,77 +1,76 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-None open. AGENT-40 closed (below). Roadmap items 5-6 remain queued
-behind item 4's full closure (labeling + measured decision, not just
-tooling) — see "No real traffic yet" entry below.
+AGENT-41 dispatched (below) — fix silently-failing Gemini calls
+(deprecated model, zero logging). Blocking: this is degrading every
+real query in production right now, not a cosmetic bug.
 
-**How this was found**: Prakash used the AGENT-37/38 dev console with a
-real Supabase account for the first time (first real end-to-end auth
-test in this project's history) and got a confusing
-`404 {"detail":"Error fetching user details: 401: Invalid token"}` on
-every request, even with a correct, freshly-obtained token. Extensive
-live diagnosis (not guessed): ruled out console/localStorage staleness,
-wrong API base URL, header transmission/mangling (checked via `curl -v`,
-header arrived byte-for-byte intact), token expiry/clock skew (verified
-via decoded `iat`/`exp` vs system time), and server-process env
-staleness (restarted the server, same failure). Root cause confirmed by
-directly testing `SupabaseHelper` methods in isolation against a real
-token: `validate_token()` calls a **private** method,
-`self.supabase.auth._decode_jwt`, that **does not exist** in the
-`supabase==2.31.0` version pinned in `requirements.txt` and actually
-installed in `.venv` (confirmed via `AttributeError` reproduced
-directly). The `AttributeError` gets swallowed by
-`validate_token`'s own broad `except Exception: return False`, so every
-real token fails validation, always — invisible until now because the
-whole test suite mocks `SupabaseHelper` away entirely, and
-`app/utils/helpers.py` isn't in the Makefile's lint/mypy coverage at
-all (confirmed: zero tests, zero static checks on this file, ever).
+**How this was found**: Prakash ran a real question through the console
+("What does the labor law says?") post-AGENT-40 and flagged two things:
+the Langfuse trace showed empty `output` on several spans, and the
+retrieval was "way out of context" (an unrelated Cooperatives Act
+chunk came back for a labor-law question). Live diagnosis (not
+guessed): traced both symptoms to the same root cause by reproducing
+the actual Gemini call directly — `gemini-2.5-flash` (hardcoded in
+three places: `translate_query()`, `_fact_extract()`, `_compose_answer()`)
+now 404s ("no longer available to new users"), confirmed via direct
+`ChatGoogleGenerativeAI(...).invoke(...)` against the live API key. All
+three call sites swallow the exception in a bare `except Exception:
+return <fallback>`, and neither `gated_orchestrator.py` nor
+`postgres_retriever.py` imports a logger — so this has been failing
+100% silently since the model was deprecated. Effect: `translate_query`
+returning `None` means AGENT-39's dual-query normalization has never
+actually run in production; `_compose_answer` returning `None` means
+every real answer has been the raw extractive fallback
+(`reasoner_fallback:extractive`), not the composed answer. Because the
+exception fires inside `llm.invoke()`, before the code reaches
+`_lf_gen_end(gen, ...)`, the Langfuse generation gets `input` recorded
+but never `output` — that's a symptom of this bug, not a separate
+tracing defect.
 
-Also surfaced along the way (noted, not separately actioned): a bare
-`python3` in some shells on this machine resolves to a different,
-older Python (missing the pinned `supabase` version entirely) than the
-project's actual `.venv` — Claude's own `make test`/`make lint` runs
-this session were against that wrong interpreter for unrelated checks,
-though harmlessly, since none of AGENT-36/37/38/39 touched this file
-and the test suite mocks around it either way. Worth fixing the
-Makefile/environment setup separately at some point, not urgent.
+Verified empirically (not assumed) that this isn't a one-line rename:
+tested `gemini-3.6-flash` (Google's own suggested replacement) directly
+— it works, but returns `resp.content` as a list of content blocks
+(not a plain string) on one call and came back completely empty on
+another (shorter `max_output_tokens`, likely a reasoning/thinking token
+budget eating the visible output), and it ignores `temperature`
+("fixed sampling defaults"). `gemini-flash-latest` also returned empty
+content in a quick test. Brief mandates the engineer empirically
+re-verify against the real API with the actual prod prompts (not a toy
+prompt) before picking a model — same lesson as AGENT-40's
+`ClaimsResponse` mock mismatch: verify third-party runtime shape, don't
+assume it from a name or a suggested-replacement message.
 
-Fix direction (confirmed against the actual installed package source,
-not assumed): replace the private call with the public
-`self.supabase.auth.get_claims(jwt=<raw_token>)`, which already exists
-in this exact installed version and does the job properly (expiry
-check, then either a `get_user()` fallback for HS256 tokens — this
-project's actual token type, confirmed from a real decoded JWT header —
-or full JWKS signature verification for asymmetric algorithms). Two
-non-obvious correctness gotchas baked into the brief: (1) unlike the
-old broken method, `get_claims` needs the "Bearer " prefix stripped
-*before* the call, not after — the old code's stripping order would
-silently break it differently; (2) since `get_claims` already calls
-`get_user()` internally for this project's tokens, the old two-step
-validate-then-fetch pattern must collapse into one call, or the fix
-would introduce a redundant second network round-trip per request.
-Brief also mandates: fix the incidentally-wrong `-> Dict` return type on
-`get_user_id` (actually returns a string), remove a pre-existing dead
-`except jwt.ExpiredSignatureError` clause, add `app/utils/helpers.py` to
-the Makefile's lint/mypy coverage (checked in advance: only 8 mypy / 2
-ruff issues surface, small and bounded), and add the first-ever unit
-tests for this file (`tests/test_helpers.py`) against a mocked
-`get_claims`, including a regression test that it's called exactly once
-per request (not twice).
+Fix direction: (1) move the model name into `Settings.GEMINI_MODEL`
+(one source of truth, following the existing
+`AZURE_OPENAI_LLM_DEPLOYMENT` pattern) instead of three hardcoded
+literals; (2) add a small text-extraction helper that handles both
+plain-string and content-block response shapes, used at all three call
+sites instead of `str(resp.content)`; (3) add real
+`logger.warning(...)` on all three `except Exception as e:` blocks
+(the established convention already used in `advanced_retriever.py`) —
+this is the actual production-safety fix, independent of which model
+gets picked, since it ensures this class of failure can never go silent
+again. Explicitly out of scope: the unrelated `reranker_fallback:
+passthrough` (flashrank) issue, and `_structured_claims()` (Azure-based,
+not broken).
 
-Ponytail/PS-check: this touches auth (`app/utils/helpers.py`), not any
-of the ingestion/gate/temporal/precedent paths PS-1..18 cover, but
-still security-relevant — kept the fix to the minimum needed (no new
-dependency, `get_claims` already available in the pinned package;
-`check_daily_quota`/chat-history logic explicitly untouched).
+Ponytail/PS-check: touches the reasoner/answer-composer path (Core
+Invariant territory — this is what actually produces the legal answer
+content), so kept narrowly scoped to restoring the three calls to
+working, not touching validation/gate logic. Determinism risk flagged
+explicitly (temperature may not carry over to a new model) — Claude to
+review before merge, not the engineer's call to make silently.
 
 ## Status
-**IDLE.** AGENT-36 through AGENT-40 all merged to `dev`. Real
-authenticated `/ask`/`/ask/stream` calls now work end-to-end — verified
-live against Prakash's actual account, not just unit tests. Next action
-is Prakash's own: use `scripts/dev_console.html` to pose real questions
-(all four query forms, per AGENT-39) and start generating real Langfuse
-traffic for roadmap item 4's labeling work via the AGENT-36 CLI.
+**Degraded, not down.** AGENT-36 through AGENT-40 merged to `dev`; auth
+and the console work end-to-end. But real answer quality has been
+silently degraded since `gemini-2.5-flash` was deprecated — translation
+never runs, and every answer falls back to raw extractive claims
+instead of a composed answer. AGENT-41 (above) is the fix. Once merged,
+re-run a real end-to-end query and confirm `degraded_mode` no longer
+shows `reasoner_fallback:extractive`, then resume generating real
+Langfuse traffic via `scripts/dev_console.html` for roadmap item 4.
 
 ## AGENT-40 — fix broken auth token validation (closed, merged 2026-09-06)
 
