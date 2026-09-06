@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib as _hashlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Iterator, cast
 
 from langchain_core.runnables import RunnableConfig
@@ -26,10 +26,13 @@ def _trace_error(
     if lf_trace is None:
         return
     try:
-        span = lf_trace.span(name=f"error.{stage}", metadata={"error": msg})
+        span = lf_trace.start_observation(
+            name=f"error.{stage}", as_type="span", metadata={"error": msg}
+        )
         span.end()
         if fatal:
-            lf_trace.update(output={"error": msg}, end_time=datetime.now())
+            lf_trace.update(output={"error": msg})
+            lf_trace.end()
     except Exception:
         pass
 
@@ -222,8 +225,9 @@ def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str
     ranked = _orch._authority_rank_hits(state["all_hits"], conn)
     if lf_trace is not None:
         try:
-            sp = lf_trace.span(name="authority_ranking")
-            sp.end(metadata={"hits_in": hits_in, "hits_out": len(ranked)})
+            sp = lf_trace.start_observation(name="authority_ranking", as_type="span")
+            sp.update(metadata={"hits_in": hits_in, "hits_out": len(ranked)})
+            sp.end()
         except Exception:
             pass
     return {"all_hits": ranked}
@@ -246,8 +250,11 @@ def co_retrieve_parent_resolver_node(
                 additional.append(hit)
     if lf_trace is not None:
         try:
-            sp = lf_trace.span(name="co_retrieve_parent_resolution")
-            sp.end(metadata={"co_retrieve_parents_added": len(additional)})
+            sp = lf_trace.start_observation(
+                name="co_retrieve_parent_resolution", as_type="span"
+            )
+            sp.update(metadata={"co_retrieve_parents_added": len(additional)})
+            sp.end()
         except Exception:
             pass
     if not additional:
@@ -272,8 +279,11 @@ def cross_ref_resolver_node(
                 additional.append(hit)
     if lf_trace is not None:
         try:
-            sp = lf_trace.span(name="cross_ref_resolution")
-            sp.end(metadata={"cross_refs_added": len(additional)})
+            sp = lf_trace.start_observation(
+                name="cross_ref_resolution", as_type="span"
+            )
+            sp.update(metadata={"cross_refs_added": len(additional)})
+            sp.end()
         except Exception:
             pass
     if not additional:
@@ -383,8 +393,11 @@ def enabling_power_resolver_node(
 
     if lf_trace is not None:
         try:
-            sp = lf_trace.span(name="enabling_power_resolution")
-            sp.end(metadata={"enabling_chunks_added": len(additional)})
+            sp = lf_trace.start_observation(
+                name="enabling_power_resolution", as_type="span"
+            )
+            sp.update(metadata={"enabling_chunks_added": len(additional)})
+            sp.end()
         except Exception:
             pass
     if not additional:
@@ -410,8 +423,8 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
 
     if lf_trace is not None:
         try:
-            sp = lf_trace.span(name="validation")
-            sp.end(
+            sp = lf_trace.start_observation(name="validation", as_type="span")
+            sp.update(
                 metadata={
                     "claims_passed": sum(
                         1 for r in all_results if not r.get("abstained")
@@ -421,6 +434,7 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
                     ),
                 }
             )
+            sp.end()
         except Exception:
             pass
     return {"all_results": all_results}
@@ -436,10 +450,8 @@ def answer_composer_node(state: QueryState, config: RunnableConfig) -> dict[str,
     if state.get("interrupted"):
         if lf_trace is not None:
             try:
-                lf_trace.update(
-                    output={"interrupted": True, "result_count": 0},
-                    end_time=datetime.now(),
-                )
+                lf_trace.update(output={"interrupted": True, "result_count": 0})
+                lf_trace.end()
             except Exception:
                 pass
         return {
@@ -552,8 +564,9 @@ def _start_trace(question: str, session_as_of: date) -> Any:
             if s.LANGFUSE_LOG_CONTENT
             else _hashlib.sha256(question.encode()).hexdigest()[:16]
         )
-        return _lf.trace(
+        return _lf.start_observation(
             name="rag.query",
+            as_type="span",
             input=trace_input,
             metadata={"as_of": session_as_of.isoformat()},
         )

@@ -83,8 +83,9 @@ def _call_llm(
                     else f"[redacted {len(prompt)} chars]"
                 )
                 try:
-                    gen = lf_parent.generation(
+                    gen = lf_parent.start_observation(
                         name=generation_name,
+                        as_type="generation",
                         model=settings.AZURE_OPENAI_LLM_DEPLOYMENT,
                         input=gen_input,
                     )
@@ -100,7 +101,7 @@ def _call_llm(
                     else f"[redacted {len(content)} chars]"
                 )
                 try:
-                    gen.end(
+                    gen.update(
                         output=gen_output,
                         usage_details={
                             "input": usage.get("prompt_tokens", 0),
@@ -108,13 +109,15 @@ def _call_llm(
                             "total": usage.get("total_tokens", 0),
                         },
                     )
+                    gen.end()
                 except Exception:  # noqa: BLE001
                     pass
             return content, usage
         except Exception as exc:  # noqa: BLE001 — provider-agnostic retry
             if gen is not None:
                 try:
-                    gen.end(level="ERROR", status_message=str(exc))
+                    gen.update(level="ERROR", status_message=str(exc))
+                    gen.end()
                 except Exception:  # noqa: BLE001
                     pass
             if attempt == MAX_RETRIES:

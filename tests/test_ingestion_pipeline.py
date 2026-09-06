@@ -221,11 +221,16 @@ def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, name: str) -> None:
             self.name = name
 
-        def end(self, output: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        def update(self, **kwargs: Any) -> None:
+            pass
+
+        def end(self, **kwargs: Any) -> None:
             ended_spans.append(self.name)
 
     class FakeTrace:
-        def span(self, name: str, input: dict[str, Any] | None = None) -> FakeSpan:
+        def start_observation(
+            self, name: str, as_type: str = "span", input: dict[str, Any] | None = None
+        ) -> FakeSpan:
             return FakeSpan(name)
 
         def update(self, **kwargs: Any) -> None:
@@ -249,7 +254,7 @@ def test_langfuse_span_end_called(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_authority_write(*args: Any, **kwargs: Any) -> None:
         pass
 
-    fake_lf = SimpleNamespace(trace=fake_trace, flush=fake_flush)
+    fake_lf = SimpleNamespace(start_observation=fake_trace, flush=fake_flush)
     monkeypatch.setattr(pipeline_mod, "_get_lf_client", lambda: fake_lf)
     monkeypatch.setattr(pipeline_mod, "parse_law", fake_parse_law)
     monkeypatch.setattr(pipeline_mod, "upsert_work", fake_upsert_work)

@@ -66,7 +66,9 @@ def _end_span(trace: Any, stage: str, **metadata: Any) -> None:
     if trace is None:
         return
     try:
-        span = trace.span(name=f"stage.{stage}", metadata=metadata)
+        span = trace.start_observation(
+            name=f"stage.{stage}", as_type="span", metadata=metadata
+        )
         span.end()
     except Exception:
         pass
@@ -262,8 +264,9 @@ def retrieve_postgres(
     retrieval_span = None
     if lf_trace is not None:
         try:
-            retrieval_span = lf_trace.span(
+            retrieval_span = lf_trace.start_observation(
                 name="retrieval",
+                as_type="span",
                 input={
                     "query": query,
                     "query_ne": query_ne,
@@ -291,7 +294,8 @@ def retrieve_postgres(
     if not eligible:
         if retrieval_span:
             try:
-                retrieval_span.end(output=[])
+                retrieval_span.update(output=[])
+                retrieval_span.end()
             except Exception:
                 pass
         return []
@@ -479,7 +483,8 @@ def retrieve_postgres(
     if not candidates:
         if retrieval_span:
             try:
-                retrieval_span.end(output=[])
+                retrieval_span.update(output=[])
+                retrieval_span.end()
             except Exception:
                 pass
         return []
@@ -523,7 +528,7 @@ def retrieve_postgres(
     top_vec = max((h.get("vector_score", 0.0) for h in result_hits), default=0.0)
     if retrieval_span is not None:
         try:
-            retrieval_span.end(
+            retrieval_span.update(
                 output=[
                     {
                         "work_title_ne": h.get("work_title_ne", ""),
@@ -539,6 +544,7 @@ def retrieve_postgres(
                     "top_vector_score": round(top_vec, 4),
                 },
             )
+            retrieval_span.end()
         except Exception:
             pass
     return result_hits

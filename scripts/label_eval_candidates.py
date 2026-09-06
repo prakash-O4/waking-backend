@@ -64,7 +64,7 @@ def fetch(since_days: int, limit: int) -> None:
         raise SystemExit("Langfuse client unavailable; check LANGFUSE_* settings")
     queue = _read_list(QUEUE_FILE)
     seen = {row["trace_id"] for row in queue}
-    response = client.fetch_traces(
+    response = client.api.trace.list(
         name="rag.query",
         from_timestamp=datetime.now(timezone.utc) - timedelta(days=since_days),
         limit=limit,

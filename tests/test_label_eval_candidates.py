@@ -16,8 +16,9 @@ import scripts.label_eval_candidates as lec
 class Client:
     def __init__(self, traces: list[Any]) -> None:
         self.traces = traces
+        self.api = SimpleNamespace(trace=SimpleNamespace(list=self._list))
 
-    def fetch_traces(self, **kwargs: Any) -> Any:
+    def _list(self, **kwargs: Any) -> Any:
         return SimpleNamespace(data=self.traces)
 
 

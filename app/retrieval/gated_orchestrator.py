@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Iterator, cast
 
 from psycopg2.extensions import connection
@@ -51,7 +51,9 @@ def _lf_gen_start(lf_trace: Any, name: str, model: str, messages: list[Any]) -> 
     if lf_trace is None:
         return None
     try:
-        return lf_trace.generation(name=name, model=model, input=messages)
+        return lf_trace.start_observation(
+            name=name, as_type="generation", model=model, input=messages
+        )
     except Exception:
         return None
 
@@ -60,7 +62,8 @@ def _lf_gen_end(gen: Any, output: str) -> None:
     if gen is None:
         return
     try:
-        gen.end(output=output)
+        gen.update(output=output)
+        gen.end()
     except Exception:
         pass
 
@@ -68,15 +71,17 @@ def _lf_gen_end(gen: Any, output: str) -> None:
 def _lf_gen_error(gen: Any, msg: str) -> None:
     """Mark a generation as failed without touching `output`.
 
-    Langfuse's update event omits unset fields (exclude_none), so leaving
-    `output` out here preserves whatever real output an earlier `_lf_gen_end`
-    already recorded (e.g. a response that failed only at JSON-parse time)
-    instead of overwriting it with this error string.
+    Langfuse OTEL span attributes accumulate (set_attributes merges rather
+    than replaces), and unset kwargs here are dropped before that merge, so
+    leaving `output` out preserves whatever real output an earlier
+    `_lf_gen_end` already recorded (e.g. a response that failed only at
+    JSON-parse time) instead of overwriting it with this error string.
     """
     if gen is None:
         return
     try:
-        gen.end(level="ERROR", status_message=msg)
+        gen.update(level="ERROR", status_message=msg)
+        gen.end()
     except Exception:
         pass
 
@@ -636,7 +641,8 @@ def _emit_answer_trace_from_state(
                 )
                 break
     try:
-        lf_trace.update(output=output, end_time=datetime.now())
+        lf_trace.update(output=output)
+        lf_trace.end()
     except Exception:
         pass
 

@@ -96,8 +96,9 @@ class PgvectorIndexer:
         gen = None
         if lf_parent is not None:
             try:
-                gen = lf_parent.generation(
+                gen = lf_parent.start_observation(
                     name="embedding",
+                    as_type="generation",
                     model=deployment,
                     input={
                         "chunk_count": len(texts),
@@ -121,10 +122,11 @@ class PgvectorIndexer:
 
         if gen is not None:
             try:
-                gen.end(
+                gen.update(
                     output={"vectors_produced": len(embeddings)},
                     usage_details={"input": total_tokens, "total": total_tokens},
                 )
+                gen.end()
             except Exception:  # noqa: BLE001
                 pass
         return embeddings, total_tokens

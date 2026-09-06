@@ -84,7 +84,7 @@ def _begin_span(trace: Any, stage: str, input: dict) -> Any:
     if trace is None:
         return None
     try:
-        return trace.span(name=f"stage.{stage}", input=input)
+        return trace.start_observation(name=f"stage.{stage}", as_type="span", input=input)
     except Exception:
         return None
 
@@ -93,7 +93,8 @@ def _end_span(span: Any, output: dict) -> None:
     if span is None:
         return
     try:
-        span.end(output=output)
+        span.update(output=output)
+        span.end()
     except Exception:
         pass
 
@@ -193,8 +194,9 @@ class IngestionPipeline:
 
         lf = _get_lf_client()
         trace = (
-            lf.trace(
+            lf.start_observation(
                 name="ingestion.law",
+                as_type="span",
                 input={
                     "source_id": source_id,
                     "source_type": source_type,
@@ -550,8 +552,9 @@ class IngestionPipeline:
 
         lf = _get_lf_client()
         trace = (
-            lf.trace(
+            lf.start_observation(
                 name="ingestion.nkp_case",
+                as_type="span",
                 input={
                     "source_id": source_id,
                     "source_type": "nkp_case",

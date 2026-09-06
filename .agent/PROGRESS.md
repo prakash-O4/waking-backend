@@ -12,6 +12,57 @@ now actually run, so real traffic should look qualitatively different
 console, and now translation/fact-extraction/answer-composition all
 verified working end-to-end against real APIs. No known open bugs.
 
+## Direct fix (2026-09-06, no task brief — Langfuse SDK v2 → v4 migration)
+Prakash asked directly (code-only mode, no Langfuse project/CLI access
+this session) to migrate the repo off `langfuse>=2.0,<3.0`. All v2
+StatefulClient calls (`.trace()`, `.span()`, `.generation()`, and
+`.end(output=..., metadata=..., level=...)` bundling update+end in one
+call) are gone from the SDK in v4 — replaced with `start_observation()`
+(object-passing, non-context form — matches this codebase's existing
+pattern of threading an explicit `lf_trace`/`gen` object through function
+args rather than OTEL ambient context) and a strict two-step
+`.update(...)` then bare `.end()` (v4's `.end()` only accepts
+`end_time`). Confirmed via SDK source inspection that OTEL span
+attributes merge (not replace) on `.update()`, so `_lf_gen_error`'s
+"never touch `output` on an error update" contract from AGENT-41 still
+holds under the new mechanics.
+
+Files changed: `app/retrieval/postgres_retriever.py`,
+`app/retrieval/gated_orchestrator.py`, `app/retrieval/query_graph.py`,
+`app/ingestion/pipeline.py`, `app/ingestion/metadata_enricher.py`,
+`app/ingestion/pgvector_indexer.py`, `scripts/label_eval_candidates.py`
+(`client.fetch_traces()` → `client.api.trace.list()`, the v4
+replacement — same field names/response shape, verified against SDK
+source), `requirements.txt` (`langfuse>=4.15,<5.0`), plus
+`tests/test_ingestion_pipeline.py` and `tests/test_label_eval_candidates.py`
+mock updates to match. `LANGFUSE_HOST` is Langfuse Cloud
+(`jp.cloud.langfuse.com`), which is always latest-version, so no
+self-hosted server upgrade is needed and the new (non-legacy)
+`api.trace.list` resource is safe to use as-is.
+
+Verified: `.venv` upgraded to real `langfuse==4.15.1`; a standalone
+script exercised the full object chain (root span → child span →
+generation → update/end → flush) against a real (network-disabled)
+client — no exceptions. Full `pytest tests/` run: 296 passed, 1
+pre-existing failure (`test_wall_clock_cap_returns_validated_so_far`,
+confirmed via `git stash` to reproduce byte-identically on pristine
+`dev` — an unrelated, pre-existing global `time.monotonic()`
+monkeypatch race with FastAPI `TestClient`'s background threads, not
+Langfuse-related). Scoped `ruff`/`mypy --strict` (exact Makefile
+invocation) clean. Not verified (code-only mode, no project access):
+whether real traces land correctly in the Langfuse Cloud UI, active
+Evaluators/legacy rules, and Blob Storage/Mixpanel/PostHog export
+config — all reported as blocked/manual action, not silently assumed
+fine.
+
+Found but NOT changed (flagged, not fixed — out of scope for an SDK
+migration): `app/main.py`'s `_authorize()` computes a real Supabase
+`user_id` per request that is never forwarded to Langfuse — no trace
+today can be filtered/aggregated by user. Wiring it through would mean
+new parameters on `answer()`/`stream_answer()`/`run_query()`/
+`stream_query()` (cascading into several tests) — a real instrumentation
+gap worth a future task, not a rename this migration should smuggle in.
+
 ## Direct fix (2026-09-06, no task brief — additive observability only)
 Prakash pasted a real Langfuse trace where the `retrieval` span (and its
 early-exit `.end()` calls) carried only `metadata` (counts/hashes), never
