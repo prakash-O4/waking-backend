@@ -1,9 +1,18 @@
 # Wakil-G — Orchestration Progress
 
 ## Current task
-AGENT-41 dispatched (below) — fix silently-failing Gemini calls
-(deprecated model, zero logging). Blocking: this is degrading every
-real query in production right now, not a cosmetic bug.
+None open. AGENT-41 closed (below). Next action is Prakash's own: use
+`scripts/dev_console.html` to generate real Langfuse traffic for
+roadmap item 4's labeling work — translation and answer composition
+now actually run, so real traffic should look qualitatively different
+(no more `reasoner_fallback:extractive` on every response).
+
+## Status
+**Healthy.** AGENT-36 through AGENT-41 merged to `dev`. Auth, the
+console, and now translation/fact-extraction/answer-composition all
+verified working end-to-end against real APIs. No known open bugs.
+
+## AGENT-41 — fix silently-failing Gemini calls (closed, merged 2026-09-06)
 
 **How this was found**: Prakash ran a real question through the console
 ("What does the labor law says?") post-AGENT-40 and flagged two things:
@@ -15,62 +24,90 @@ the actual Gemini call directly — `gemini-2.5-flash` (hardcoded in
 three places: `translate_query()`, `_fact_extract()`, `_compose_answer()`)
 now 404s ("no longer available to new users"), confirmed via direct
 `ChatGoogleGenerativeAI(...).invoke(...)` against the live API key. All
-three call sites swallow the exception in a bare `except Exception:
+three call sites swallowed the exception in a bare `except Exception:
 return <fallback>`, and neither `gated_orchestrator.py` nor
-`postgres_retriever.py` imports a logger — so this has been failing
+`postgres_retriever.py` imported a logger — so this had been failing
 100% silently since the model was deprecated. Effect: `translate_query`
-returning `None` means AGENT-39's dual-query normalization has never
-actually run in production; `_compose_answer` returning `None` means
-every real answer has been the raw extractive fallback
-(`reasoner_fallback:extractive`), not the composed answer. Because the
-exception fires inside `llm.invoke()`, before the code reaches
-`_lf_gen_end(gen, ...)`, the Langfuse generation gets `input` recorded
-but never `output` — that's a symptom of this bug, not a separate
-tracing defect.
+returning `None` meant AGENT-39's dual-query normalization had never
+actually run in production; `_compose_answer` returning `None` meant
+every real answer was the raw extractive fallback
+(`reasoner_fallback:extractive`), not a composed answer. Because the
+exception fired inside `llm.invoke()`, before the code reached
+`_lf_gen_end(gen, ...)`, the Langfuse generation got `input` recorded
+but never `output` — a symptom of this bug, not a separate tracing
+defect.
 
-Verified empirically (not assumed) that this isn't a one-line rename:
-tested `gemini-3.6-flash` (Google's own suggested replacement) directly
-— it works, but returns `resp.content` as a list of content blocks
-(not a plain string) on one call and came back completely empty on
-another (shorter `max_output_tokens`, likely a reasoning/thinking token
-budget eating the visible output), and it ignores `temperature`
-("fixed sampling defaults"). `gemini-flash-latest` also returned empty
-content in a quick test. Brief mandates the engineer empirically
-re-verify against the real API with the actual prod prompts (not a toy
-prompt) before picking a model — same lesson as AGENT-40's
-`ClaimsResponse` mock mismatch: verify third-party runtime shape, don't
-assume it from a name or a suggested-replacement message.
+The task brief mandated empirical verification before committing to a
+replacement model (tested `gemini-3.6-flash` directly and found it
+returns content as a list of blocks, not a plain string, and
+occasionally empty — a real trap for a naive swap). Prakash decided,
+beyond the brief, to drop Gemini entirely and route all three calls
+through the **existing Azure OpenAI client** (same one `_structured_claims`
+already used) instead of chasing a moving-target third-party model.
 
-Fix direction: (1) move the model name into `Settings.GEMINI_MODEL`
-(one source of truth, following the existing
-`AZURE_OPENAI_LLM_DEPLOYMENT` pattern) instead of three hardcoded
-literals; (2) add a small text-extraction helper that handles both
-plain-string and content-block response shapes, used at all three call
-sites instead of `str(resp.content)`; (3) add real
-`logger.warning(...)` on all three `except Exception as e:` blocks
-(the established convention already used in `advanced_retriever.py`) —
-this is the actual production-safety fix, independent of which model
-gets picked, since it ensures this class of failure can never go silent
-again. Explicitly out of scope: the unrelated `reranker_fallback:
-passthrough` (flashrank) issue, and `_structured_claims()` (Azure-based,
-not broken).
+**What shipped**: `translate_query`, `_fact_extract`, `_compose_answer`
+now use `AzureChatOpenAI` (`AZURE_OPENAI_LLM_KEY`/`_ENDPOINT`/`_DEPLOYMENT`).
+New `app/utils/llm.py::llm_text()` extracts plain text from either a
+string or a list-of-content-block response, used at all three sites.
+Real `logger.warning(...)` added on every failure in both
+`gated_orchestrator.py` and `postgres_retriever.py` (neither imported a
+logger before). `query_graph.py` also got error-tracing spans
+(`_trace_error`) for several previously-silent `except Exception:`
+blocks (coverage probe, parallel retrieval, enabling-power resolution,
+top-level pipeline failure) — beyond the brief's three call sites, but
+in the same spirit and explicitly requested by Prakash.
+
+**Review findings, not caught by the engineer's own report** (reported
+"20 passed, ruff/mypy clean" — reproduced independently, as always, and
+found three real problems the report missed):
+1. On a JSON-parse failure (LLM call succeeds, output is bad JSON), the
+   code called Langfuse's `.end()` twice — once with the real output,
+   once from the error handler with a generic `"ERROR: ..."` string.
+   Verified via the Langfuse SDK source that a second `.end()` call
+   overwrites `output` (event body uses `exclude_none`, so any field
+   actually passed replaces the prior value). This clobbered the exact
+   debugging signal this task exists to restore. Fixed with a new
+   `_lf_gen_error()` that sets `level`/`status_message` only, leaving
+   `output` untouched on a second call.
+2. Four tests in `test_orchestrator.py` and one in
+   `test_degraded_modes.py` never mocked `_compose_answer`/`_fact_extract`.
+   This was invisible while the dead Gemini model 404'd near-instantly
+   (fast, harmless "failure"); once the swap made these calls actually
+   succeed against real Azure, the same tests either hung (confirmed via
+   `lsof` — live HTTPS connections to Azure and to Langfuse's Tokyo
+   cloud host) or changed shape underneath their own assertions. Added
+   the missing mocks. The engineer's "20 passed" almost certainly came
+   from a partial run that never hit these files, or an environment
+   where the calls happened to return before anything timed out.
+3. `test_wall_clock_cap_returns_validated_so_far` freezes
+   `time.monotonic()` globally to simulate a wall-clock timeout. With
+   the real `LANGFUSE_PUBLIC_KEY` in `.env` (confirmed set, pointed at
+   `jp.cloud.langfuse.com`), every test in this suite spins up a real
+   Langfuse client/background thread regardless of any per-test
+   mocking, since `get_lf_client()` reads `app.config.get_settings()`
+   directly. Feeding that real background thread a frozen clock hung
+   it. Fixed by disabling tracing for that one test via the
+   `_get_lf_client` mock pattern already used elsewhere in the suite
+   (`test_ask_pipeline.py`) — did not attempt the larger, pre-existing,
+   unrelated fix of making the whole suite mock Langfuse by default.
+
+Also found and fixed in passing: mypy `--strict` (run via the exact
+Makefile invocation, not a looser one) failed on `orchestrator.logger`/
+`r.logger` access from the tests — `--no-implicit-reexport` doesn't
+consider a plain `from x import logger` re-exported. Fixed with the
+standard `import logger as logger` self-alias in both files.
+
+**Verified live** against the real Azure API (not mocks): `translate_query`
+returns real Nepali translations, `_fact_extract` returns real
+structured issue_queries, `_compose_answer` returns a real composed
+answer — all non-empty, correctly parsed JSON where expected.
 
 Ponytail/PS-check: touches the reasoner/answer-composer path (Core
-Invariant territory — this is what actually produces the legal answer
-content), so kept narrowly scoped to restoring the three calls to
-working, not touching validation/gate logic. Determinism risk flagged
-explicitly (temperature may not carry over to a new model) — Claude to
-review before merge, not the engineer's call to make silently.
-
-## Status
-**Degraded, not down.** AGENT-36 through AGENT-40 merged to `dev`; auth
-and the console work end-to-end. But real answer quality has been
-silently degraded since `gemini-2.5-flash` was deprecated — translation
-never runs, and every answer falls back to raw extractive claims
-instead of a composed answer. AGENT-41 (above) is the fix. Once merged,
-re-run a real end-to-end query and confirm `degraded_mode` no longer
-shows `reasoner_fallback:extractive`, then resume generating real
-Langfuse traffic via `scripts/dev_console.html` for roadmap item 4.
+Invariant territory), kept to restoring the three calls to working plus
+the observability/test fixes found during review — no change to
+validation/gate logic. `GEMINI_API_KEY` setting and all
+`langchain_google_genai` imports are now fully dead code (left in
+place, out of scope to clean up).
 
 ## AGENT-40 — fix broken auth token validation (closed, merged 2026-09-06)
 
