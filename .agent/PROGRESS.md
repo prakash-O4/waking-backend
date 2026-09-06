@@ -1,7 +1,54 @@
 # Wakil-G — Orchestration Progress
 
-## Current task
-None open. AGENT-43 closed (below).
+## Current task — AGENT-44, stop synchronous Langfuse flush from blocking `/ask`/`/ask/stream` (assigned, awaiting dispatch)
+
+Follow-on to the OTel export timeout Prakash hit while debugging
+AGENT-43 (flagged then as queued, unscoped — now scoped). Prakash's own
+instinct was to run the flush on a separate thread; investigation found
+something better — no new code needed at all.
+
+`_flush_langfuse()` (`app/retrieval/query_graph.py:594-600`) calls
+`_lf.flush()` synchronously and inline in the request path — `finally`
+in `run_query()` (`/ask`), and right before the final SSE event in
+`stream_query()` (`/ask/stream`). `Langfuse.flush()` does a real,
+blocking HTTP POST to Langfuse Cloud on the calling thread (confirmed
+in the installed OTel SDK source: `# Blocking call to export.`), with
+an unconfigured default 5s timeout — exactly matching the observed
+`read timeout=4.99...` error. Confirmed via `git log -p`: these calls
+(`ec899a1`, `7e47500`) were added with **no stated reason** — no commit
+message, no code comment.
+
+Confirmed via the installed Langfuse/OTel SDK source: the client
+already runs its own OTEL `BatchSpanProcessor` **background worker
+thread** that auto-exports spans every 5 seconds by default
+(`_DEFAULT_SCHEDULE_DELAY_MILLIS = 5000`), fully independent of any
+explicit flush call and fully off the request thread. Confirmed via
+`Dockerfile`: this app is a persistent `uvicorn` server, not
+short-lived/serverless, so that background thread has been alive the
+whole time and loses nothing by not being force-flushed. Confirmed no
+code depends on immediate post-response trace availability
+(`label_eval_candidates.py --fetch` is a separate, manually-run CLI
+command, not a race with the response).
+
+**Conclusion: the fix is deletion, not concurrency.** The background
+batch processor Langfuse's own SDK already runs does the job for free;
+adding a thread/thread-pool on top would be redundant complexity for
+something that already works. `task.md` specifies removing
+`_flush_langfuse()` and all five of its call sites verbatim (confirmed
+via grep: referenced nowhere else in the repo) — `_get_lf_client`,
+`_start_trace`, `_trace_error` and all other Langfuse helpers in the
+file stay untouched. Explicitly forbidden: any new threading/async
+mechanism, touching Langfuse client construction/timeout config
+(relying on the default 5s background schedule as-is), touching
+`app/ingestion/pipeline.py`'s `_flush()` calls (legitimately justified
+there — short-lived CLI script, real risk of losing a trace on early
+exit — a different situation entirely).
+
+Branch `agent/async-langfuse-flush` created off `dev` (clean tree
+verified first, up to date with `origin/dev`). `task.md` committed
+there (`e03b252`, author `Prakash Basnet`). Assigned to **Pi** (precise
+backend/domain change, small and self-contained). Awaiting Prakash to
+dispatch.
 
 ## AGENT-43 — fix needless abstention from the quote-support check (closed, merged 2026-09-06)
 
@@ -204,15 +251,13 @@ No blocking findings. Merged `agent/fix-reasoner-json-mode` → `dev`
 identical result (296 passed/4 skipped/1 pre-existing flake). `task.md`
 cleared, branch `agent/fix-reasoner-json-mode` pending deletion.
 
-## Next action
-Use `scripts/dev_console.html` to generate real Langfuse traffic for
-roadmap item 4's labeling work — translation, fact-extraction, and
-answer composition all now actually run, reliably parse, and no longer
-needlessly abstain on genuinely answerable questions, so real traffic
-should look qualitatively different again. Separately, Prakash still
-hasn't decided priority on the Langfuse `flush()` blocking-latency
-finding noted above (AGENT-43 entry) — worth raising again if it
-doesn't come up on its own.
+## Next action (superseded by AGENT-44 above, kept for continuity)
+Once AGENT-44 merges: use `scripts/dev_console.html` to generate real
+Langfuse traffic for roadmap item 4's labeling work — translation,
+fact-extraction, and answer composition all now actually run, reliably
+parse, no longer needlessly abstain on genuinely answerable questions,
+and responses should no longer carry a spurious up-to-5s delay from
+trace-export waits.
 
 ## Status
 **Healthy.** AGENT-36 through AGENT-43 merged to `dev`. Auth, the

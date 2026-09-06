@@ -591,15 +591,6 @@ def _propagation_scope(user_id: str | None) -> Any:
     return propagate_attributes(user_id=user_id)
 
 
-def _flush_langfuse() -> None:
-    _lf = _get_lf_client()
-    if _lf is not None:
-        try:
-            _lf.flush()
-        except Exception:
-            pass
-
-
 def _initial_state(question: str, session_as_of: date) -> QueryState:
     return {
         "raw_query": question,
@@ -635,8 +626,6 @@ def run_query(
         except Exception as e:
             _trace_error(lf_trace, "query_pipeline", e, fatal=True)
             raise
-        finally:
-            _flush_langfuse()
 
     return cast(dict[str, Any], result["_response"])
 
@@ -647,7 +636,7 @@ def stream_query(
     with _propagation_scope(user_id):
         lf_trace = _start_trace(question, session_as_of)
         last = _orch.time.monotonic()
-        flushed = False
+        final_sent = False
         try:
             for step in _graph.stream(
                 _initial_state(question, session_as_of),
@@ -660,8 +649,7 @@ def stream_query(
                 for stage in step:
                     if stage == "answer_composer":
                         response = step["answer_composer"]["_response"]
-                        _flush_langfuse()
-                        flushed = True
+                        final_sent = True
                         yield {"stage": "final", "status": "done", "response": response}
                     else:
                         now = _orch.time.monotonic()
@@ -671,10 +659,7 @@ def stream_query(
                             "latency_ms": int((now - last) * 1000),
                         }
                         last = now
-            if not flushed:
-                _flush_langfuse()
         except Exception as e:
             _trace_error(lf_trace, "stream_query_pipeline", e, fatal=True)
-            if not flushed:
-                _flush_langfuse()
+            if not final_sent:
                 yield {"stage": "error", "status": "error", "detail": "query failed"}
