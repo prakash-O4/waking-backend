@@ -1,11 +1,71 @@
 # Wakil-G — Orchestration Progress
 
-## Current task
-None open. AGENT-41 closed (below). Next action is Prakash's own: use
-`scripts/dev_console.html` to generate real Langfuse traffic for
-roadmap item 4's labeling work — translation and answer composition
-now actually run, so real traffic should look qualitatively different
-(no more `reasoner_fallback:extractive` on every response).
+## Current task — AGENT-42, fix reasoner JSON-parse fallback (assigned, awaiting dispatch)
+
+Real bug, found the moment Prakash used the new console/traffic (from
+the "Next action" note below this one): a labor-rights question got a
+confidently wrong, off-topic answer with `abstained: false`. Live trace
+diagnosis (not guessed): `_structured_claims` (the reasoner) actually
+generated the *correct* claim (दफा ५१, श्रम ऐन २०७४ — leave rights) but
+the raw Azure `gpt-4.1-mini` output had a malformed `quote` field (a
+stray backslash before the opening quote — invalid JSON), so
+`json.loads` threw and `_structured_claims` returned `None`. The caller
+then fell back to `_extractive_claim()`, which blindly takes `hits[0]`
+with zero relevance check — in this trace that was an unrelated दफा ९
+("who decides if someone is unemployed"). Direct violation of
+`AGENTS.md`'s prime directive and Core Invariant 7 (abstention is
+server-owned): a recoverable formatting glitch became a silent wrong
+answer instead of a retry or an honest abstain.
+
+Root-cause fix verified empirically against the live Azure resource
+(not assumed from docs): `response_format={"type": "json_object"}`
+(Azure/OpenAI's native JSON-mode constraint) eliminates this exact
+malformed-escaping failure — confirmed via a standalone script hitting
+the real `gpt-4.1-mini` deployment, valid JSON came back correctly
+escaping an embedded quote, at three API versions including GA
+`"2024-10-21"`.
+
+Scoping finding that shaped the brief: `AZURE_OPENAI_API_VERSION`
+(`app/config.py:39`, default `"2023-05-15"`) is a **shared** setting —
+also used by ingestion (`metadata_enricher.py`, `pgvector_indexer.py`),
+`app/eval/ragas_eval.py`, and `postgres_retriever.py`'s
+`translate_query`/`_embed_query` (neither of which emits JSON — plain
+text and embeddings respectively — so neither is vulnerable to this bug
+class and neither should be touched). Bumping the shared default would
+have dragged in ingestion/eval/embeddings paths never verified against
+the new API version. Instead `task.md` adds a **new**, narrowly-scoped
+`AZURE_OPENAI_LLM_API_VERSION` setting used only by
+`gated_orchestrator.py`'s three JSON-emitting functions
+(`_structured_claims`, `_compose_answer`, `_fact_extract`) — keeps
+blast radius to exactly the vulnerable code (Ponytail: reuses the
+existing `AZURE_OPENAI_LLM_*` vs `AZURE_OPENAI_*` split the codebase
+already has, not a new pattern).
+
+Also folded in: `_structured_claims` skips the `llm_text()`/
+`_json_payload()` helpers its two siblings (`_compose_answer`,
+`_fact_extract`) already use for fence-stripping — a pre-existing
+inconsistency, fixed as part of this task (reuses existing helpers, no
+new code).
+
+Explicitly forbidden in `task.md`: touching `_extractive_claim()`'s
+fallback logic itself (should it have a relevance check or abstain
+instead of guessing? — real question, but a separate, bigger design
+call, not bundled here), touching the shared `AZURE_OPENAI_API_VERSION`
+or any of its other call sites, any retry/backoff logic, any new
+dependency.
+
+Branch `agent/fix-reasoner-json-mode` created off `dev` (clean tree
+verified first, up to date with `origin/dev`). `task.md` committed
+there (`c69d422`, author `Prakash Basnet`). Assigned to **Pi** (precise
+backend/domain debugging, per this skill's engineer-selection rubric).
+Awaiting Prakash to dispatch.
+
+## Next action (superseded by AGENT-42 above, kept for continuity)
+Once AGENT-42 merges: use `scripts/dev_console.html` to generate real
+Langfuse traffic for roadmap item 4's labeling work — translation and
+answer composition now actually run, so real traffic should look
+qualitatively different (no more `reasoner_fallback:extractive` on
+every response, once this bug's fix lands).
 
 ## Status
 **Healthy.** AGENT-36 through AGENT-41 merged to `dev`. Auth, the
