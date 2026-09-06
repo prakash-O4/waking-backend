@@ -16,7 +16,7 @@ from app.utils.llm import llm_text
 from app.utils.loggers import logger as logger
 
 WALL_CLOCK_CAP = 20.0
-MAX_SUBQUERIES = 3
+MAX_SUBQUERIES = 6
 EXTRACTIVE_CHARS = 300
 _CONTEXT_CHAR_LIMIT = 32_000  # ≈ 8 000 tokens at 4 chars/token
 
@@ -368,8 +368,15 @@ def _fact_extract(
         '     "work_type_hint": "<Act|Rule|Regulation|null>"}\n'
         "  ]\n"
         "}\n"
-        f"Default as_of when not specified: {session_as_of.isoformat()}. "
-        f"Max {MAX_SUBQUERIES} issue_queries. "
+        f"Default as_of when not specified: {session_as_of.isoformat()}. Max {MAX_SUBQUERIES} issue_queries.\n"
+        "IMPORTANT — broad/enumerate questions (asking to 'list', 'what are all', "
+        "'सूची', 'सबै', or otherwise survey an entire topic rather than one specific "
+        "fact) MUST be split into 4-6 issue_queries, one per distinct legal sub-topic "
+        "(e.g. for labor rights: wages/पारिश्रमिक, working hours/काम गर्ने समय, leave/बिदा, "
+        "workplace safety/सुरक्षा, termination/सेवा अन्त्य, dispute resolution/विवाद समाधान). "
+        "A single issue_query is WRONG for this question type — you must enumerate the "
+        "sub-topics yourself and issue one query per sub-topic. "
+        "A narrow, specific-fact question still gets exactly one issue_query as before.\n"
         "Write issue_queries in formal Devanagari Nepali for best embedding match."
     )
     gen = None

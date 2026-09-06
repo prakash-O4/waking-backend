@@ -1179,6 +1179,217 @@ def test_parallel_retrieve_preserves_issue_order_and_closes_pool(
     assert pool.closed is True
 
 
+def test_reasoner_single_issue_stays_sequential(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as qg
+
+    trace = object()
+    calls: list[Any] = []
+
+    def no_pool(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("ThreadPoolExecutor should not be used")
+
+    def structured(
+        facts: Any,
+        issue_queries: list[dict[str, Any]],
+        hits: list[dict[str, Any]],
+        **kw: Any,
+    ) -> dict[str, Any]:
+        calls.append(kw.get("lf_trace"))
+        return {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(qg, "ThreadPoolExecutor", no_pool)
+    monkeypatch.setattr(qg._orch, "_structured_claims", structured)
+    state = _state(
+        issue_queries=[{"query": "only", "as_of": date(2024, 1, 1)}],
+        all_hits=[{"component_uri": "a", "text_ne": "A", "_issue_idx": 0}],
+    )
+
+    out = qg.reasoner_node(
+        cast(Any, state), cast(Any, {"configurable": {"lf_trace": trace}})
+    )
+
+    assert calls == [trace]
+    assert out["query_type"] == "simple"
+    assert out["_pending_results"] == [
+        {"claims": [{"claim": "only", "evidence_id": "a"}], "as_of": date(2024, 1, 1)}
+    ]
+
+
+def test_parallel_reasoner_preserves_issue_order_and_query_type(
+    monkeypatch: Any,
+) -> None:
+    import app.retrieval.query_graph as qg
+
+    traces: list[Any] = []
+
+    def structured(
+        facts: Any,
+        issue_queries: list[dict[str, Any]],
+        hits: list[dict[str, Any]],
+        **kw: Any,
+    ) -> dict[str, Any]:
+        traces.append(kw.get("lf_trace"))
+        return {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(qg._orch, "_structured_claims", structured)
+    state = _state(
+        query_type="complex",
+        issue_queries=[
+            {"query": "first", "as_of": date(2024, 1, 1)},
+            {"query": "second", "as_of": date(2024, 1, 2)},
+            {"query": "third", "as_of": date(2024, 1, 3)},
+        ],
+        all_hits=[
+            {"component_uri": "b", "text_ne": "B", "_issue_idx": 1},
+            {"component_uri": "c", "text_ne": "C", "_issue_idx": 2},
+            {"component_uri": "a", "text_ne": "A", "_issue_idx": 0},
+        ],
+    )
+
+    out = qg.reasoner_node(
+        cast(Any, state), cast(Any, {"configurable": {"lf_trace": object()}})
+    )
+
+    assert traces == [None, None, None]
+    assert out["query_type"] == "complex"
+    assert [r["claims"][0]["claim"] for r in out["_pending_results"]] == [
+        "first",
+        "second",
+        "third",
+    ]
+
+
+def test_parallel_reasoner_extractive_fallback_keeps_other_results(
+    monkeypatch: Any,
+) -> None:
+    import app.retrieval.query_graph as qg
+
+    def structured(
+        facts: Any,
+        issue_queries: list[dict[str, Any]],
+        hits: list[dict[str, Any]],
+        **kw: Any,
+    ) -> dict[str, Any] | None:
+        if issue_queries[0]["query"] == "second":
+            return None
+        return {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(qg._orch, "_structured_claims", structured)
+    monkeypatch.setattr(
+        qg._orch,
+        "_extractive_claim",
+        lambda hits: [{"claim": "extractive", "evidence_id": hits[0]["component_uri"]}],
+    )
+    state = _state(
+        query_type="complex",
+        issue_queries=[
+            {"query": "first", "as_of": date(2024, 1, 1)},
+            {"query": "second", "as_of": date(2024, 1, 2)},
+            {"query": "third", "as_of": date(2024, 1, 3)},
+        ],
+        all_hits=[
+            {"component_uri": "a", "text_ne": "A", "_issue_idx": 0},
+            {"component_uri": "b", "text_ne": "B", "_issue_idx": 1},
+            {"component_uri": "c", "text_ne": "C", "_issue_idx": 2},
+        ],
+    )
+
+    out = qg.reasoner_node(cast(Any, state), cast(Any, {"configurable": {}}))
+
+    assert out["query_type"] == "extractive"
+    assert [r["claims"][0]["claim"] for r in out["_pending_results"]] == [
+        "first",
+        "extractive",
+        "third",
+    ]
+
+
+def test_parallel_reasoner_exception_falls_back_to_sequential(monkeypatch: Any) -> None:
+    import app.retrieval.query_graph as qg
+
+    trace = object()
+    errors: list[tuple[Any, str]] = []
+    traces: list[Any] = []
+
+    class BrokenExecutor:
+        def __init__(self, max_workers: int) -> None:
+            pass
+
+        def __enter__(self) -> "BrokenExecutor":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def submit(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("boom")
+
+    def structured(
+        facts: Any,
+        issue_queries: list[dict[str, Any]],
+        hits: list[dict[str, Any]],
+        **kw: Any,
+    ) -> dict[str, Any]:
+        traces.append(kw.get("lf_trace"))
+        return {
+            "claims": [
+                {
+                    "claim": issue_queries[0]["query"],
+                    "evidence_id": hits[0]["component_uri"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(qg, "ThreadPoolExecutor", BrokenExecutor)
+    monkeypatch.setattr(
+        qg, "_trace_error", lambda lf_trace, stage, e: errors.append((lf_trace, stage))
+    )
+    monkeypatch.setattr(qg._orch, "_structured_claims", structured)
+    state = _state(
+        query_type="complex",
+        issue_queries=[
+            {"query": "first", "as_of": date(2024, 1, 1)},
+            {"query": "second", "as_of": date(2024, 1, 2)},
+        ],
+        all_hits=[
+            {"component_uri": "a", "text_ne": "A", "_issue_idx": 0},
+            {"component_uri": "b", "text_ne": "B", "_issue_idx": 1},
+        ],
+    )
+
+    out = qg.reasoner_node(
+        cast(Any, state), cast(Any, {"configurable": {"lf_trace": trace}})
+    )
+
+    assert errors == [(trace, "parallel_reasoning")]
+    assert traces == [trace, trace]
+    assert [r["claims"][0]["claim"] for r in out["_pending_results"]] == [
+        "first",
+        "second",
+    ]
+
+
 def test_answer_response_exposes_degraded_mode(monkeypatch: Any) -> None:
     import app.retrieval.query_graph as qg
 
