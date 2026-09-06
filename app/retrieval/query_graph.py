@@ -226,7 +226,13 @@ def authority_ranker_node(state: QueryState, config: RunnableConfig) -> dict[str
     if lf_trace is not None:
         try:
             sp = lf_trace.start_observation(name="authority_ranking", as_type="span")
-            sp.update(metadata={"hits_in": hits_in, "hits_out": len(ranked)})
+            sp.update(
+                output=[
+                    {"chunk_id": h.get("component_uri"), "tier": h.get("tier")}
+                    for h in ranked[:3]
+                ],
+                metadata={"hits_in": hits_in, "hits_out": len(ranked)},
+            )
             sp.end()
         except Exception:
             pass
@@ -253,7 +259,16 @@ def co_retrieve_parent_resolver_node(
             sp = lf_trace.start_observation(
                 name="co_retrieve_parent_resolution", as_type="span"
             )
-            sp.update(metadata={"co_retrieve_parents_added": len(additional)})
+            sp.update(
+                output=[
+                    {
+                        "chunk_id": h.get("component_uri"),
+                        "section_number": h.get("section_number"),
+                    }
+                    for h in additional
+                ],
+                metadata={"co_retrieve_parents_added": len(additional)},
+            )
             sp.end()
         except Exception:
             pass
@@ -279,10 +294,17 @@ def cross_ref_resolver_node(
                 additional.append(hit)
     if lf_trace is not None:
         try:
-            sp = lf_trace.start_observation(
-                name="cross_ref_resolution", as_type="span"
+            sp = lf_trace.start_observation(name="cross_ref_resolution", as_type="span")
+            sp.update(
+                output=[
+                    {
+                        "chunk_id": h.get("component_uri"),
+                        "section_number": h.get("section_number"),
+                    }
+                    for h in additional
+                ],
+                metadata={"cross_refs_added": len(additional)},
             )
-            sp.update(metadata={"cross_refs_added": len(additional)})
             sp.end()
         except Exception:
             pass
@@ -396,7 +418,16 @@ def enabling_power_resolver_node(
             sp = lf_trace.start_observation(
                 name="enabling_power_resolution", as_type="span"
             )
-            sp.update(metadata={"enabling_chunks_added": len(additional)})
+            sp.update(
+                output=[
+                    {
+                        "chunk_id": h.get("component_uri"),
+                        "section_number": h.get("section_number"),
+                    }
+                    for h in additional
+                ],
+                metadata={"enabling_chunks_added": len(additional)},
+            )
             sp.end()
         except Exception:
             pass
@@ -425,6 +456,14 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
         try:
             sp = lf_trace.start_observation(name="validation", as_type="span")
             sp.update(
+                output=[
+                    {
+                        "evidence_id": r.get("evidence_id"),
+                        "abstained": r.get("abstained"),
+                        "as_of": r.get("as_of"),
+                    }
+                    for r in all_results
+                ],
                 metadata={
                     "claims_passed": sum(
                         1 for r in all_results if not r.get("abstained")
@@ -432,7 +471,7 @@ def validate_node(state: QueryState, config: RunnableConfig) -> dict[str, Any]:
                     "claims_abstained": sum(
                         1 for r in all_results if r.get("abstained")
                     ),
-                }
+                },
             )
             sp.end()
         except Exception:
